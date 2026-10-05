@@ -107,9 +107,9 @@ const APPS_SCRIPT_TIMEOUT_MS = 20_000;
 /**
  * POSTs a JSON body (e.g. { action: 'create', ticketNumber, ... }) to the Apps Script web app
  * (URL from settings, else VITE_APPS_SCRIPT_URL), adding APPS_SCRIPT_SECRET as `secret` when it is set.
- * Returns the script's JSON reply, or null when it replied with anything else.
+ * Returns the script's JSON reply; anything else (an error page, a login page) throws with an excerpt of what came back.
  */
-export async function triggerAppsScript(body: { action: string } & Record<string, unknown>): Promise<Record<string, unknown> | null> {
+export async function triggerAppsScript(body: { action: string } & Record<string, unknown>): Promise<Record<string, unknown>> {
   const url = (await loadSettings()).apps_script_url.url || process.env.VITE_APPS_SCRIPT_URL;
   if (!url) throw new HttpError(500, 'Apps Script URL is not set (Settings, or VITE_APPS_SCRIPT_URL)');
   const res = await fetch(url, {
@@ -118,17 +118,23 @@ export async function triggerAppsScript(body: { action: string } & Record<string
     body: JSON.stringify(process.env.APPS_SCRIPT_SECRET ? { ...body, secret: process.env.APPS_SCRIPT_SECRET } : body),
     signal: AbortSignal.timeout(Number(process.env.APPS_SCRIPT_TIMEOUT_MS) || APPS_SCRIPT_TIMEOUT_MS),
   });
-  if (!res.ok) throw new HttpError(502, `Apps Script responded with ${res.status}`);
+  const text = await res.text();
+  // What Google actually sent, in a few words, so a wrong address or a login page is recognisable at a glance.
+  const excerpt = () => `HTTP ${res.status}, ${res.headers.get('content-type')?.split(';')[0] ?? 'no content type'}, beginning "${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140)}"`;
+  if (!res.ok) throw new HttpError(502, `The Apps Script answered with an error (${excerpt()})`);
+  let reply: unknown;
   try {
-    const reply = await res.json();
-    return reply && typeof reply === 'object' && !Array.isArray(reply) ? reply : null;
+    reply = JSON.parse(text);
   } catch {
-    return null;
+    reply = null;
   }
+  if (!reply || typeof reply !== 'object' || Array.isArray(reply)) {
+    throw new HttpError(502, `The Apps Script web address did not answer with JSON (${excerpt()}). Check that the web app is deployed to "Anyone" and that the address is the one ending in /exec.`);
+  }
+  return reply as Record<string, unknown>;
 }
 
-/** Why a reply from the Apps Script is not a success (an unreadable reply, or { success: false, error }), or null when it is fine. */
-export function scriptFailure(reply: Record<string, unknown> | null): string | null {
-  if (!reply) return 'the script did not answer with a readable reply (check the web app is deployed to "Anyone" and the URL is right)';
+/** Why a reply from the Apps Script is not a success ({ success: false, error }), or null when it is fine. */
+export function scriptFailure(reply: Record<string, unknown>): string | null {
   return reply.success === false ? String(reply.error ?? 'no reason given') : null;
 }
