@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { db } from '../src/lib/db.js';
-import { verifyToken, readCookie, SESSION_COOKIE } from './_auth.js';
+import { passwordStamp, verifyToken, readCookie, SESSION_COOKIE } from './_auth.js';
 import { appSettings, auditLogs, coordinators, formQuestions, users } from './_schema.js';
 import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, DEFAULT_SETTINGS, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, POST_CONSULTATION_FORM, ROLES, type AppSettings, type FormField, type Role } from '../src/types/index.js';
 
@@ -127,6 +127,7 @@ export async function getUser(req: Request): Promise<AuthUser | null> {
   // The database has the last word, so deactivating someone cuts access immediately.
   const [row] = await db.select().from(users).where(and(eq(users.id, claims.userId), eq(users.isActive, true)));
   if (!row || !(ROLES as readonly string[]).includes(row.role)) return null;
+  if (claims.pv !== passwordStamp(row.passwordHash)) return null; // the password changed since this session began
 
   const user: AuthUser = { id: row.id, email: row.email, role: row.role, name: row.name, coordinatorId: null };
   if (row.role === 'coordinator') {

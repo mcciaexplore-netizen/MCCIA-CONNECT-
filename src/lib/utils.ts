@@ -162,3 +162,7 @@ export function usePublicSettings(): PublicSettings {
   }, []);
   return settings;
 }
+
+/** Cancelling a session removes its calendar event and emails the client, and cannot be undone: ask first. */
+export const confirmCancel = (count = 1) =>
+  window.confirm(count === 1 ? 'Cancel this session? The calendar event is deleted and the client is emailed. This cannot be undone.' : `Cancel ${count} sessions? Their calendar events are deleted and the clients are emailed. This cannot be undone.`);

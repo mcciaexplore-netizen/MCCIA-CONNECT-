@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db, loadSettings, type AuthUser } from './_lib.js';
-import { sendMail, triggerAppsScript } from './_integrations.js';
+import { scriptFailure, sendMail, triggerAppsScript } from './_integrations.js';
 import { clientCancelled, clientLink, coordinatorCancelled, type BookingMail } from './_mail.js';
 import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
 import type { AppSettings, InternalNote } from '../src/types/index.js';
@@ -83,7 +83,8 @@ export async function createCalendarEvent({ booking, ticket, client, module, coo
     bookingId: booking.id,
   });
   // The script replies with the event it created: { success, eventId, meetingLink }. Only online sessions have a link.
-  if (reply?.success === false) throw new Error(`Apps Script reported: ${String(reply.error)}`);
+  const failure = scriptFailure(reply);
+  if (failure) throw new Error(`Apps Script reported: ${failure}`);
   const googleEventId = typeof reply?.eventId === 'string' && reply.eventId ? reply.eventId : null;
   const replyLink = reply?.meetingLink ?? reply?.meetLink;
   const meetingLink = booking.mode === 'online' && typeof replyLink === 'string' && HTTPS_LINK.test(replyLink) ? replyLink : null;
@@ -116,8 +117,8 @@ export async function cancelSession(actor: AuthUser, bookingId: string) {
   const settings = await loadSettings();
   if (row.booking.googleEventId) {
     try {
-      const reply = await triggerAppsScript({ action: 'cancel', eventId: row.booking.googleEventId });
-      if (reply?.success === false) throw new Error(`Apps Script reported: ${String(reply.error)}`);
+      const failure = scriptFailure(await triggerAppsScript({ action: 'cancel', eventId: row.booking.googleEventId }));
+      if (failure) throw new Error(`Apps Script reported: ${failure}`);
       // The event (and its Meet link) is gone.
       await db.update(bookings).set({ googleEventId: null, meetingLink: null }).where(eq(bookings.id, bookingId));
     } catch (e) {

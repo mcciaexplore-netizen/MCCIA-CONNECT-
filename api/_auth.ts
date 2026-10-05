@@ -36,14 +36,20 @@ const secret = () => {
 const b64 = (value: string | Buffer) => Buffer.from(value).toString('base64url');
 const sign = (data: string) => createHmac('sha256', secret()).update(data).digest();
 
-/** A signed token for the user: { userId, role, coordinatorId } that expires after a week. */
-export function signToken(claims: { userId: string; role: string; coordinatorId: string | null }) {
+/**
+ * A short fingerprint of a password hash, kept in the session token (claim `pv`). Changing a password changes it, which
+ * ends every session that was signed in with the old one. It is keyed with the server secret, so it reveals nothing.
+ */
+export const passwordStamp = (passwordHash: string) => createHmac('sha256', secret()).update(`pv:${passwordHash}`).digest('base64url').slice(0, 22);
+
+/** A signed token for the user: { userId, role, coordinatorId, pv } that expires after a week. */
+export function signToken(claims: { userId: string; role: string; coordinatorId: string | null; pv: string }) {
   const body = `${b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${b64(JSON.stringify({ ...claims, exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS }))}`;
   return `${body}.${b64(sign(body))}`;
 }
 
 /** The claims of a token with a valid signature that has not expired, otherwise null. */
-export function verifyToken(token: string | null | undefined): { userId: string; role: string; coordinatorId: string | null } | null {
+export function verifyToken(token: string | null | undefined): { userId: string; role: string; coordinatorId: string | null; pv?: string } | null {
   const [header, payload, signature] = token?.split('.') ?? [];
   if (!header || !payload || !signature) return null;
   const expected = sign(`${header}.${payload}`);

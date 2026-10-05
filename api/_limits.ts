@@ -25,17 +25,8 @@ export function tooMany(action: LimitedAction, windowStart: Date) {
   return new HttpError(429, LIMITS[action].message.replace('{m}', String(left)));
 }
 
-/** Throws 429 while this IP has used up its allowance for the action in the current window. */
-export async function checkLimit(action: LimitedAction, ip: string) {
-  const [row] = await db
-    .select()
-    .from(loginAttempts)
-    .where(and(eq(loginAttempts.action, action), eq(loginAttempts.ip, ip), windowOpen(action)));
-  if (row && row.attempts >= LIMITS[action].max) throw tooMany(action, row.windowStart);
-}
-
-/** Counts one more attempt (a new window starts once the old one is over). Throws 429 if that was the last one allowed. */
-export async function countAttempt(action: LimitedAction, ip: string, email?: string) {
+/** Counts one more attempt (a new window starts once the old one is over). One atomic statement, so parallel requests get distinct counts. */
+async function countAttempt(action: LimitedAction, ip: string, email?: string) {
   const expired = sql`${loginAttempts.windowStart} <= now() - make_interval(mins => ${LIMITS[action].minutes})`;
   const [row] = await db
     .insert(loginAttempts)
@@ -52,8 +43,21 @@ export async function countAttempt(action: LimitedAction, ip: string, email?: st
   return row;
 }
 
-/** Forgets an IP's attempts (a successful sign-in). */
-export async function clearAttempts(action: LimitedAction, ip: string) {
-  await db.delete(loginAttempts).where(and(eq(loginAttempts.action, action), eq(loginAttempts.ip, ip)));
+/**
+ * Takes one of the IP's allowed attempts BEFORE the work is done, and throws 429 once they are used up. Because counting is
+ * atomic, a burst of parallel requests cannot all slip through a check. Give the attempt back with refundAttempt when the
+ * work succeeded (a sign-in) or never happened (a booking that failed).
+ */
+export async function reserveAttempt(action: LimitedAction, ip: string, email?: string) {
+  const attempt = await countAttempt(action, ip, email);
+  if (attempt.attempts > LIMITS[action].max) throw tooMany(action, attempt.windowStart);
+  return attempt;
 }
 
+/** Gives one attempt back (never below zero). Other people's failures from the same IP stay counted. */
+export async function refundAttempt(action: LimitedAction, ip: string) {
+  await db
+    .update(loginAttempts)
+    .set({ attempts: sql`greatest(${loginAttempts.attempts} - 1, 0)` })
+    .where(and(eq(loginAttempts.action, action), eq(loginAttempts.ip, ip), windowOpen(action)));
+}

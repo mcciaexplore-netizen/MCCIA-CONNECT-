@@ -11,7 +11,7 @@ import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
-import { formatDate, isOpen } from '../../lib/utils';
+import { confirmCancel, formatDate, isOpen } from '../../lib/utils';
 import { BOOKING_MODES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
 const PAGE_SIZE = 25;
@@ -171,7 +171,7 @@ export default function Tickets() {
           {selectedIds.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-primary bg-primary-light px-3 py-2">
               <span className="mr-2 font-medium text-primary-dark">{selectedIds.length} selected</span>
-              <select className="input w-auto" value="" onChange={(e) => e.target.value && bulk({ status: e.target.value as TicketStatus })}>
+              <select className="input w-auto" value="" onChange={(e) => e.target.value && (e.target.value !== 'cancelled' || confirmCancel(selectedIds.length)) && bulk({ status: e.target.value as TicketStatus })}>
                 <option value="">Change Status</option>
                 {TICKET_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
               </select>

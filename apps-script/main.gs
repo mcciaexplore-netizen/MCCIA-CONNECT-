@@ -8,7 +8,8 @@
  *  2. Project Settings > Script properties:
  *       API_BASE_URL   your Vercel URL, e.g. https://mccia-connect.vercel.app   (to save the Meet link back)
  *       SHARED_SECRET  a long random string; set the same value as APPS_SCRIPT_SECRET in Vercel
- *  3. Deploy > New deployment > Web app: Execute as "Me", access "Anyone".
+ *  3. Run the function "authorize" once and allow the permissions it asks for.
+ *  4. Deploy > New deployment > Web app: Execute as "Me", access "Anyone".
  *     Put the /exec URL in Settings > Google (or VITE_APPS_SCRIPT_URL).
  *
  * The web app URL is public, so set SHARED_SECRET: with it, a request that does not carry the secret is refused.
@@ -23,6 +24,16 @@
  */
 
 const MEET_ATTEMPTS = 5; // the Meet link can take a moment to appear after the event is created
+
+/**
+ * Run this ONCE from the editor (choose "authorize" in the function list, then Run) before deploying.
+ * It makes Google ask you to allow Calendar and web requests; without that, every booking fails with
+ * "You do not have permission to call calendar.events.insert". After allowing, deploy a NEW VERSION.
+ */
+function authorize() {
+  Calendar.CalendarList.list({ maxResults: 1 });
+  UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true });
+}
 
 function doPost(e) {
   try {
@@ -122,7 +133,16 @@ function rescheduleBooking(data) {
 
 function cancelBooking(data) {
   if (data.eventId) {
-    tryTo(function () { Calendar.Events.remove('primary', data.eventId); });
+    try {
+      Calendar.Events.remove('primary', data.eventId);
+    } catch (err) {
+      const message = String((err && err.message) || err);
+      // An event that is already gone is fine; any other failure is reported, so the app can tell staff to delete it by hand.
+      if (!/not found|has been deleted|\b(404|410)\b/i.test(message)) {
+        console.error(err);
+        return { success: false, error: message };
+      }
+    }
   }
   return { success: true };
 }

@@ -4,7 +4,7 @@ import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQ
 import { loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
-import { checkLimit, clientIp, countAttempt } from './_limits.js';
+import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
 import { addNote, announceLink, createCalendarEvent, errorText, HTTPS_LINK, LINK_WAITING, loadBooking, mailOf, sendAll, waitingForLink, type BookingRow } from './_sessions.js';
 import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
@@ -186,7 +186,6 @@ export default handler({
     const actor: Actor = user ?? { name: 'Client (booking form)', role: 'client' };
     // The public pages allow 3 bookings per IP per hour; staff booking for clients are not limited.
     const ip = clientIp(req);
-    if (!user) await checkLimit('booking', ip);
 
     const mode = body.mode as BookingMode;
     if (!BOOKING_MODES.includes(mode)) throw new HttpError(400, 'Choose online or offline');
@@ -234,6 +233,11 @@ export default handler({
     const bookingId = crypto.randomUUID();
     const ticketId = crypto.randomUUID();
 
+    // Take one of the IP's 3 allowed bookings now, before anything is written, so parallel requests cannot all get in.
+    // It is given back if the booking then does not happen.
+    if (!user) await reserveAttempt('booking', ip, clientInput.email);
+    const giveBack = () => (user ? Promise.resolve() : refundAttempt('booking', ip));
+
     let ticketNumber: string;
     try {
       // One atomic request: either the client, booking and ticket all exist or none do.
@@ -244,6 +248,7 @@ export default handler({
       ]);
       ticketNumber = ticket.ticketNumber;
     } catch (e) {
+      await giveBack();
       throw isUniqueViolation(e) ? new HttpError(409, 'Please try booking again.') : e;
     }
 
@@ -259,10 +264,10 @@ export default handler({
           .set({ status: 'cancelled', internalNotes: [{ text: 'Cancelled automatically: someone else booked the same time at the same moment.', author: 'System', at: new Date().toISOString() }] })
           .where(eq(tickets.id, ticketId)),
       ]);
+      await giveBack();
       throw new HttpError(409, 'Sorry, that time was just taken. Please pick another.');
     }
 
-    if (!user) await countAttempt('booking', ip, clientInput.email);
     await audit(actor, 'booking.created', 'ticket', ticketId, undefined, { ticket: ticketNumber, module: module.name, client: clientInput.personName, startsAt: start.toISOString(), mode });
 
     // Apps Script, then email. Their failures never undo the booking.

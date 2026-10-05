@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { useData } from '../../context/DataContext';
-import { formatDate, isOpen } from '../../lib/utils';
+import { confirmCancel, formatDate, isOpen } from '../../lib/utils';
 import { STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
@@ -21,11 +21,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /** Right column: the ticket's own properties. Status and due date are editable; admins can reassign. */
 export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
-  const { role, getModule, getCoordinator, getSession, mutate } = useData();
+  const { role, getClient, getModule, getCoordinator, getSession, mutate } = useData();
   const [reassigning, setReassigning] = useState(false);
   const [editingDue, setEditingDue] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
   const coordinator = getCoordinator(ticket.coordinatorId);
+  // Whoever has the client already (the ticket's own coordinator, or the client's when the ticket has none): replacing them needs a reason.
+  const owner = ticket.coordinatorId ?? getClient(ticket.clientId)?.assignedCoordinatorId ?? null;
   const booking = getSession(ticket.id)?.booking;
   const mode = booking?.mode;
 
@@ -36,7 +38,7 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       <p className="text-2xl font-semibold text-primary">{ticket.ticketNumber}</p>
 
       <Field label="Status">
-        <select className="input" value={ticket.status} disabled={ticket.status === 'cancelled'} onChange={(e) => update({ status: e.target.value as TicketStatus })}>
+        <select className="input" value={ticket.status} disabled={ticket.status === 'cancelled'} onChange={(e) => (e.target.value !== 'cancelled' || confirmCancel()) && update({ status: e.target.value as TicketStatus })}>
           {TICKET_STATUSES.map((s) => (
             <option key={s} value={s}>{STATUS_LABELS[s]}</option>
           ))}
@@ -80,10 +82,10 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
 
       {reassigning && (
         <ReassignModal
-          currentId={ticket.coordinatorId}
+          currentId={owner}
           onClose={() => setReassigning(false)}
           onConfirm={(coordinatorId, reason) =>
-            mutate('/api/tickets', 'PATCH', { id: ticket.id, coordinatorId, ...(ticket.coordinatorId && { reason }) }, ticket.coordinatorId ? 'Coordinator reassigned' : 'Coordinator assigned')
+            mutate('/api/tickets', 'PATCH', { id: ticket.id, coordinatorId, ...(owner && { reason }) }, owner ? 'Coordinator reassigned' : 'Coordinator assigned')
           }
         />
       )}

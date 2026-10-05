@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -16,19 +16,24 @@ export default function AuditLogs() {
   const [lists, setLists] = useState({ actions: [] as string[], people: [] as string[] });
   const [state, setState] = useState<'loading' | 'more' | 'done'>('loading');
   const [error, setError] = useState('');
+  const latest = useRef(0); // only the newest request may change the list
 
   // The server filters and pages: 50 entries at a time, newest first, from the whole log.
   const load = useCallback(
     async (cursor?: string) => {
+      const mine = ++latest.current;
+      if (!cursor) setNext(null); // a fresh first page is on its way: the old "Load more" no longer applies
       setState(cursor ? 'more' : 'loading');
       setError('');
       const query = new URLSearchParams(Object.entries({ ...filters, cursor: cursor ?? '' }).filter(([, v]) => v));
       try {
         const result = await get<AuditPage>(`/api/audit-logs?${query}`);
+        if (mine !== latest.current) return;
         setLogs((current) => (cursor ? [...current, ...result.logs] : result.logs));
         setNext(result.nextCursor);
         setLists({ actions: result.actions, people: result.people });
       } catch (e) {
+        if (mine !== latest.current) return;
         setError(errorMessage(e));
       }
       setState('done');

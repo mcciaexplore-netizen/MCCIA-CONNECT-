@@ -6,6 +6,7 @@ import { bookings, clients, coordinators, feedbackTokens, modules, tickets } fro
 import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, TICKET_STATUSES, type FeedbackForm, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
+const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails, so a big batch would not finish in time
 const NOTHING = 'Nothing to update';
 
 /**
@@ -102,7 +103,7 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
       ...(Object.keys(bookingPatch).length ? [db.update(bookings).set(bookingPatch).where(eq(bookings.id, ticket.bookingId))] : []),
     ]);
   }
-  if (toClient) await assignClient(user, ticket.clientId, toClient.coordinatorId, toClient.reason, { id, bookingId: ticket.bookingId });
+  if (toClient) await assignClient(user, ticket.clientId, toClient.coordinatorId, toClient.reason, { id, bookingId: ticket.bookingId, coordinatorId: ticket.coordinatorId });
 
   await audit(user, after.postConsultation ? 'ticket.post_consultation' : 'ticket.updated', 'ticket', id, before, after);
   if (patch.status === 'cancelled') await cancelSession(user, ticket.bookingId);
@@ -187,6 +188,7 @@ export default handler({
 
     if (!body.ids.length || body.ids.length > MAX_BULK) throw new HttpError(400, `Choose between 1 and ${MAX_BULK} tickets`);
     if (body.dueDate !== undefined || body.note !== undefined) throw new HttpError(400, 'Bulk updates only change status or coordinator');
+    if (body.status === 'cancelled' && body.ids.length > MAX_BULK_CANCEL) throw new HttpError(400, `Cancel at most ${MAX_BULK_CANCEL} sessions at a time`);
     const failed: { id: string; error: string }[] = [];
     let updated = 0;
     const moved = new Set<string>(); // clients this request has just assigned: their other tickets moved along with them

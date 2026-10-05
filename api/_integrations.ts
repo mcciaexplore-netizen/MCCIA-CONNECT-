@@ -100,7 +100,9 @@ export async function sendMail(channel: MailChannel, { to, subject, text, html, 
   return sender.user; // who it was sent from, for the test email to report
 }
 
-const APPS_SCRIPT_TIMEOUT_MS = 8000; // a booking should not hang on a slow script
+// A booking waits this long for the script so the confirmation can carry the Meet link. The first call after the script has been
+// idle takes several seconds longer (measured: about 9 s), so the default is generous; APPS_SCRIPT_TIMEOUT_MS overrides it.
+const APPS_SCRIPT_TIMEOUT_MS = 20_000;
 
 /**
  * POSTs a JSON body (e.g. { action: 'create', ticketNumber, ... }) to the Apps Script web app
@@ -114,12 +116,19 @@ export async function triggerAppsScript(body: { action: string } & Record<string
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(process.env.APPS_SCRIPT_SECRET ? { ...body, secret: process.env.APPS_SCRIPT_SECRET } : body),
-    signal: AbortSignal.timeout(APPS_SCRIPT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(Number(process.env.APPS_SCRIPT_TIMEOUT_MS) || APPS_SCRIPT_TIMEOUT_MS),
   });
   if (!res.ok) throw new HttpError(502, `Apps Script responded with ${res.status}`);
   try {
-    return await res.json();
+    const reply = await res.json();
+    return reply && typeof reply === 'object' && !Array.isArray(reply) ? reply : null;
   } catch {
     return null;
   }
+}
+
+/** Why a reply from the Apps Script is not a success (an unreadable reply, or { success: false, error }), or null when it is fine. */
+export function scriptFailure(reply: Record<string, unknown> | null): string | null {
+  if (!reply) return 'the script did not answer with a readable reply (check the web app is deployed to "Anyone" and the URL is right)';
+  return reply.success === false ? String(reply.error ?? 'no reason given') : null;
 }
