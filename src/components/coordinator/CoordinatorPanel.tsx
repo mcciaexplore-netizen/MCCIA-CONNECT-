@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useData } from '../../context/DataContext';
 import Avatar from '../ui/Avatar';
+import CoordinatorForm from './CoordinatorForm';
 import Drawer from '../ui/Drawer';
 import StatCard from '../ui/StatCard';
 import StatusBadge from '../ui/StatusBadge';
@@ -14,12 +16,16 @@ const RECENT_TICKETS = 5;
 export default function CoordinatorPanel({ coordinator: c, onClose }: { coordinator: Coordinator; onClose: () => void }) {
   const { tickets, clients, sessions, getClient, mutate } = useData();
   const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
 
   const now = new Date();
   const own = tickets.filter((t) => t.coordinatorId === c.id);
   const mine = clients.filter((client) => client.assignedCoordinatorId === c.id);
   const theirs = sessions.filter((s) => s.ticket.coordinatorId === c.id && s.booking.status !== 'cancelled');
   const stats = clientStats(own);
+
+  // The edit form takes the drawer's place while it is open.
+  if (editing) return <CoordinatorForm coordinator={c} onClose={() => setEditing(false)} />;
 
   return (
     <Drawer title="Coordinator" onClose={onClose}>
@@ -72,6 +78,7 @@ export default function CoordinatorPanel({ coordinator: c, onClose }: { coordina
         </ul>
       </section>
 
+      <button className="btn w-full" onClick={() => setEditing(true)}>Edit details or password</button>
       <button
         className={cn('btn w-full', c.isActive && 'btn-danger')}
         onClick={() => mutate('/api/coordinators', 'PATCH', { id: c.id, isActive: !c.isActive }, c.isActive ? 'Coordinator deactivated' : 'Coordinator activated')}

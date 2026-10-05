@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { audit, db, handler, HttpError, needString, readBody, requireUser } from './_lib.js';
+import { audit, db, handler, HttpError, loadSettings, needString, readBody, requireUser } from './_lib.js';
 import { loadAvailability, studioDate } from './_availability.js';
 import { modules, slotConfig } from './_schema.js';
 
@@ -34,10 +34,11 @@ export default handler({
 
     const [module] = await db.select({ id: modules.id }).from(modules).where(and(eq(modules.slug, slug), eq(modules.isActive, true)));
     if (!module) throw new HttpError(404, 'This booking page does not exist');
-    const from = url.searchParams.get('from') ?? studioDate(new Date());
+    const { tz } = (await loadSettings()).timezone;
+    const from = url.searchParams.get('from') ?? studioDate(new Date(), tz);
     if (!DATE.test(from)) throw new HttpError(400, 'from must be a date like 2026-10-12');
     const days = Math.min(MAX_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
-    return (await loadAvailability(module.id, from, days)).slots;
+    return (await loadAvailability(module.id, from, days, tz)).slots;
   },
 
   // Saves (creates or replaces) a module's slot config.

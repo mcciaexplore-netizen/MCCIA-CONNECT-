@@ -1,5 +1,8 @@
 {
   "rewrites": [
+    { "source": "/api/feedback/:token", "destination": "/api/tickets?feedback=:token" },
+    { "source": "/api/bookings/:id/reschedule", "destination": "/api/bookings?reschedule=:id" },
+    { "source": "/api/coordinators/:id/password", "destination": "/api/coordinators?password=:id" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate } from 'react-router';
 import { useData } from '../context/DataContext';
-import { errorMessage, homeFor } from '../lib/utils';
+import { errorMessage, homeFor, usePublicSettings } from '../lib/utils';
 
 export default function Login() {
   const { authLoading, role, signIn } = useData();
+  const { brand } = usePublicSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -29,7 +30,7 @@ export default function Login() {
     <main className="flex min-h-screen items-center justify-center bg-page p-4">
       <form onSubmit={submit} className="w-full max-w-sm overflow-hidden rounded-md border border-line bg-white shadow-sm">
         <div className="bg-primary-dark px-8 py-6 text-center text-white">
-          <h1 className="text-xl font-semibold">MCCIA Pune AI Studio</h1>
+          <h1 className="text-xl font-semibold">{brand.name}</h1>
           <p className="mt-1 text-xs text-white/80">Sign in to the CRM</p>
         </div>
         <div className="space-y-4 p-8">

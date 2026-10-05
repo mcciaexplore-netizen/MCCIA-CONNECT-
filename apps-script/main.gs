@@ -1,5 +1,5 @@
 /**
- * MCCIA Pune AI Studio: Google Apps Script web app.
+ * Booking system: Google Apps Script web app.
  * Creates the Calendar event and the Google Meet link for a booking. It sends no email:
  * the main app emails clients (from Gmail) and staff (from Zoho). Excel files are made by the main app too.
  *
@@ -15,14 +15,13 @@
  *
  * REQUEST  { action: 'create' | 'reschedule' | 'cancel' | 'ping', secret, ...fields }
  *   create:     ticketNumber, moduleSlug, moduleName, clientName, clientEmail, coordinatorEmail,
- *               startTime, endTime (ISO), mode ('online' | 'offline'), venueAddress, bookingId
+ *               startTime, endTime (ISO), mode ('online' | 'offline'), venueAddress, bookingId,
+ *               timeZone (e.g. Asia/Kolkata), brandName
  *   reschedule: the create fields plus oldEventId
  *   cancel:     eventId
  * REPLY    { success, ... }. For create: eventId, meetingLink ('' when offline).
  */
 
-const STUDIO_ADDRESS = 'MCCIA Trade Tower, Senapati Bapat Road, Pune 411016';
-const TIME_ZONE = 'Asia/Kolkata';
 const MEET_ATTEMPTS = 5; // the Meet link can take a moment to appear after the event is created
 
 function doPost(e) {
@@ -59,9 +58,9 @@ function createBooking(data, requestSuffix) {
   const resource = {
     summary: data.moduleName + ' - ' + data.clientName + ' | ' + data.ticketNumber,
     description: buildDescription(data),
-    location: online ? '' : data.venueAddress || STUDIO_ADDRESS,
-    start: { dateTime: data.startTime, timeZone: TIME_ZONE },
-    end: { dateTime: data.endTime, timeZone: TIME_ZONE },
+    location: online ? '' : data.venueAddress || '',
+    start: { dateTime: data.startTime, timeZone: zoneOf(data) },
+    end: { dateTime: data.endTime, timeZone: zoneOf(data) },
     attendees: [data.clientEmail, data.coordinatorEmail].filter(Boolean).map(function (email) {
       return { email: email };
     }),
@@ -85,6 +84,11 @@ function createBooking(data, requestSuffix) {
   });
 
   return { success: true, eventId: event.id, meetingLink: meetLink };
+}
+
+/** The studio's time zone, sent with every request from Settings; the script's own zone only if it is missing. */
+function zoneOf(data) {
+  return data.timeZone || Session.getScriptTimeZone();
 }
 
 function meetLinkOf(event) {
@@ -124,7 +128,7 @@ function cancelBooking(data) {
 }
 
 function buildDescription(data) {
-  return 'Ticket: ' + data.ticketNumber + '\nClient: ' + data.clientName + '\nMode: ' + data.mode + '\nBooked via MCCIA Pune AI Studio CRM';
+  return 'Ticket: ' + data.ticketNumber + '\nClient: ' + data.clientName + '\nMode: ' + data.mode + '\nBooked via ' + (data.brandName || 'the booking system');
 }
 
 /** Runs fn; a failure is logged and never stops the booking. Returns whether it worked. */

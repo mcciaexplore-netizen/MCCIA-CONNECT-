@@ -11,6 +11,7 @@ interface Props {
   onModeChange: (mode: BookingMode) => void;
   startsAt: string; // the chosen slot ('' = none)
   onSelect: (startsAt: string) => void;
+  lockMode?: boolean; // the mode is fixed (rescheduling a session): no online / offline cards
 }
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -18,7 +19,7 @@ const TITLES = { past: 'Past date', closed: 'Not available', full: 'Fully booked
 const dayKey = (date: Date) => format(date, 'yyyy-MM-dd');
 
 /** Mode cards, a calendar for this month and next, and the times of the chosen day. Taken times stay visible but greyed. */
-export default function SlotPicker({ slug, venue, mode, onModeChange, startsAt, onSelect }: Props) {
+export default function SlotPicker({ slug, venue, mode, onModeChange, startsAt, onSelect, lockMode }: Props) {
   const [slots, setSlots] = useState<SlotInfo[] | null>(null);
   const [monthOffset, setMonthOffset] = useState(0);
   const [date, setDate] = useState(startsAt ? dayKey(new Date(startsAt)) : '');
@@ -59,7 +60,7 @@ export default function SlotPicker({ slug, venue, mode, onModeChange, startsAt, 
 
   return (
     <div className="space-y-6">
-      <div>
+      {!lockMode && <div>
         <p className="label">How would you like to meet? *</p>
         <div className="grid gap-3 sm:grid-cols-2">
           {(['online', 'offline'] as const).map((m) => (
@@ -76,7 +77,7 @@ export default function SlotPicker({ slug, venue, mode, onModeChange, startsAt, 
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       {slots.length === 0 ? (
         <p className="rounded-md bg-page px-4 py-3 text-ink-2">No slots are open right now. Please check back later.</p>

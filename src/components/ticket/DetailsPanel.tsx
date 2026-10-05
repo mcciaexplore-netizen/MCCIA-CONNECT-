@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { useData } from '../../context/DataContext';
-import { formatDate } from '../../lib/utils';
+import { formatDate, isOpen } from '../../lib/utils';
 import { STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
 import ModePill from '../ui/ModePill';
 import ModuleBadge from '../ui/ModuleBadge';
 import ReassignModal from '../ui/ReassignModal';
+import RescheduleModal from './RescheduleModal';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -23,8 +24,10 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
   const { role, getModule, getCoordinator, getSession, mutate } = useData();
   const [reassigning, setReassigning] = useState(false);
   const [editingDue, setEditingDue] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
   const coordinator = getCoordinator(ticket.coordinatorId);
-  const mode = getSession(ticket.id)?.booking.mode;
+  const booking = getSession(ticket.id)?.booking;
+  const mode = booking?.mode;
 
   const update = (patch: { status?: TicketStatus; dueDate?: string | null }) => mutate('/api/tickets', 'PATCH', { id: ticket.id, ...patch }, 'Ticket updated');
 
@@ -72,6 +75,8 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
 
       <Field label="Created">{formatDate(ticket.createdAt)}</Field>
       <Field label="Booking mode">{mode ? <ModePill mode={mode} /> : '—'}</Field>
+      {booking?.status === 'scheduled' && isOpen(ticket.status) && <button className="btn w-full" onClick={() => setRescheduling(true)}>Reschedule</button>}
+      {rescheduling && booking && <RescheduleModal ticket={ticket} booking={booking} onClose={() => setRescheduling(false)} />}
 
       {reassigning && (
         <ReassignModal

@@ -43,6 +43,7 @@ export const NAV: Record<Role, NavSection[]> = {
       ],
     },
     { title: 'Clients', icon: 'users', items: [{ to: '/coordinator/clients', label: 'My clients' }] },
+    { title: 'Account', icon: 'settings', items: [{ to: '/coordinator/account', label: 'Change password' }] },
   ],
 };
 

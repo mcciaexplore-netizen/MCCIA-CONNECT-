@@ -3,7 +3,7 @@ import type { PgColumn } from 'drizzle-orm/pg-core';
 import { db } from '../src/lib/db.js';
 import { verifyToken, readCookie, SESSION_COOKIE } from './_auth.js';
 import { appSettings, auditLogs, coordinators, formQuestions, users } from './_schema.js';
-import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, DEFAULT_SETTINGS, EMAIL_PATTERN, POST_CONSULTATION_FORM, ROLES, type AppSettings, type FormField, type Role } from '../src/types/index.js';
+import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, DEFAULT_SETTINGS, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, POST_CONSULTATION_FORM, ROLES, type AppSettings, type FormField, type Role } from '../src/types/index.js';
 
 export { db };
 
@@ -63,6 +63,13 @@ export function needEmail(value: unknown): string {
   return email;
 }
 
+/** A new password: at least MIN_PASSWORD_LENGTH characters. It is stored exactly as typed (the login does not trim either). */
+export function needPassword(value: unknown, label = 'Password'): string {
+  if (typeof value !== 'string' || !value.trim()) throw new HttpError(400, `${label} is required`);
+  if (value.length < MIN_PASSWORD_LENGTH) throw new HttpError(400, `${label} must be at least ${MIN_PASSWORD_LENGTH} characters`);
+  return value;
+}
+
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Postgres unique_violation (e.g. duplicate email). Drizzle wraps the driver's error, so the code may be on `cause`. */
@@ -88,6 +95,14 @@ export function parseClient(raw: unknown) {
     isMember,
     membershipId: (isMember && optString(c.membershipId)) || null,
   };
+}
+
+/** The site's address as the browser reached it (Vercel passes the host on), for links in emails. */
+export function siteOrigin(req: Request) {
+  const url = new URL(req.url);
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? url.host;
+  const proto = req.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+  return `${proto}://${host}`;
 }
 
 // ---------- auth ----------

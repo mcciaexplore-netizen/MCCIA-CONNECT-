@@ -1,6 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import { hashPassword } from './_auth.js';
-import { audit, db, handler, HttpError, isUniqueViolation, needEmail, needString, optString, readBody, requireUser } from './_lib.js';
+import { audit, db, handler, HttpError, isUniqueViolation, needEmail, needPassword, needString, optString, readBody, requireUser } from './_lib.js';
 import { coordinators, users } from './_schema.js';
 
 const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
@@ -20,8 +20,7 @@ export default handler({
     const body = await readBody(req);
     const name = needString(body.name, 'Name');
     const email = needEmail(body.email);
-    const password = needString(body.password, 'Password');
-    if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
+    const password = needPassword(body.password);
 
     const userId = crypto.randomUUID();
     const passwordHash = await hashPassword(password);
@@ -40,10 +39,14 @@ export default handler({
     }
   },
 
-  // Edit details or activate/deactivate. Deactivating also blocks their login.
-  PATCH: async (req) => {
+  // Edit any detail (name, email = their login, phone, colour, a new password), or activate / deactivate. Deactivating also blocks their login.
+  // An empty password leaves the current one as it is.
+  // PATCH /api/coordinators/:id/password { newPassword } (a vercel.json rewrite to ?password=:id) only sets the password.
+  PATCH: async (req, url) => {
     const user = await requireUser(req, 'super_admin');
-    const body = await readBody(req);
+    const sent = await readBody(req);
+    const passwordFor = url.searchParams.get('password') ?? /^\/api\/coordinators\/([^/]+)\/password\/?$/.exec(url.pathname)?.[1];
+    const body = passwordFor ? { id: passwordFor, password: needPassword(sent.newPassword, 'New password') } : sent;
     const id = needString(body.id, 'Coordinator');
 
     const [before] = await db.select().from(coordinators).where(eq(coordinators.id, id));
@@ -54,16 +57,33 @@ export default handler({
       patch.name = needString(body.name, 'Name');
       patch.initials = initialsOf(patch.name);
     }
+    if (body.email !== undefined) patch.email = needEmail(body.email);
     if (body.phone !== undefined) patch.phone = optString(body.phone) || null;
     if (body.color !== undefined) patch.color = color(body.color);
     if (body.isActive !== undefined) patch.isActive = Boolean(body.isActive);
-    if (!Object.keys(patch).length) throw new HttpError(400, 'Nothing to update');
+    // Only what really changed is saved and logged (the edit form sends every field).
+    for (const key of Object.keys(patch) as (keyof typeof patch)[]) if (patch[key] === before[key]) delete patch[key];
+    const passwordHash = typeof body.password === 'string' && body.password ? await hashPassword(needPassword(body.password)) : undefined;
+    if (!Object.keys(patch).length && !passwordHash) throw new HttpError(400, 'Nothing to update');
 
-    const loginChange = before.authUserId && (patch.isActive !== undefined || patch.name !== undefined)
-      ? [db.update(users).set({ ...(patch.isActive !== undefined && { isActive: patch.isActive }), ...(patch.name !== undefined && { name: patch.name }) }).where(eq(users.id, before.authUserId))]
-      : [];
-    const [[coordinator]] = await db.batch([db.update(coordinators).set(patch).where(eq(coordinators.id, id)).returning(), ...loginChange]);
+    // The login (users row) follows the coordinator's name, email and active flag, and carries the password.
+    const login = {
+      ...(patch.name !== undefined && { name: patch.name }),
+      ...(patch.email !== undefined && { email: patch.email }),
+      ...(patch.isActive !== undefined && { isActive: patch.isActive }),
+      ...(passwordHash && { passwordHash }),
+    };
+    if (Object.keys(login).length && !before.authUserId) throw new HttpError(400, 'This coordinator has no login to change');
+    const loginChange = Object.keys(login).length ? [db.update(users).set(login).where(eq(users.id, before.authUserId!))] : [];
+    const own = Object.keys(patch).length ? db.update(coordinators).set(patch).where(eq(coordinators.id, id)).returning() : db.select().from(coordinators).where(eq(coordinators.id, id));
+    let coordinator;
+    try {
+      [[coordinator]] = await db.batch([own, ...loginChange]);
+    } catch (e) {
+      throw isUniqueViolation(e) ? new HttpError(409, 'Someone else already uses that email') : e;
+    }
 
+    // The audit log says that a password changed, never what it is.
     const changed = Object.keys(patch).filter((key) => key !== 'initials') as (keyof typeof patch)[];
     await audit(
       user,
@@ -71,7 +91,7 @@ export default handler({
       'coordinator',
       id,
       Object.fromEntries(changed.map((key) => [key, before[key]])),
-      Object.fromEntries(changed.map((key) => [key, patch[key]])),
+      { ...Object.fromEntries(changed.map((key) => [key, patch[key]])), ...(passwordHash && { password: 'changed' }) },
     );
     return coordinator;
   },

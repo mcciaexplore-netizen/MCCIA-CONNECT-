@@ -1,10 +1,15 @@
-import { eq } from 'drizzle-orm';
-import { audit, db, handler, HttpError, needString, readBody, requireUser } from './_lib.js';
+import { and, eq } from 'drizzle-orm';
+import { audit, db, handler, HttpError, loadSettings, needString, readBody, requireUser, siteOrigin } from './_lib.js';
 import { sendMail } from './_integrations.js';
-import { clients, tickets } from './_schema.js';
+import { feedbackRequest } from './_mail.js';
+import { loadBooking, mailOf } from './_sessions.js';
+import { feedbackTokens, tickets } from './_schema.js';
+import { FEEDBACK_FIELDS } from '../src/types/index.js';
+
+const FEEDBACK_LINK_DAYS = 30;
 
 export default handler({
-  // { test: true } emails the signed-in admin; { ticketId, subject, message } emails that ticket's client.
+  // { test: true } emails the signed-in admin; { ticketId, feedbackRequest: true } emails that ticket's client a one-time feedback link.
   POST: async (req) => {
     const user = await requireUser(req);
     const body = await readBody(req);
@@ -23,20 +28,24 @@ export default handler({
       return { ok: true };
     }
 
+    if (!body.feedbackRequest) throw new HttpError(400, 'Nothing to send');
     const ticketId = needString(body.ticketId, 'Ticket');
-    const subject = needString(body.subject, 'Subject');
-    const message = needString(body.message, 'Message');
+    const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    if (!ticket) throw new HttpError(404, 'Ticket not found');
+    if (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
+    if (FEEDBACK_FIELDS.some((f) => ticket.feedbackData[f.key])) throw new HttpError(400, 'Feedback for this session was already received');
+    if (ticket.status === 'cancelled') throw new HttpError(400, 'This session was cancelled');
 
-    const [row] = await db
-      .select({ ticket: tickets, email: clients.email })
-      .from(tickets)
-      .innerJoin(clients, eq(tickets.clientId, clients.id))
-      .where(eq(tickets.id, ticketId));
-    if (!row) throw new HttpError(404, 'Ticket not found');
-    if (user.role !== 'super_admin' && row.ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
-
-    await sendMail('client', { to: row.email, subject: `${subject} [${row.ticket.ticketNumber}]`, text: message });
-    await audit(user, 'email.sent', 'ticket', ticketId, undefined, { subject });
+    // A new link each time; earlier unused links for this ticket stop working, so only the latest email counts.
+    const row = (await loadBooking(ticket.bookingId))!;
+    const expiresAt = new Date(Date.now() + FEEDBACK_LINK_DAYS * 24 * 60 * 60 * 1000);
+    const [, [link]] = await db.batch([
+      db.update(feedbackTokens).set({ used: true }).where(and(eq(feedbackTokens.ticketId, ticketId), eq(feedbackTokens.used, false))),
+      db.insert(feedbackTokens).values({ ticketId, expiresAt }).returning(),
+    ]);
+    const url = `${siteOrigin(req)}/feedback/${link.token}`;
+    await sendMail('client', { to: row.client.email, ...feedbackRequest(mailOf(row, await loadSettings()), url) });
+    await audit(user, 'feedback.requested', 'ticket', ticketId, undefined, { to: row.client.email, expires: expiresAt.toISOString() });
     return { ok: true };
   },
 });

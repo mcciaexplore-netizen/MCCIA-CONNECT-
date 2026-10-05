@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type {
   AppSettings,
   BookingMode,
@@ -166,4 +166,31 @@ export const appSettings = pgTable('app_settings', {
   key: text('key').primaryKey(),
   value: jsonb('value').$type<AppSettings[keyof AppSettings]>().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Rate limiting: one row per (action, ip). `attempts` counts within the window that began at `window_start`
+ * (action 'login' = failed sign-ins, action 'booking' = public bookings). `email` is the last address tried.
+ */
+export const loginAttempts = pgTable(
+  'login_attempts',
+  {
+    id: id(),
+    action: text('action').notNull(),
+    ip: text('ip').notNull(),
+    email: text('email'),
+    attempts: integer('attempts').notNull().default(0),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('login_attempts_action_ip').on(t.action, t.ip)],
+);
+
+/** A one-time link that lets a client rate their session (/feedback/:token) without signing in. */
+export const feedbackTokens = pgTable('feedback_tokens', {
+  id: id(),
+  ticketId: uuid('ticket_id').notNull().references(() => tickets.id),
+  token: uuid('token').notNull().unique().defaultRandom(),
+  used: boolean('used').notNull().default(false),
+  createdAt: createdAt(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });

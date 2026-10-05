@@ -1,22 +1,30 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
+import AuditLogs from './AuditLogs';
+import FormBuilder from './FormBuilder';
+import SlotManager from './SlotManager';
 import ModulesTab from '../../components/settings/ModulesTab';
 import TeamTab from '../../components/settings/TeamTab';
 import { cn } from '../../lib/utils';
-import type { AppSettings } from '../../types';
+import { TIMEZONES, type AppSettings } from '../../types';
 
-type Key = 'brand' | 'apps_script_url' | 'venue' | 'notifications';
+type Key = 'brand' | 'apps_script_url' | 'venue' | 'notifications' | 'timezone';
 
 const TABS = [
   { key: 'brand', label: 'Brand' },
   { key: 'google', label: 'Google' },
   { key: 'venue', label: 'Venue' },
   { key: 'notifications', label: 'Notifications' },
+  { key: 'timezone', label: 'Time zone' },
   { key: 'team', label: 'Team' },
   { key: 'modules', label: 'Modules' },
+  { key: 'forms', label: 'Forms' },
+  { key: 'slots', label: 'Slots' },
+  { key: 'audit', label: 'Audit logs' },
 ] as const;
 type Tab = (typeof TABS)[number]['key'];
+const WIDE: Tab[] = ['forms', 'slots', 'audit']; // whole pages: they need the full width
 
 /** Saves one app_settings row (PUT /api/settings sends only that key). The fields are the render function's job. */
 function Panel<K extends Key>({ name, children }: { name: K; children: (form: AppSettings[K], set: (patch: Partial<AppSettings[K]>) => void) => ReactNode }) {
@@ -60,11 +68,11 @@ export default function Settings() {
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
 
   return (
-    <div className="max-w-2xl">
+    <div className={WIDE.includes(tab) ? undefined : 'max-w-2xl'}>
       <div className="page-header">
         <div>
           <h1 className="page-title">Settings</h1>
-          <p className="page-sub">Studio details, integrations, team and modules.</p>
+          <p className="page-sub">The back office: studio details, integrations, team, modules, forms, slots and audit logs.</p>
         </div>
       </div>
 
@@ -113,6 +121,20 @@ export default function Settings() {
         </Panel>
       )}
 
+      {tab === 'timezone' && (
+        <Panel key={fresh('timezone')} name="timezone">
+          {(form, set) => (
+            <div>
+              <label className="label">The studio's time zone</label>
+              <select className="input" value={form.tz} onChange={(e) => set(TIMEZONES.find((z) => z.tz === e.target.value)!)}>
+                {TIMEZONES.map((z) => <option key={z.tz} value={z.tz}>{z.name}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-ink-3">Slot hours, emails, the calendar event and Excel all use this zone. Changing it moves every slot: hours set for 10:00 become 10:00 in the new zone, and sessions already booked keep their exact moment.</p>
+            </div>
+          )}
+        </Panel>
+      )}
+
       {tab === 'notifications' && (
         <Panel key={fresh('notifications')} name="notifications">
           {(form, set) => (
@@ -133,6 +155,9 @@ export default function Settings() {
 
       {tab === 'team' && <TeamTab />}
       {tab === 'modules' && <ModulesTab />}
+      {tab === 'forms' && <FormBuilder />}
+      {tab === 'slots' && <SlotManager />}
+      {tab === 'audit' && <AuditLogs />}
     </div>
   );
 }

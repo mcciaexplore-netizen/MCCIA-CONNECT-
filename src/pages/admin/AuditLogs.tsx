@@ -1,18 +1,43 @@
-import { useState } from 'react';
-import { format } from 'date-fns';
+import { useCallback, useEffect, useState } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
-import { describeChange, formatDateTime, roleLabel } from '../../lib/utils';
-import type { AuditLog } from '../../types';
+import { describeChange, errorMessage, formatDateTime, roleLabel } from '../../lib/utils';
+import type { AuditLog, AuditPage } from '../../types';
 
 const NO_FILTERS = { from: '', to: '', action: '', doneBy: '' };
-const distinct = (values: (string | null)[]) => [...new Set(values.filter((v): v is string => Boolean(v)))].sort();
 
 export default function AuditLogs() {
-  const { auditLogs, tickets, clients, coordinators, modules, exportExcel } = useData();
-  const page = usePageData('auditLogs', 'tickets', 'clients');
+  const { get, tickets, clients, coordinators, modules, exportExcel } = useData();
+  const page = usePageData('tickets', 'clients');
   const [filters, setFilters] = useState(NO_FILTERS);
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [lists, setLists] = useState({ actions: [] as string[], people: [] as string[] });
+  const [state, setState] = useState<'loading' | 'more' | 'done'>('loading');
+  const [error, setError] = useState('');
+
+  // The server filters and pages: 50 entries at a time, newest first, from the whole log.
+  const load = useCallback(
+    async (cursor?: string) => {
+      setState(cursor ? 'more' : 'loading');
+      setError('');
+      const query = new URLSearchParams(Object.entries({ ...filters, cursor: cursor ?? '' }).filter(([, v]) => v));
+      try {
+        const result = await get<AuditPage>(`/api/audit-logs?${query}`);
+        setLogs((current) => (cursor ? [...current, ...result.logs] : result.logs));
+        setNext(result.nextCursor);
+        setLists({ actions: result.actions, people: result.people });
+      } catch (e) {
+        setError(errorMessage(e));
+      }
+      setState('done');
+    },
+    [get, filters],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Entity ids are UUIDs, so one lookup names tickets, clients, coordinators and modules alike.
   const names = new Map<string, string>([
@@ -32,11 +57,8 @@ export default function AuditLogs() {
     { header: 'Role', cell: (l) => (l.role ? roleLabel(l.role) : '—') },
   ];
 
-  const day = (l: AuditLog) => (l.createdAt ? format(new Date(l.createdAt), 'yyyy-MM-dd') : '');
-  const rows = auditLogs.filter(
-    (l) => (!filters.from || day(l) >= filters.from) && (!filters.to || day(l) <= filters.to) && (!filters.action || l.action === filters.action) && (!filters.doneBy || l.doneByName === filters.doneBy),
-  );
   const set = (patch: Partial<typeof NO_FILTERS>) => setFilters({ ...filters, ...patch });
+  const filtered = Object.values(filters).some(Boolean);
 
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
 
@@ -45,7 +67,7 @@ export default function AuditLogs() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Audit logs</h1>
-          <p className="page-sub">Showing {rows.length} of the latest {auditLogs.length} changes. The Excel download has every entry.</p>
+          <p className="page-sub">{state === 'loading' ? 'Loading…' : `Showing ${logs.length} ${next ? 'of more' : 'matching'} changes, newest first.`} The Excel download has every entry.</p>
         </div>
         <button className="btn btn-primary" onClick={() => exportExcel({ audit: true })}>Download Excel</button>
       </div>
@@ -61,16 +83,27 @@ export default function AuditLogs() {
         </div>
         <select className="input w-auto" aria-label="Action" value={filters.action} onChange={(e) => set({ action: e.target.value })}>
           <option value="">All actions</option>
-          {distinct(auditLogs.map((l) => l.action)).map((action) => <option key={action}>{action}</option>)}
+          {lists.actions.map((action) => <option key={action}>{action}</option>)}
         </select>
         <select className="input w-auto" aria-label="Done by" value={filters.doneBy} onChange={(e) => set({ doneBy: e.target.value })}>
           <option value="">Everyone</option>
-          {distinct(auditLogs.map((l) => l.doneByName)).map((name) => <option key={name}>{name}</option>)}
+          {lists.people.map((name) => <option key={name}>{name}</option>)}
         </select>
-        {Object.values(filters).some(Boolean) && <button className="btn" onClick={() => setFilters(NO_FILTERS)}>Clear</button>}
+        {filtered && <button className="btn" onClick={() => setFilters(NO_FILTERS)}>Clear</button>}
       </div>
 
-      <DataTable columns={columns} data={rows} rowKey={(l) => l.id} empty="No activity found." emptyIcon="filter" emptyAction={Object.values(filters).some(Boolean) ? { label: 'Clear filters', onClick: () => setFilters(NO_FILTERS) } : undefined} />
+      {error && (
+        <p role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-md bg-danger-light px-4 py-2.5 text-danger-dark">
+          {error}
+          <button className="btn" onClick={() => load()}>Retry</button>
+        </p>
+      )}
+      <DataTable columns={columns} data={logs} rowKey={(l) => l.id} empty={state === 'loading' ? 'Loading…' : 'No activity found.'} emptyIcon="filter" emptyAction={filtered ? { label: 'Clear filters', onClick: () => setFilters(NO_FILTERS) } : undefined} />
+      {next && (
+        <div className="mt-3 flex justify-center">
+          <button className="btn" disabled={state === 'more'} onClick={() => load(next)}>{state === 'more' ? 'Loading…' : 'Load 50 more'}</button>
+        </div>
+      )}
     </div>
   );
 }

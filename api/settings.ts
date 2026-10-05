@@ -1,9 +1,14 @@
 import { audit, db, handler, HttpError, loadSettings, readBody, requireUser } from './_lib.js';
 import { appSettings } from './_schema.js';
-import { DEFAULT_SETTINGS, type AppSettings } from '../src/types/index.js';
+import { DEFAULT_SETTINGS, TIMEZONES, type AppSettings, type PublicSettings } from '../src/types/index.js';
 
 export default handler({
-  GET: async (req) => {
+  // ?public=1 is anyone's: the studio name, venue and time zone (login page, landing page, every role). Everything else is admin only.
+  GET: async (req, url) => {
+    if (url.searchParams.has('public')) {
+      const { brand, venue, timezone } = await loadSettings();
+      return { brand, venue, timezone } satisfies PublicSettings;
+    }
     await requireUser(req, 'super_admin');
     return await loadSettings();
   },
@@ -18,6 +23,12 @@ export default handler({
     // Keep only the known fields of each setting, with the right type.
     const values = keys.map((key) => {
       const sent = (body[key] ?? {}) as Record<string, unknown>;
+      if (key === 'timezone') {
+        // Only a listed zone; its label, offset and date style come with it.
+        const zone = TIMEZONES.find((z) => z.tz === sent.tz);
+        if (!zone) throw new HttpError(400, 'Choose one of the listed time zones');
+        return { key, value: { tz: zone.tz, label: zone.label, offset: zone.offset, locale: zone.locale }, updatedAt: new Date() };
+      }
       const value = Object.fromEntries(
         Object.entries(DEFAULT_SETTINGS[key]).map(([field, fallback]) => [field, typeof sent[field] === typeof fallback ? sent[field] : fallback]),
       ) as AppSettings[typeof key];

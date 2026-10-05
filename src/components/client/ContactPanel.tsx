@@ -100,7 +100,8 @@ function CoordinatorHistory({ client }: { client: Client }) {
  * Read-only (coordinators): plain values, no editing, no history.
  */
 export default function ContactPanel({ client, readOnly = false }: { client: Client; readOnly?: boolean }) {
-  const { mutate, getCoordinator } = useData();
+  const { mutate, getCoordinator, settings } = useData();
+  const brand = settings.brand.name;
   const [draft, setDraft] = useState(toClientInput(client));
   const [editing, setEditing] = useState<Editing>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(toClientInput(client));
@@ -156,7 +157,7 @@ export default function ContactPanel({ client, readOnly = false }: { client: Cli
           <dd>
             {open('member') ? (
               <div className="space-y-2">
-                <label className="flex items-center gap-2"><input type="checkbox" checked={draft.isMember} onChange={(e) => setDraft({ ...draft, isMember: e.target.checked })} />MCCIA member</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={draft.isMember} onChange={(e) => setDraft({ ...draft, isMember: e.target.checked })} />{brand} member</label>
                 {draft.isMember && <input className="input" placeholder="Membership ID" value={draft.membershipId} onChange={(e) => setDraft({ ...draft, membershipId: e.target.value })} />}
               </div>
             ) : (

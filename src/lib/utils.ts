@@ -1,6 +1,5 @@
-import { useSyncExternalStore } from 'react';
-import { format } from 'date-fns';
-import { CLOSED_STATUSES, type AuditLog, type BookingSummary, type Client, type ClientInput, type Role, type Ticket, type TicketStatus } from '../types';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, type AuditLog, type BookingSummary, type Client, type ClientInput, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
 
 const MOBILE = '(max-width: 767px)';
 /** True below 768px: tables turn into card lists and the navigation becomes a menu. */
@@ -26,7 +25,7 @@ export const isOpen = (status: TicketStatus) => !CLOSED_STATUSES.includes(status
 /** Totals for a client's tickets: all, open, overdue, and the average of their 1-5 star feedback ratings. */
 export function clientStats(tickets: Ticket[]) {
   const now = new Date();
-  const ratings = tickets.flatMap((t) => Object.values(t.feedbackData).map(Number)).filter((n) => Number.isInteger(n) && n >= 1 && n <= 5);
+  const ratings = tickets.flatMap((t) => Object.entries(t.feedbackData).filter(([key]) => key !== FEEDBACK_COMMENTS).map(([, value]) => Number(value))).filter((n) => Number.isInteger(n) && n >= 1 && n <= 5);
   return {
     total: tickets.length,
     open: tickets.filter((t) => isOpen(t.status)).length,
@@ -35,9 +34,29 @@ export function clientStats(tickets: Ticket[]) {
   };
 }
 
-export const formatDate = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy') : '—');
-export const formatTime = (iso: string) => format(new Date(iso), 'h:mm a');
-export const formatDateTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy, h:mm a') : '—');
+// Dates and times are written in the studio's time zone (Settings > Time zone), whatever the browser's own zone is.
+let studioTz = DEFAULT_SETTINGS.timezone.tz;
+export const setStudioZone = (tz: string) => {
+  studioTz = tz;
+};
+function written(iso: string, options: Intl.DateTimeFormatOptions) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: studioTz, hour12: true, ...options }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return { day: get('day'), month: get('month'), year: get('year'), time: `${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}` };
+}
+const DAY_PARTS = { day: '2-digit', month: 'short', year: 'numeric' } as const;
+const TIME_PARTS = { hour: 'numeric', minute: '2-digit' } as const;
+export const formatDate = (iso: string | null) => {
+  if (!iso) return '—';
+  const w = written(iso, DAY_PARTS);
+  return `${w.day} ${w.month} ${w.year}`;
+};
+export const formatTime = (iso: string) => written(iso, TIME_PARTS).time;
+export const formatDateTime = (iso: string | null) => {
+  if (!iso) return '—';
+  const w = written(iso, { ...DAY_PARTS, ...TIME_PARTS });
+  return `${w.day} ${w.month} ${w.year}, ${w.time}`;
+};
 
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
 
@@ -124,4 +143,22 @@ export function pollMeetLink(bookingId: string, onReceived: (link: string | null
     }
   }, interval);
   return () => clearInterval(poll);
+}
+
+
+/** The studio name, venue and time zone for pages with nobody signed in (login, landing, booking), fetched once. */
+let publicSettings: Promise<PublicSettings> | undefined;
+export function usePublicSettings(): PublicSettings {
+  const [settings, setSettings] = useState<PublicSettings>(DEFAULT_SETTINGS);
+  useEffect(() => {
+    publicSettings ??= api<PublicSettings>('/api/settings?public=1', { anonymous: true }).catch((e) => {
+      publicSettings = undefined; // try again next time
+      throw e;
+    });
+    publicSettings.then((loaded) => {
+      setStudioZone(loaded.timezone.tz);
+      setSettings(loaded);
+    }).catch(() => {});
+  }, []);
+  return settings;
 }

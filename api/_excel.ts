@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, HttpError } from './_lib.js';
 import { auditLogs, bookings, clients, coordinators, modules, tickets } from './_schema.js';
-import { FEEDBACK_FIELDS, STATUS_LABELS } from '../src/types/index.js';
+import { FEEDBACK_FIELDS, STATUS_LABELS, type AppSettings, type StudioZone } from '../src/types/index.js';
 
 /**
  * The Excel file is never stored. Neon is the source of truth and every download is generated fresh from it, so
@@ -22,15 +22,14 @@ interface Row {
   coordinator: string | null;
 }
 
-// Dates and times are shown in studio time (Pune), whatever time zone the server runs in.
-const zoned = (options: Intl.DateTimeFormatOptions) => (date: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', ...options }).format(date);
-const usDate = zoned({ day: '2-digit', month: '2-digit', year: 'numeric' }); // MM/DD/YYYY
-const dateText = (date: Date) => {
-  const [month, day, year] = usDate(date).split('/');
+// Dates and times are shown in studio time (the time zone in Settings), whatever time zone the server runs in.
+const zoned = (zone: StudioZone, options: Intl.DateTimeFormatOptions) => (date: Date) => new Intl.DateTimeFormat('en-US', { timeZone: zone.tz, ...options }).format(date);
+const dateText = (zone: StudioZone, date: Date) => {
+  const [month, day, year] = zoned(zone, { day: '2-digit', month: '2-digit', year: 'numeric' })(date).split('/'); // MM/DD/YYYY
   return `${day}/${month}/${year}`; // DD/MM/YYYY
 };
-const monthText = zoned({ month: 'short', year: 'numeric' });
-const timeText = zoned({ hour: 'numeric', minute: '2-digit', hour12: true });
+const monthText = (zone: StudioZone, date: Date) => zoned(zone, { month: 'short', year: 'numeric' })(date);
+const timeText = (zone: StudioZone, date: Date) => zoned(zone, { hour: 'numeric', minute: '2-digit', hour12: true })(date);
 
 const post = (r: Row, key: string) => r.ticket.postConsultationData[key] ?? '';
 /** A number when the answer is numeric (so Excel can total it), otherwise the text. */
@@ -39,7 +38,7 @@ const rating = (r: Row, key: string) => numeric(r.ticket.feedbackData[key] ?? ''
 const feedback = (index: number) => (r: Row) => rating(r, FEEDBACK_FIELDS[index].key);
 
 // The 38 columns, A to AL, in this order.
-const COLUMNS: { header: string; width: number; value: (r: Row) => string | number }[] = [
+const COLUMNS: { header: string; width: number; value: (r: Row, zone: StudioZone) => string | number }[] = [
   { header: 'Sr. No', width: 6, value: (r) => r.srNo },
   { header: 'Ticket ID', width: 16, value: (r) => r.ticket.ticketNumber },
   { header: 'Company Name', width: 22, value: (r) => r.client.companyName },
@@ -49,9 +48,9 @@ const COLUMNS: { header: string; width: number; value: (r: Row) => string | numb
   { header: 'Email', width: 24, value: (r) => r.client.email },
   { header: 'Payment', width: 10, value: () => '' }, // nothing in the database records payment yet
   { header: 'Mode of Consultation', width: 12, value: (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline') },
-  { header: 'Date (DD/MM/YYYY)', width: 12, value: (r) => dateText(r.booking.startTime) },
-  { header: 'Month/Year', width: 10, value: (r) => monthText(r.booking.startTime) },
-  { header: 'Time Slot', width: 10, value: (r) => timeText(r.booking.startTime) },
+  { header: 'Date (DD/MM/YYYY)', width: 12, value: (r, z) => dateText(z, r.booking.startTime) },
+  { header: 'Month/Year', width: 10, value: (r, z) => monthText(z, r.booking.startTime) },
+  { header: 'Time Slot', width: 10, value: (r, z) => timeText(z, r.booking.startTime) },
   { header: 'Consultation Status', width: 14, value: (r) => STATUS_LABELS[r.ticket.status] ?? r.ticket.status },
   { header: 'Coordinator Assigned', width: 18, value: (r) => r.coordinator ?? 'Unassigned' },
   { header: 'RAMP or Non-RAMP', width: 10, value: (r) => post(r, 'ramp_type') },
@@ -118,7 +117,7 @@ export interface ExcelFilters {
 }
 
 /** The workbook for the chosen modules (one tab each, even when empty), built fresh from Neon. */
-export async function exportFilteredExcel({ modules: slugs, ids }: ExcelFilters = {}) {
+export async function exportFilteredExcel(settings: AppSettings, { modules: slugs, ids }: ExcelFilters = {}) {
   const allModules = await db.select().from(modules).orderBy(asc(modules.name));
   const unknown = slugs?.find((slug) => !allModules.some((m) => m.slug === slug));
   if (unknown) throw new HttpError(400, `Unknown module: ${unknown}`);
@@ -139,7 +138,7 @@ export async function exportFilteredExcel({ modules: slugs, ids }: ExcelFilters 
     : [];
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'MCCIA Pune AI Studio CRM';
+  workbook.creator = settings.brand.name;
   let total = 0;
   for (const module of chosen) {
     const inModule = found.filter((f) => f.ticket.moduleId === module.id);
@@ -147,13 +146,13 @@ export async function exportFilteredExcel({ modules: slugs, ids }: ExcelFilters 
     let next = Math.max(0, ...inModule.map((f) => f.booking.excelRowNumber ?? 0));
     const tabRows = inModule.map((f) => ({ ...f, srNo: f.booking.excelRowNumber ?? ++next }));
     total += tabRows.length;
-    addSheet(workbook, module.name, COLUMNS, tabRows.map((row) => COLUMNS.map((column) => column.value(row))));
+    addSheet(workbook, module.name, COLUMNS, tabRows.map((row) => COLUMNS.map((column) => column.value(row, settings.timezone))));
   }
   return { buffer: await workbook.xlsx.writeBuffer(), tickets: total };
 }
 
 const AUDIT_COLUMNS = [
-  { header: 'Timestamp (IST)', width: 22 },
+  { header: 'Timestamp', width: 22 },
   { header: 'Action', width: 24 },
   { header: 'Entity', width: 14 },
   { header: 'Entity ID', width: 38 },
@@ -164,17 +163,17 @@ const AUDIT_COLUMNS = [
 ];
 
 /** Every audit log entry, newest first, as a workbook with one "Audit Logs" tab. */
-export async function exportAuditExcel() {
+export async function exportAuditExcel(settings: AppSettings) {
   const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
   const json = (value: unknown) => (value == null ? '' : JSON.stringify(value).slice(0, 32_000)); // a cell holds 32,767 characters at most
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'MCCIA Pune AI Studio CRM';
+  workbook.creator = settings.brand.name;
   addSheet(
     workbook,
     'Audit Logs',
     AUDIT_COLUMNS,
     logs.map((log) => [
-      log.createdAt ? `${dateText(log.createdAt)} ${timeText(log.createdAt)}` : '',
+      log.createdAt ? `${dateText(settings.timezone, log.createdAt)} ${timeText(settings.timezone, log.createdAt)} ${settings.timezone.label}` : '',
       log.action,
       log.entityType,
       log.entityId ?? '',

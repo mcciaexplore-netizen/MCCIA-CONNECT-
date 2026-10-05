@@ -5,6 +5,7 @@ import ModePill from '../ui/ModePill';
 import ModuleBadge from '../ui/ModuleBadge';
 import ClientStatCards from '../ui/ClientStatCards';
 import FeedbackCard from './FeedbackCard';
+import MeetLink from './MeetLink';
 import PostConsultation from './PostConsultation';
 
 /** The client's stat cards, booking details, the client's booking answers, post-consultation notes and feedback. */
@@ -30,7 +31,7 @@ export default function OverviewTab({ ticket }: { ticket: Ticket }) {
             <div>
               <dt className="text-xs text-ink-3">Meet link</dt>
               <dd>
-                {booking.meetingLink ? <a className="btn btn-primary mt-0.5" href={booking.meetingLink} target="_blank" rel="noreferrer">Join meeting</a> : '—'}
+                <MeetLink booking={booking} />
               </dd>
             </div>
           </dl>

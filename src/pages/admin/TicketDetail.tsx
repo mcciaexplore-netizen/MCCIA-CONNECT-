@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { usePageData, useData, type Slice } from '../../context/DataContext';
+import { usePageData, useData } from '../../context/DataContext';
+import { useEntityLogs } from '../../lib/useEntityLogs';
 import ActivityList from '../../components/ui/ActivityList';
 import DataState from '../../components/ui/DataState';
 import EmptyState from '../../components/ui/EmptyState';
@@ -19,12 +20,13 @@ type Tab = 'overview' | 'notes' | 'audit';
  */
 export default function TicketDetail() {
   const { ticketId } = useParams();
-  const { tickets, auditLogs, role, base } = useData();
+  const { tickets, role, base } = useData();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
-  const page = usePageData('tickets', 'clients', 'bookings', ...(role === 'super_admin' ? (['auditLogs'] as Slice[]) : []));
+  const page = usePageData('tickets', 'clients', 'bookings');
 
   const ticket = tickets.find((t) => t.id === ticketId);
+  const auditLogs = useEntityLogs(ticketId ? [ticketId] : [], role === 'super_admin' && tab === 'audit', tickets);
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
   if (!ticket) {
     return (
@@ -59,7 +61,7 @@ export default function TicketDetail() {
         {tab === 'notes' && <NotesTab ticket={ticket} />}
         {tab === 'audit' && role === 'super_admin' && (
           <section className="card">
-            <ActivityList logs={auditLogs.filter((log) => log.entityType === 'ticket' && log.entityId === ticket.id)} />
+            <ActivityList logs={auditLogs} />
           </section>
         )}
       </div>

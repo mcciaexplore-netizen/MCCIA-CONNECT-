@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { usePageData, useData, type Slice } from '../../context/DataContext';
+import { usePageData, useData } from '../../context/DataContext';
+import { useEntityLogs } from '../../lib/useEntityLogs';
 import ActivitiesTab from '../../components/client/ActivitiesTab';
 import ContactPanel from '../../components/client/ContactPanel';
 import MonthlyBookings from '../../components/client/MonthlyBookings';
@@ -23,13 +24,14 @@ const ALL_TABS: [Tab, string][] = [['overview', 'Overview'], ['history', 'Histor
  */
 export default function ClientProfile() {
   const { clientId } = useParams();
-  const { clients, tickets, bookings, auditLogs, role, base } = useData();
+  const { clients, tickets, bookings, role, base } = useData();
   const admin = role === 'super_admin';
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
-  const page = usePageData('clients', 'tickets', 'bookings', ...(admin ? (['auditLogs'] as Slice[]) : []));
+  const page = usePageData('clients', 'tickets', 'bookings');
 
   const client = clients.find((c) => c.id === clientId);
+  const auditLogs = useEntityLogs(client ? [client.id, ...tickets.filter((t) => t.clientId === client.id).map((t) => t.id)] : [], admin && tab === 'history', tickets);
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
   if (!client) {
     return (

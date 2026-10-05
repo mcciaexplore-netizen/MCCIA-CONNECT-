@@ -1,7 +1,8 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import { Toaster } from 'react-hot-toast';
 import { useData } from './context/DataContext';
-import { homeFor } from './lib/utils';
+import { homeFor, usePublicSettings } from './lib/utils';
 import type { Role } from './types';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
@@ -20,9 +21,11 @@ import MyDashboard from './pages/coordinator/MyDashboard';
 import MyTickets from './pages/coordinator/MyTickets';
 import MyClients from './pages/coordinator/MyClients';
 import MySchedule from './pages/coordinator/MySchedule';
+import MyAccount from './pages/coordinator/MyAccount';
 import BookingPage from './pages/public/BookingPage';
 import ConfirmationPage from './pages/public/ConfirmationPage';
 import Landing from './pages/public/Landing';
+import FeedbackPage from './pages/public/FeedbackPage';
 
 /** Needs a signed-in user with the given role; anyone else is sent to login or to their own home. */
 function ProtectedRoute({ role }: { role: Role }) {
@@ -41,6 +44,10 @@ function Home() {
 }
 
 export default function App() {
+  const { brand } = usePublicSettings();
+  useEffect(() => {
+    document.title = brand.name;
+  }, [brand.name]);
   return (
     <>
       <Routes>
@@ -68,10 +75,12 @@ export default function App() {
           <Route path="clients" element={<MyClients />} />
           <Route path="clients/:clientId" element={<ClientProfile />} />
           <Route path="schedule" element={<MySchedule />} />
+          <Route path="account" element={<MyAccount />} />
         </Route>
 
         <Route path="/book/:moduleSlug" element={<BookingPage />} />
         <Route path="/confirmed/:bookingId" element={<ConfirmationPage />} />
+        <Route path="/feedback/:token" element={<FeedbackPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="top-right" />

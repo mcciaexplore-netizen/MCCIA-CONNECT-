@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useData } from '../../context/DataContext';
+import { useEntityLogs } from '../../lib/useEntityLogs';
 import { formatDate } from '../../lib/utils';
 import type { Ticket } from '../../types';
 import Avatar from '../ui/Avatar';
@@ -8,9 +9,11 @@ import Icon from '../ui/Icon';
 
 /** Left column: the client's contact panel and (for admins) their coordinator history. */
 export default function ClientPanel({ ticket }: { ticket: Ticket }) {
-  const { role, tickets, auditLogs, getClient, getCoordinator } = useData();
+  const { role, tickets, getClient, getCoordinator } = useData();
   const [historyOpen, setHistoryOpen] = useState(true);
   const client = getClient(ticket.clientId);
+  const ownTickets = tickets.filter((t) => t.clientId === ticket.clientId);
+  const auditLogs = useEntityLogs([ticket.clientId, ...ownTickets.map((t) => t.id)], role === 'super_admin' && historyOpen, tickets);
   if (!client) return null;
 
   const fields: [string, string][] = [

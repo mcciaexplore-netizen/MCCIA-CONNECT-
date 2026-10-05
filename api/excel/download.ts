@@ -1,4 +1,4 @@
-import { audit, handler, HttpError, requireUser, UUID } from '../_lib.js';
+import { audit, handler, HttpError, loadSettings, requireUser, UUID } from '../_lib.js';
 import { studioDate } from '../_availability.js';
 import { exportAuditExcel, exportFilteredExcel } from '../_excel.js';
 
@@ -18,12 +18,14 @@ const workbook = (buffer: ArrayBuffer | Buffer, filename: string) =>
 export default handler({
   GET: async (req, url) => {
     const user = await requireUser(req, 'super_admin');
-    const today = studioDate(new Date());
+    const settings = await loadSettings();
+    const today = studioDate(new Date(), settings.timezone.tz);
+    const brand = settings.brand.name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'Studio'; // safe in a file name
 
     if (url.searchParams.get('audit')) {
-      const { buffer, entries } = await exportAuditExcel();
+      const { buffer, entries } = await exportAuditExcel(settings);
       await audit(user, 'export.excel', 'export', null, undefined, { audit: true, entries });
-      return workbook(buffer, `MCCIA-Audit-Logs-${today}.xlsx`);
+      return workbook(buffer, `${brand}-Audit-Logs-${today}.xlsx`);
     }
 
     const modulesParam = url.searchParams.get('modules') ?? 'all';
@@ -32,8 +34,8 @@ export default handler({
     const ids = url.searchParams.get('ids')?.split(',').filter(Boolean);
     if (ids && (ids.length > MAX_IDS || !ids.every((id) => UUID.test(id)))) throw new HttpError(400, `ids must be up to ${MAX_IDS} ticket ids`);
 
-    const { buffer, tickets } = await exportFilteredExcel({ modules, ids });
+    const { buffer, tickets } = await exportFilteredExcel(settings, { modules, ids });
     await audit(user, 'export.excel', 'export', null, undefined, { modules: modules?.join(',') ?? 'all', tickets });
-    return workbook(buffer, `MCCIA-Bookings-${today}.xlsx`);
+    return workbook(buffer, `${brand}-Bookings-${today}.xlsx`);
   },
 });

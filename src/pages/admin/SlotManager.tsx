@@ -50,7 +50,7 @@ function badDay(rules: WeeklyRule[]) {
 }
 
 function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotConfig }) {
-  const { mutate } = useData();
+  const { mutate, settings } = useData();
   const [draft, setDraft] = useState({ ...DEFAULTS, ...config });
 
   const setRule = (index: number, patch: Partial<WeeklyRule>) =>
@@ -83,7 +83,7 @@ function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotCon
     <form onSubmit={save} className="space-y-6">
       <section className="card">
         <h2 className="mb-1 font-semibold">Weekly availability</h2>
-        <p className="mb-4 text-ink-2">Switch a day on and set its hours, in Pune time. Add a second range for a lunch break.</p>
+        <p className="mb-4 text-ink-2">Switch a day on and set its hours, in {settings.timezone.label} ({settings.timezone.offset}, set in Settings). Add a second range for a lunch break.</p>
         <div className="divide-y divide-line">
           {WEEK.map((day) => {
             const ranges = draft.weeklyRules.flatMap((rule, index) => (rule.day === day ? [{ rule, index }] : []));

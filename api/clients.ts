@@ -1,7 +1,8 @@
-import { and, desc, eq, gt, inArray, notInArray, or, sql } from 'drizzle-orm';
+import { desc, eq, inArray, or } from 'drizzle-orm';
 import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID } from './_lib.js';
-import { bookings, clients, coordinatorAssignments, coordinatorReassignments, coordinators, tickets, users } from './_schema.js';
-import { CLOSED_STATUSES, MIN_REASON_LENGTH, type CoordinatorHistoryEntry } from '../src/types/index.js';
+import { assignClient } from './_assign.js';
+import { clients, coordinatorAssignments, coordinatorReassignments, coordinators, tickets, users } from './_schema.js';
+import type { CoordinatorHistoryEntry } from '../src/types/index.js';
 
 /**
  * Every coordinator change for one client, newest first, from coordinator_assignments and
@@ -81,37 +82,11 @@ export default handler({
   },
 
   // Assigns a coordinator to a client, or reassigns (a reason of 20+ characters is then required). The client's open
-  // tickets and upcoming sessions move to the new coordinator.
+  // tickets and upcoming sessions move to the new coordinator, and both coordinators are emailed (see _assign.ts).
   PUT: async (req) => {
     const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
-    const clientId = needString(body.clientId, 'Client');
-    const coordinatorId = needString(body.coordinatorId, 'Coordinator');
-
-    const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
-    if (!client) throw new HttpError(404, 'Client not found');
-    const [coordinator] = await db.select().from(coordinators).where(eq(coordinators.id, coordinatorId));
-    if (!coordinator?.isActive) throw new HttpError(400, 'Coordinator not found or inactive');
-    if (client.assignedCoordinatorId === coordinatorId) throw new HttpError(400, 'This coordinator is already assigned');
-
-    const previous = client.assignedCoordinatorId;
-    const reason = optString(body.reason);
-    if (previous && reason.length < MIN_REASON_LENGTH) throw new HttpError(400, `Give a reason of at least ${MIN_REASON_LENGTH} characters to reassign a client`);
-
-    await db.batch([
-      db.update(coordinatorAssignments).set({ isCurrent: false }).where(and(eq(coordinatorAssignments.clientId, clientId), eq(coordinatorAssignments.isCurrent, true))),
-      db.insert(coordinatorAssignments).values({ clientId, coordinatorId, assignedBy: user.id }),
-      ...(previous ? [db.insert(coordinatorReassignments).values({ clientId, fromCoordinatorId: previous, toCoordinatorId: coordinatorId, reason, doneBy: user.id })] : []),
-      db.update(clients).set({ assignedCoordinatorId: coordinatorId }).where(eq(clients.id, clientId)),
-      db
-        .update(tickets)
-        .set({ coordinatorId, status: sql`case when ${tickets.status} = 'new' then 'pending' else ${tickets.status} end` })
-        .where(and(eq(tickets.clientId, clientId), notInArray(tickets.status, [...CLOSED_STATUSES]))),
-      db.update(bookings).set({ coordinatorId }).where(and(eq(bookings.clientId, clientId), eq(bookings.status, 'scheduled'), gt(bookings.startTime, new Date()))),
-    ]);
-
-    const [from] = previous ? await db.select({ name: coordinators.name }).from(coordinators).where(eq(coordinators.id, previous)) : [];
-    await audit(user, previous ? 'client.reassigned' : 'client.assigned', 'client', clientId, { coordinator: from?.name ?? 'Unassigned' }, { coordinator: coordinator.name, ...(reason && { reason }) });
+    await assignClient(user, needString(body.clientId, 'Client'), needString(body.coordinatorId, 'Coordinator'), optString(body.reason));
     return { ok: true };
   },
 });

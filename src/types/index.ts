@@ -41,13 +41,20 @@ export const POST_CONSULTATION_FORM = 'post_consultation';
 
 // ---------- JSON stored in jsonb columns ----------
 
-/** The star ratings (1-5) a client gives, stored in tickets.feedback_data under these keys. They fill Excel columns U-X. */
+/**
+ * The star ratings (1-5) a client gives on the feedback page, stored in tickets.feedback_data under these keys.
+ * `label` is the Excel header (columns U-X, the agreed format); `question` is what the client reads.
+ */
 export const FEEDBACK_FIELDS = [
-  { key: 'understanding', label: 'Rate understanding level' },
-  { key: 'solution', label: 'Rate solution/recommendation' },
-  { key: 'response_time', label: 'Response time rate' },
-  { key: 'value_addition', label: 'Rating of value addition' },
+  { key: 'understanding', label: 'Rate understanding level', question: 'Rate the understanding level of the consultant' },
+  { key: 'solution', label: 'Rate solution/recommendation', question: 'Rate the solution / recommendation' },
+  { key: 'response_time', label: 'Response time rate', question: 'Rate the response time' },
+  { key: 'value_addition', label: 'Rating of value addition', question: 'Rate the value addition' },
 ] as const;
+/** feedback_data key of the client's free-text comments (shown on the ticket, not an Excel column). */
+export const FEEDBACK_COMMENTS = 'comments';
+/** Longest feedback comment accepted. */
+export const MAX_FEEDBACK_COMMENTS = 2000;
 
 /** One question on a module's booking or post-consultation form. */
 export interface FormField {
@@ -98,22 +105,45 @@ export interface InternalNote {
   at: string;
 }
 
+/** The studio's time zone: tz (IANA name) drives every calculation; label and offset are what people read. */
+export interface StudioZone {
+  tz: string;
+  label: string;
+  offset: string;
+  locale: string; // how dates are written in emails, e.g. en-IN
+}
+
 /** app_settings rows, one key each. */
 export interface AppSettings {
   brand: { name: string };
   apps_script_url: { url: string };
   venue: { address: string };
   notifications: { admin_email: string; send_confirmations: boolean };
-  excel: { file_path: string };
+  timezone: StudioZone;
 }
+
+/** The zones offered in Settings > Time zone. The studio's slot hours are read in the chosen zone. */
+export const TIMEZONES: (StudioZone & { name: string })[] = [
+  { tz: 'Asia/Kolkata', label: 'IST', offset: '+05:30', locale: 'en-IN', name: 'India (IST, UTC+05:30)' },
+  { tz: 'Asia/Dubai', label: 'GST', offset: '+04:00', locale: 'en-GB', name: 'Dubai (GST, UTC+04:00)' },
+  { tz: 'Asia/Singapore', label: 'SGT', offset: '+08:00', locale: 'en-GB', name: 'Singapore (SGT, UTC+08:00)' },
+  { tz: 'Asia/Tokyo', label: 'JST', offset: '+09:00', locale: 'en-GB', name: 'Tokyo (JST, UTC+09:00)' },
+  { tz: 'Europe/London', label: 'UK time', offset: '+00:00', locale: 'en-GB', name: 'London (GMT / BST)' },
+  { tz: 'Europe/Berlin', label: 'CET', offset: '+01:00', locale: 'en-GB', name: 'Central Europe (CET / CEST)' },
+  { tz: 'America/New_York', label: 'ET', offset: '-05:00', locale: 'en-US', name: 'New York (ET)' },
+  { tz: 'UTC', label: 'UTC', offset: '+00:00', locale: 'en-GB', name: 'UTC' },
+];
 
 export const DEFAULT_SETTINGS: AppSettings = {
   brand: { name: 'MCCIA Pune AI Studio' },
   apps_script_url: { url: '' },
   venue: { address: '' },
   notifications: { admin_email: '', send_confirmations: true },
-  excel: { file_path: 'mccia-bookings.xlsx' },
+  timezone: (({ tz, label, offset, locale }) => ({ tz, label, offset, locale }))(TIMEZONES[0]),
 };
+
+/** The settings anyone may read (GET /api/settings?public=1): what the public pages and every role need. */
+export type PublicSettings = Pick<AppSettings, 'brand' | 'venue' | 'timezone'>;
 
 // ---------- rows (defined once in api/_schema.ts) ----------
 
@@ -169,6 +199,9 @@ export const BLANK_CLIENT: ClientInput = {
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Shortest password accepted for any login (admins and coordinators). */
+export const MIN_PASSWORD_LENGTH = 8;
+
 // The choices on the booking form (stored as the label).
 export const SCALE_OPTIONS = ['Micro', 'Small', 'Medium', 'Large', 'Enterprise'] as const;
 export const INDUSTRY_OPTIONS = ['Manufacturing', 'IT', 'Healthcare', 'Education', 'Agriculture', 'Retail', 'Finance', 'Other'] as const;
@@ -193,6 +226,14 @@ export function validateClient(client: ClientInput) {
   else if (!normalizePhone(client.phone)) errors.phone = 'Enter a 10-digit phone number';
   if (!client.jobTitle.trim()) errors.jobTitle = 'Job title is required';
   return errors;
+}
+
+/** An admin login, as Settings > Team lists it (GET /api/auth/users). */
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  isActive: boolean;
 }
 
 /** One line of a client's coordinator history (GET /api/clients?history=<clientId>). */
@@ -226,6 +267,24 @@ export interface BookingResult {
   ticketId: string;
   ticketNumber: string;
   meetingLink: string | null; // set when the Apps Script created the Meet link in time
+}
+
+/** What the public feedback page shows (GET /api/feedback/:token). */
+export interface FeedbackForm {
+  brand: string;
+  clientName: string;
+  moduleName: string;
+  ticketNumber: string;
+  sessionAt: string;
+  zone: StudioZone;
+}
+
+/** One page of the audit log (GET /api/audit-logs): newest first, `nextCursor` asks for the next page. */
+export interface AuditPage {
+  logs: AuditLog[];
+  nextCursor: string | null;
+  actions: string[]; // every action in the log, for the filter
+  people: string[]; // everyone who appears in it
 }
 
 export interface BookingSummary {

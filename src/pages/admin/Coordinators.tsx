@@ -1,57 +1,12 @@
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
+import CoordinatorForm from '../../components/coordinator/CoordinatorForm';
 import CoordinatorPanel from '../../components/coordinator/CoordinatorPanel';
 import Avatar from '../../components/ui/Avatar';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
-import Modal from '../../components/ui/Modal';
 import { cn, isOpen } from '../../lib/utils';
 import type { Coordinator } from '../../types';
-
-const BLANK = { name: '', email: '', phone: '', color: '#0157b3', password: '' };
-
-function AddCoordinator({ onClose }: { onClose: () => void }) {
-  const { mutate } = useData();
-  const [form, setForm] = useState(BLANK);
-  const set = (patch: Partial<typeof BLANK>) => setForm({ ...form, ...patch });
-
-  const add = async (e: FormEvent) => {
-    e.preventDefault();
-    // Creates their login (a users row with the coordinator role) and the coordinator record.
-    if (await mutate('/api/coordinators', 'POST', form, 'Coordinator added')) onClose();
-  };
-
-  return (
-    <Modal title="Add coordinator" onClose={onClose}>
-      <form onSubmit={add} className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label">Name *</label>
-          <input className="input" required value={form.name} onChange={(e) => set({ name: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">Email (login) *</label>
-          <input className="input" type="email" required value={form.email} onChange={(e) => set({ email: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">Phone</label>
-          <input className="input" value={form.phone} onChange={(e) => set({ phone: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">Temporary password * (min 8 characters)</label>
-          <input className="input" type="password" minLength={8} required value={form.password} onChange={(e) => set({ password: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">Colour</label>
-          <input className="h-9 w-20 cursor-pointer rounded-md border border-line-strong bg-white p-1" type="color" value={form.color} onChange={(e) => set({ color: e.target.value })} />
-        </div>
-        <div className="flex items-end justify-end gap-2 sm:col-span-2">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary">Add coordinator</button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
 
 export default function Coordinators() {
   const { coordinators, tickets, clients } = useData();
@@ -88,7 +43,7 @@ export default function Coordinators() {
 
       <DataTable columns={columns} data={coordinators} rowKey={(c) => c.id} onRowClick={(c) => setSelectedId(c.id)} empty="No coordinators yet." emptyIcon="user-group" emptyAction={{ label: '+ Add Coordinator', onClick: () => setAdding(true) }} />
 
-      {adding && <AddCoordinator onClose={() => setAdding(false)} />}
+      {adding && <CoordinatorForm onClose={() => setAdding(false)} />}
       {selected && <CoordinatorPanel coordinator={selected} onClose={() => setSelectedId('')} />}
     </div>
   );

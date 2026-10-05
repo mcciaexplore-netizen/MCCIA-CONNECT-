@@ -1,14 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import { api, ApiError, errorMessage } from '../lib/utils';
-import { DEFAULT_SETTINGS, type AppSettings, type AuditLog, type Booking, type Client, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket } from '../types';
+import { api, ApiError, errorMessage, setStudioZone } from '../lib/utils';
+import { DEFAULT_SETTINGS, type AppSettings, type Booking, type Client, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket } from '../types';
 
 /** Loaded for everyone as soon as they sign in. */
 interface Base {
   modules: Module[];
   coordinators: Coordinator[]; // admins get everyone, a coordinator only themselves
-  settings: AppSettings; // admin only (defaults for coordinators)
+  settings: AppSettings; // everything for admins; coordinators get the studio name, venue and time zone (the rest are defaults)
 }
 
 /** Loaded per page: a page asks for what it shows (usePageData) and it is kept up to date from then on. */
@@ -17,10 +17,9 @@ interface Records {
   clients: Client[];
   bookings: Booking[];
   slotConfigs: SlotConfig[]; // admin only
-  auditLogs: AuditLog[]; // admin only
 }
 
-const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', clients: '/api/clients', bookings: '/api/bookings', slotConfigs: '/api/slots', auditLogs: '/api/audit-logs' };
+const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', clients: '/api/clients', bookings: '/api/bookings', slotConfigs: '/api/slots' };
 export type Slice = keyof Records;
 
 const EMPTY_BASE: Base = { modules: [], coordinators: [], settings: DEFAULT_SETTINGS };
@@ -155,8 +154,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const [modules, coordinators, settings] = await Promise.all([
         get<Module[]>('/api/modules'),
         get<Coordinator[]>('/api/coordinators'),
-        role === 'super_admin' ? get<AppSettings>('/api/settings') : DEFAULT_SETTINGS,
+        role === 'super_admin' ? get<AppSettings>('/api/settings') : get<Pick<AppSettings, 'brand' | 'venue' | 'timezone'>>('/api/settings?public=1').then((s) => ({ ...DEFAULT_SETTINGS, ...s })),
       ]);
+      setStudioZone(settings.timezone.tz);
       setBase({ modules, coordinators, settings });
       setBaseReady(true);
     } catch (e) {
@@ -219,14 +219,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const file = await api<Blob>(`/api/excel/download?${query}`, { blob: true });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(file);
-      link.download = `MCCIA-${audit ? 'Audit-Logs' : 'Bookings'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      const brand = base.settings.brand.name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'Studio';
+      link.download = `${brand}-${audit ? 'Audit-Logs' : 'Bookings'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
       link.click();
       URL.revokeObjectURL(link.href);
       toast.success(audit ? 'Audit log downloaded' : 'Excel downloaded');
     } catch (e) {
       if (!sessionEnded(e)) toast.error(errorMessage(e));
     }
-  }, [sessionEnded]);
+  }, [sessionEnded, base.settings.brand.name]);
 
   // ---------- lookups ----------
   const tickets = records.tickets ?? NONE;
@@ -252,7 +253,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     clients,
     bookings,
     slotConfigs: records.slotConfigs ?? NONE,
-    auditLogs: records.auditLogs ?? NONE,
     authLoading,
     user,
     role,

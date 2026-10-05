@@ -3,11 +3,12 @@ import { Link } from 'react-router';
 import PublicShell from '../../components/layout/PublicShell';
 import EmptyState from '../../components/ui/EmptyState';
 import { moduleColor } from '../../components/ui/ModuleBadge';
-import { api, errorMessage } from '../../lib/utils';
+import { api, errorMessage, usePublicSettings } from '../../lib/utils';
 import type { LandingData } from '../../types';
 
 /** / for visitors who are not signed in: the live booking pages as three cards. No login, nothing to remember. */
 export default function Landing() {
+  const { brand } = usePublicSettings();
   const [data, setData] = useState<LandingData | null>(null);
   const [error, setError] = useState('');
 
@@ -21,7 +22,7 @@ export default function Landing() {
 
   const footer = (
     <>
-      <p className="font-medium text-ink">MCCIA Pune AI Studio</p>
+      <p className="font-medium text-ink">{brand.name}</p>
       {data?.venue && <p className="mt-1 whitespace-pre-line">{data.venue}</p>}
       <Link to="/login" className="mt-2 inline-block text-ink-3 hover:text-primary hover:underline">Staff login</Link>
     </>
