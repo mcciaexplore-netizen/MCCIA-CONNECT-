@@ -24,7 +24,7 @@ function top(values: string[]) {
 
 function Alert({ tone, children, action, onAction }: { tone: 'red' | 'amber'; children: ReactNode; action: string; onAction: () => void }) {
   return (
-    <div role="alert" className={cn('mb-3 flex items-center justify-between gap-3 rounded-md border px-4 py-2.5', tone === 'red' ? 'border-primary bg-primary-light text-primary-dark' : 'border-gold bg-gold-light text-[#8a6d1c]')}>
+    <div role="alert" className={cn('mb-3 flex items-center justify-between gap-3 rounded-md border px-4 py-2.5', tone === 'red' ? 'border-danger bg-danger-light text-danger-dark' : 'border-gold bg-gold-light text-[#8a6d1c]')}>
       <span className="font-medium">{children}</span>
       <button className="btn" onClick={onAction}>{action}</button>
     </div>
@@ -55,7 +55,7 @@ export default function Dashboard() {
       header: 'Coordinator',
       cell: (s) => {
         const c = getCoordinator(s.ticket.coordinatorId);
-        return c ? <span className="inline-flex items-center gap-2"><Avatar name={c.name} color={c.color} size="sm" />{c.name}</span> : <span className="text-primary">Unassigned</span>;
+        return c ? <span className="inline-flex items-center gap-2"><Avatar name={c.name} color={c.color} size="sm" />{c.name}</span> : <span className="text-danger">Unassigned</span>;
       },
     },
     { header: 'Mode', cell: (s) => <ModePill mode={s.booking.mode} /> },

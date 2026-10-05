@@ -1,13 +1,13 @@
 import type { Module } from '../../types';
 
-// The three studio modules use the brand palette; any module an admin adds uses its own colour.
+// The three studio modules use the theme palette (blue, green, gold); any module an admin adds uses its own colour.
 const BRAND: Record<string, string> = {
   'AI Consultation': 'var(--primary)',
-  'Applet Setup': 'var(--gold)',
-  'Cluster Development': 'var(--navy)',
+  'Applet Setup': 'var(--accent)',
+  'Cluster Development': 'var(--gold)',
 };
 
-/** The module's dot colour: brand palette for the three studio modules, else the module's own colour. */
+/** The module's dot colour: theme palette for the three studio modules, else the module's own colour. */
 export const moduleColor = (module: Pick<Module, 'name' | 'color'>) => BRAND[module.name] ?? module.color;
 
 export default function ModuleBadge({ module }: { module?: Pick<Module, 'name' | 'color'> }) {

@@ -38,7 +38,7 @@ export default function DetailsStep({ questions, client, onClient, answers, onAn
           <QuestionFields questions={questions} values={answers} onChange={onAnswers} errors={answerErrors} />
         </div>
       )}
-      {(Object.keys(clientErrors).length > 0 || Object.keys(answerErrors).length > 0) && <p className="text-sm font-medium text-primary">Please fix the highlighted fields.</p>}
+      {(Object.keys(clientErrors).length > 0 || Object.keys(answerErrors).length > 0) && <p className="text-sm font-medium text-danger">Please fix the highlighted fields.</p>}
       {onBack ? (
         <div className="flex gap-3">
           <button type="button" className="btn h-11" onClick={onBack}>Back</button>

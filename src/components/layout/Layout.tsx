@@ -31,7 +31,7 @@ export default function Layout() {
             ))}
           </nav>
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold tracking-widest text-primary">MCCIAPUNE</span>
+            <span className="text-xs font-bold tracking-widest text-primary-dark">MCCIAPUNE</span>
             <span title={name}><Avatar name={name} color={coordinator?.color} size="sm" /></span>
             <button title="Sign out" onClick={signOut} className="rounded p-1 text-ink-2 transition hover:bg-page hover:text-primary">
               <Icon name="logout" />

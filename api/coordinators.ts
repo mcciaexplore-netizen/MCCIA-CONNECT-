@@ -3,7 +3,7 @@ import { hashPassword } from './_auth.js';
 import { audit, db, handler, HttpError, isUniqueViolation, needEmail, needString, optString, readBody, requireUser } from './_lib.js';
 import { coordinators, users } from './_schema.js';
 
-const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#C41E3A');
+const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
 const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('');
 
 export default handler({

@@ -2,44 +2,53 @@
 
 /* MCCIA Pune brand colours on a Zoho Desk layout. Everything else reads these variables. */
 :root {
-  --primary: #c41e3a;
-  --primary-dark: #8b1a1a;
-  --primary-light: #f9e5e8;
+  /* MCCIA App Hub theme: a blue to green sidebar, navy headings, a pale blue-grey page and teal icons. */
+  --primary: #0157b3;
+  --primary-dark: #003f8a;
+  --primary-light: #e3eefb;
+  --accent: #11b981;
+  --teal: #0a9c90;
   --gold: #c9a84c;
   --gold-light: #fdf6e3;
-  --navy: #1a3a5c;
-  --navy-dark: #0f2340;
+  --navy: #003f8a;
+  --navy-dark: #002d63;
+  /* errors and destructive actions stay red, whatever the brand colour is */
+  --danger: #c41e3a;
+  --danger-dark: #8b1a1a;
+  --danger-light: #f9e5e8;
 
   --sidebar-width: 48px;
   --nav-width: 220px;
   --topbar-height: 44px;
 
-  --bg-page: #f4f6f8;
+  --bg-page: #e7ecf4;
   --bg-card: #ffffff;
-  --bg-sidebar: #1a3a5c;
-  --bg-sidebar-active: #c41e3a;
+  --bg-sidebar: linear-gradient(180deg, #0157b3 12%, #0471a5 48%, #0a9b91 80%, #0fb384 100%);
+  --bg-sidebar-active: #003f8a;
+  --icon-gradient: linear-gradient(135deg, #0474a3, #0a9c90);
 
   --text-primary: #1a1f36;
   --text-secondary: #6b7280;
   --text-muted: #9ca3af;
 
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
+  --border: #e6ebf2;
+  --border-strong: #d3dae6;
 
-  --font: 'Inter', system-ui, sans-serif;
-  --radius: 6px;
+  --font: 'Outfit', system-ui, sans-serif;
+  --radius: 10px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 20px rgba(1, 87, 179, 0.05);
 
   /* table rows */
   --row-hover: #f0f7ff;
-  --row-selected: #fce8ec;
+  --row-selected: #e3eefb;
 
   /* status badges: background / text */
   --status-new-bg: var(--primary-light);
   --status-new-text: var(--primary-dark);
   --status-pending-bg: var(--gold-light);
   --status-pending-text: #8a6d1c;
-  --status-in_progress-bg: #e3edf7;
-  --status-in_progress-text: var(--navy);
+  --status-in_progress-bg: #dcf4ef;
+  --status-in_progress-text: #0b6b5f;
   --status-completed-bg: #e6f6ec;
   --status-completed-text: #166534;
   --status-cancelled-bg: #f3f4f6;
@@ -56,6 +65,10 @@
   --color-primary: var(--primary);
   --color-primary-dark: var(--primary-dark);
   --color-primary-light: var(--primary-light);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-danger-dark: var(--danger-dark);
+  --color-danger-light: var(--danger-light);
   --color-gold: var(--gold);
   --color-gold-light: var(--gold-light);
   --color-navy: var(--navy);
@@ -83,6 +96,7 @@
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
     padding: 16px;
   }
   .page-header {
@@ -127,11 +141,11 @@
     background: var(--primary-dark);
   }
   .btn-danger {
-    border-color: var(--primary-light);
-    color: var(--primary);
+    border-color: var(--danger-light);
+    color: var(--danger);
   }
   .btn-danger:hover:not(:disabled) {
-    background: var(--primary-light);
+    background: var(--danger-light);
   }
 
   /* Zoho Desk style dense table (components/ui/DataTable.tsx) */

@@ -14,10 +14,10 @@ const LABELS: Record<string, string> = {
 
 /** green = created, red = cancelled, orange = reassigned, blue = anything else. */
 export function logColor(log: AuditLog) {
-  if (log.action.endsWith('.created')) return '#16a34a';
-  if (log.newValue?.status === 'cancelled') return 'var(--primary)';
+  if (log.action.endsWith('.created')) return 'var(--accent)';
+  if (log.newValue?.status === 'cancelled') return 'var(--danger)';
   if (log.action.includes('reassigned') || (log.newValue && 'coordinator' in log.newValue)) return '#ea580c';
-  return '#2563eb';
+  return 'var(--primary)';
 }
 
 /** Audit log entries as a timeline, newest first. Pass ticketNumbers to label which ticket an entry belongs to. */

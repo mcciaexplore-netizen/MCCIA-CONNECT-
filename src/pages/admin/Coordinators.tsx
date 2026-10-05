@@ -8,7 +8,7 @@ import Modal from '../../components/ui/Modal';
 import { cn, isOpen } from '../../lib/utils';
 import type { Coordinator } from '../../types';
 
-const BLANK = { name: '', email: '', phone: '', color: '#C41E3A', password: '' };
+const BLANK = { name: '', email: '', phone: '', color: '#0157b3', password: '' };
 
 function AddCoordinator({ onClose }: { onClose: () => void }) {
   const { mutate } = useData();

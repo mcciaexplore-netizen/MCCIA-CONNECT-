@@ -20,15 +20,15 @@ export default function Sidebar({ open, onClose }: Props) {
   return (
     <>
       {open && <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={onClose} />}
-      <aside className={cn('fixed inset-y-0 left-0 z-40 flex shrink-0 transition-transform md:static md:translate-x-0', open ? 'translate-x-0' : '-translate-x-full')}>
-        {/* icon bar: one icon per section */}
-        <div className="flex flex-col items-center gap-1 py-2" style={{ width: 'var(--sidebar-width)', background: 'var(--bg-sidebar)' }}>
+      <aside className={cn('fixed inset-y-0 left-0 z-40 flex shrink-0 transition-transform md:static md:translate-x-0', open ? 'translate-x-0' : '-translate-x-full')} style={{ background: 'var(--bg-sidebar)' }}>
+        {/* icon bar: one icon per section (the gradient is on the whole sidebar) */}
+        <div className="flex flex-col items-center gap-1 border-r border-white/15 py-2" style={{ width: 'var(--sidebar-width)' }}>
           {NAV[role].map((section) => (
             <button
               key={section.title}
               title={section.title}
               onClick={() => navigate(section.items[0].to)}
-              className={cn('flex h-8 w-8 items-center justify-center rounded-full transition', section === active ? 'text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}
+              className={cn('flex h-8 w-8 items-center justify-center rounded-full transition', section === active ? 'text-accent' : 'text-white/80 hover:bg-white/10 hover:text-white')}
               style={section === active ? { background: 'var(--bg-sidebar-active)' } : undefined}
             >
               <Icon name={section.icon} />
@@ -40,8 +40,8 @@ export default function Sidebar({ open, onClose }: Props) {
         </div>
 
         {/* nav panel: the active section's pages */}
-        <nav className="flex flex-col border-r border-line bg-white" style={{ width: 'var(--nav-width)' }}>
-          <h2 className="flex items-center border-b border-line px-4 text-xs font-semibold uppercase tracking-wide text-ink-2" style={{ height: 'var(--topbar-height)' }}>
+        <nav className="flex flex-col" style={{ width: 'var(--nav-width)' }}>
+          <h2 className="flex items-center border-b border-white/15 px-4 text-xs font-semibold uppercase tracking-wide text-white/70" style={{ height: 'var(--topbar-height)' }}>
             {active.title}
           </h2>
           <ul className="py-2">
@@ -50,7 +50,7 @@ export default function Sidebar({ open, onClose }: Props) {
                 <NavLink
                   to={item.to}
                   className={({ isActive }) =>
-                    cn('block border-l-[3px] px-4 py-2 text-[13px]', isActive ? 'border-primary bg-primary-light font-medium text-primary' : 'border-transparent text-ink hover:bg-page')
+                    cn('block border-l-[3px] px-4 py-2 text-[13px]', isActive ? 'border-accent bg-navy font-medium text-accent' : 'border-transparent text-white/90 hover:bg-white/10')
                   }
                 >
                   {item.label}

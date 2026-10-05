@@ -4,7 +4,7 @@ import { formQuestions, modules } from './_schema.js';
 import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type FieldType, type FormField } from '../src/types/index.js';
 
 const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#C41E3A');
+const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
 
 function cleanQuestions(raw: unknown): FormField[] {
   if (!Array.isArray(raw)) throw new HttpError(400, 'Questions must be a list');

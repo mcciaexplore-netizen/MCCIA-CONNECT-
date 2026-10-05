@@ -21,7 +21,7 @@ export default function StatCard({ label, value, hint, icon, highlight }: Props)
     <div className={cn('card', icon && 'flex items-center gap-3', highlight && 'border-gold bg-gold-light')}>
       {icon ? (
         <>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary-light text-primary">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white" style={{ background: 'var(--icon-gradient)' }}>
             <Icon name={icon} className="h-5 w-5" />
           </span>
           <div className="min-w-0">{text}</div>

@@ -14,7 +14,7 @@ export default function QuestionFields({ questions, values, onChange, errors = {
     <div className="space-y-4">
       {questions.map((question) => {
         const set = (value: string) => onChange({ ...values, [question.id]: value });
-        const shared = { required: question.required, value: values[question.id] ?? '', className: cn('input', errors[question.id] && 'border-primary') };
+        const shared = { required: question.required, value: values[question.id] ?? '', className: cn('input', errors[question.id] && 'border-danger') };
         return (
           <div key={question.id}>
             <label className="label">
@@ -42,7 +42,7 @@ export default function QuestionFields({ questions, values, onChange, errors = {
             ) : (
               <input {...shared} type={question.type === 'number' ? 'number' : 'text'} step="any" onChange={(e) => set(e.target.value)} />
             )}
-            {errors[question.id] && <p className="mt-1 text-xs text-primary">{errors[question.id]}</p>}
+            {errors[question.id] && <p className="mt-1 text-xs text-danger">{errors[question.id]}</p>}
           </div>
         );
       })}

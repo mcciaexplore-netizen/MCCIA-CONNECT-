@@ -19,7 +19,7 @@ export default function ClientFields({ value, onChange, errors = {}, disabled }:
     <div>
       <label className="label">{label}</label>
       {control}
-      {errors[key] && <p className="mt-1 text-xs text-primary">{errors[key]}</p>}
+      {errors[key] && <p className="mt-1 text-xs text-danger">{errors[key]}</p>}
     </div>
   );
   const text = (key: TextKey, label: string, extra: { required?: boolean; type?: string; placeholder?: string } = {}) =>
@@ -27,7 +27,7 @@ export default function ClientFields({ value, onChange, errors = {}, disabled }:
       key,
       extra.required ? `${label} *` : label,
       <input
-        className={cn('input', errors[key] && 'border-primary')}
+        className={cn('input', errors[key] && 'border-danger')}
         type={extra.type ?? 'text'}
         inputMode={extra.type === 'tel' ? 'numeric' : undefined}
         required={extra.required}

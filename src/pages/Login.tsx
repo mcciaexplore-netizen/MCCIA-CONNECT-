@@ -41,7 +41,7 @@ export default function Login() {
             <label className="label">Password</label>
             <input className="input" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          {error && <p role="alert" className="rounded-md bg-primary-light px-3 py-2 text-sm text-primary-dark">{error}</p>}
+          {error && <p role="alert" className="rounded-md bg-danger-light px-3 py-2 text-sm text-danger-dark">{error}</p>}
           <button className="btn btn-primary h-10 w-full" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
