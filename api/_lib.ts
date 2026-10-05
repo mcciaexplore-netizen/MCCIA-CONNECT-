@@ -132,7 +132,7 @@ export async function requireUser(req: Request, ...roles: Role[]): Promise<AuthU
 
 /** WHERE clause limiting rows to the signed-in coordinator's own; admins see everything (undefined = no filter). */
 export function ownedBy(user: AuthUser, column: PgColumn) {
-  return user.role === 'admin' ? undefined : eq(column, user.coordinatorId!);
+  return user.role === 'super_admin' ? undefined : eq(column, user.coordinatorId!);
 }
 
 // ---------- audit & settings ----------

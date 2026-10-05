@@ -16,8 +16,10 @@ export const useIsMobile = () =>
 
 export const cn = (...classes: (string | false | null | undefined)[]) => classes.filter(Boolean).join(' ');
 
-export const homeFor = (role: Role | null) =>
-  role === 'admin' ? '/admin/dashboard' : role === 'coordinator' ? '/coordinator/dashboard' : '/login';
+/** A role as people read it: super_admin → "Super admin", coordinator → "Coordinator". */
+export const roleLabel = (role: string) => (role.charAt(0).toUpperCase() + role.slice(1)).replace(/_/g, ' ');
+
+export const homeFor = (role: Role) => (role === 'super_admin' ? '/admin/dashboard' : '/coordinator/dashboard');
 
 export const isOpen = (status: TicketStatus) => !CLOSED_STATUSES.includes(status);
 
@@ -79,12 +81,14 @@ interface ApiOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   blob?: boolean;
+  anonymous?: boolean; // leave the session cookie out, so a signed-in staff member still books as a client on the public pages
 }
 
 /** The only way the browser talks to the backend: a Vercel function under /api (the session cookie goes along). */
-export async function api<T = unknown>(path: string, { method = 'GET', body, blob }: ApiOptions = {}): Promise<T> {
+export async function api<T = unknown>(path: string, { method = 'GET', body, blob, anonymous }: ApiOptions = {}): Promise<T> {
   const res = await fetch(path, {
     method,
+    credentials: anonymous ? 'omit' : 'same-origin',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
   });

@@ -22,6 +22,7 @@ import MyClients from './pages/coordinator/MyClients';
 import MySchedule from './pages/coordinator/MySchedule';
 import BookingPage from './pages/public/BookingPage';
 import ConfirmationPage from './pages/public/ConfirmationPage';
+import Landing from './pages/public/Landing';
 
 /** Needs a signed-in user with the given role; anyone else is sent to login or to their own home. */
 function ProtectedRoute({ role }: { role: Role }) {
@@ -32,9 +33,11 @@ function ProtectedRoute({ role }: { role: Role }) {
   return <Layout />;
 }
 
+/** / : signed-in staff go to their own dashboard, everyone else sees the landing page. */
 function Home() {
   const { authLoading, role } = useData();
-  return authLoading ? null : <Navigate to={homeFor(role)} replace />;
+  if (authLoading) return null;
+  return role ? <Navigate to={homeFor(role)} replace /> : <Landing />;
 }
 
 export default function App() {
@@ -44,7 +47,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
 
-        <Route path="/admin" element={<ProtectedRoute role="admin" />}>
+        <Route path="/admin" element={<ProtectedRoute role="super_admin" />}>
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="tickets" element={<Tickets />} />
           <Route path="tickets/:ticketId" element={<TicketDetail />} />
@@ -69,7 +72,7 @@ export default function App() {
 
         <Route path="/book/:moduleSlug" element={<BookingPage />} />
         <Route path="/confirmed/:bookingId" element={<ConfirmationPage />} />
-        <Route path="*" element={<Home />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="top-right" />
     </>

@@ -1,4 +1,4 @@
-import { describeChange, formatDateTime } from '../../lib/utils';
+import { describeChange, formatDateTime, roleLabel } from '../../lib/utils';
 import type { AuditLog } from '../../types';
 
 const LABELS: Record<string, string> = {
@@ -34,7 +34,7 @@ export default function ActivityList({ logs, ticketNumbers }: { logs: AuditLog[]
           </p>
           {describeChange(log) && <p className="text-ink-2">{describeChange(log)}</p>}
           <p className="text-xs text-ink-3">
-            {log.doneByName} ({log.role}) · {formatDateTime(log.createdAt)}
+            {log.doneByName} ({log.role ? roleLabel(log.role) : '—'}) · {formatDateTime(log.createdAt)}
           </p>
         </li>
       ))}

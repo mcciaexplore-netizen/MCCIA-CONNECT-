@@ -45,7 +45,7 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
 
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-2">Contact Properties</h3>
-        {role === 'admin' && (
+        {role === 'super_admin' && (
           <Link to={`/admin/clients/${client.id}`} title="Edit contact" className="rounded p-1 text-ink-2 hover:bg-page hover:text-primary"><Icon name="pencil" /></Link>
         )}
       </div>
@@ -58,7 +58,7 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
         ))}
       </dl>
 
-      {role === 'admin' && (
+      {role === 'super_admin' && (
         <>
           <hr className="my-4 border-line" />
           <button className="flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-ink-2" onClick={() => setHistoryOpen(!historyOpen)}>

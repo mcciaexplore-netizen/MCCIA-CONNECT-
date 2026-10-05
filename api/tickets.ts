@@ -13,7 +13,7 @@ const MAX_BULK = 100;
 async function updateTicket(user: AuthUser, id: string, body: Record<string, unknown>) {
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, id));
   if (!ticket) throw new HttpError(404, 'Ticket not found');
-  if (user.role !== 'admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
+  if (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
 
   const patch: Partial<typeof tickets.$inferInsert> = {};
   const bookingPatch: Partial<typeof bookings.$inferInsert> = {};
@@ -32,7 +32,7 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   }
 
   if (body.coordinatorId !== undefined) {
-    if (user.role !== 'admin') throw new HttpError(403, 'Only admins can assign tickets');
+    if (user.role !== 'super_admin') throw new HttpError(403, 'Only admins can assign tickets');
     const newId = typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
     if (newId !== ticket.coordinatorId) {
       const names = new Map((await db.select({ id: coordinators.id, name: coordinators.name, isActive: coordinators.isActive }).from(coordinators)).map((c) => [c.id, c]));

@@ -106,8 +106,8 @@ export default handler({
     const [existing] = await db.select().from(clients).where(sql`lower(${clients.email}) = ${clientInput.email}`).orderBy(clients.createdAt).limit(1);
 
     // Staff booking for a client must choose the coordinator; on the public page it is the client's assigned coordinator (if still active).
-    const picked = user?.role === 'admin' && typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
-    if (user?.role === 'admin' && !picked) throw new HttpError(400, 'Choose a coordinator for this booking');
+    const picked = user?.role === 'super_admin' && typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
+    if (user?.role === 'super_admin' && !picked) throw new HttpError(400, 'Choose a coordinator for this booking');
     const wanted = picked ?? existing?.assignedCoordinatorId;
     const [coordinator] = wanted && UUID.test(wanted) ? await db.select().from(coordinators).where(eq(coordinators.id, wanted)) : [];
     if (picked && !coordinator?.isActive) throw new HttpError(400, 'Coordinator not found or inactive');

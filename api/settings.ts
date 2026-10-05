@@ -4,13 +4,13 @@ import { DEFAULT_SETTINGS, type AppSettings } from '../src/types/index.js';
 
 export default handler({
   GET: async (req) => {
-    await requireUser(req, 'admin');
+    await requireUser(req, 'super_admin');
     return await loadSettings();
   },
 
   // Body: any of the setting keys, e.g. { venue: { address: "..." } }. Unknown fields are dropped.
   PUT: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const keys = (Object.keys(DEFAULT_SETTINGS) as (keyof AppSettings)[]).filter((key) => body[key] !== undefined);
     if (!keys.length) throw new HttpError(400, 'Nothing to save');

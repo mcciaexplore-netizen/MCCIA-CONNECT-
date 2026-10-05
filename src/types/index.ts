@@ -3,7 +3,7 @@ import type { auditLogs, bookings, clients, coordinators, modules, slotConfig, t
 
 // ---------- constants shared by the browser and the API ----------
 
-export const ROLES = ['admin', 'coordinator'] as const;
+export const ROLES = ['super_admin', 'coordinator'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const TICKET_STATUSES = ['new', 'pending', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show'] as const;
@@ -207,6 +207,12 @@ export interface CoordinatorHistoryEntry {
 
 /** What the public booking page may see of a module (and the venue it shows for in-person sessions). */
 export type PublicModule = Pick<Module, 'id' | 'slug' | 'name' | 'description' | 'color' | 'questions'> & { venue: string };
+
+/** What the landing page lists: the live booking pages, and the studio address for its footer. */
+export interface LandingData {
+  modules: Pick<Module, 'id' | 'slug' | 'name' | 'description' | 'color'>[];
+  venue: string;
+}
 
 /** A slot the studio offers, with the modes (online/offline) that still have room. No modes = fully booked. */
 export interface SlotInfo {

@@ -22,7 +22,7 @@ export default function TicketDetail() {
   const { tickets, auditLogs, role, base } = useData();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
-  const page = usePageData('tickets', 'clients', 'bookings', ...(role === 'admin' ? (['auditLogs'] as Slice[]) : []));
+  const page = usePageData('tickets', 'clients', 'bookings', ...(role === 'super_admin' ? (['auditLogs'] as Slice[]) : []));
 
   const ticket = tickets.find((t) => t.id === ticketId);
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
@@ -37,7 +37,7 @@ export default function TicketDetail() {
   const tabs: [Tab, string][] = [
     ['overview', 'Overview'],
     ['notes', `Internal Notes (${ticket.internalNotes.length})`],
-    ...(role === 'admin' ? ([['audit', 'Audit Log']] as [Tab, string][]) : []),
+    ...(role === 'super_admin' ? ([['audit', 'Audit Log']] as [Tab, string][]) : []),
   ];
 
   return (
@@ -57,7 +57,7 @@ export default function TicketDetail() {
 
         {tab === 'overview' && <OverviewTab ticket={ticket} />}
         {tab === 'notes' && <NotesTab ticket={ticket} />}
-        {tab === 'audit' && role === 'admin' && (
+        {tab === 'audit' && role === 'super_admin' && (
           <section className="card">
             <ActivityList logs={auditLogs.filter((log) => log.entityType === 'ticket' && log.entityId === ticket.id)} />
           </section>

@@ -9,7 +9,7 @@ export interface NavSection {
 
 // The icon bar shows the sections; the nav panel next to it lists the active section's pages.
 export const NAV: Record<Role, NavSection[]> = {
-  admin: [
+  super_admin: [
     { title: 'Dashboard', icon: 'grid', items: [{ to: '/admin/dashboard', label: 'Dashboard' }] },
     {
       title: 'Tickets',

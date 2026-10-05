@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
-import { describeChange, formatDateTime } from '../../lib/utils';
+import { describeChange, formatDateTime, roleLabel } from '../../lib/utils';
 import type { AuditLog } from '../../types';
 
 const NO_FILTERS = { from: '', to: '', action: '', doneBy: '' };
@@ -29,7 +29,7 @@ export default function AuditLogs() {
     { header: 'Entity', cell: entity },
     { header: 'Description', cell: (l) => describeChange(l) || '—' },
     { header: 'Done By', cell: (l) => l.doneByName ?? '—' },
-    { header: 'Role', cell: (l) => l.role ?? '—' },
+    { header: 'Role', cell: (l) => (l.role ? roleLabel(l.role) : '—') },
   ];
 
   const day = (l: AuditLog) => (l.createdAt ? format(new Date(l.createdAt), 'yyyy-MM-dd') : '');

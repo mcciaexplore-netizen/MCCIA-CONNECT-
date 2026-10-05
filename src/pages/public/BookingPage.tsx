@@ -40,7 +40,7 @@ export default function BookingPage() {
     setSubmitting(true);
     try {
       // One request does it all: client, booking, ticket, Excel row number, Calendar event + Meet link, emails.
-      const result = await api<BookingResult>('/api/bookings', { method: 'POST', body: { moduleId: module.id, startsAt, mode, client, answers } });
+      const result = await api<BookingResult>('/api/bookings', { method: 'POST', anonymous: true, body: { moduleId: module.id, startsAt, mode, client, answers } });
       navigate(`/confirmed/${result.bookingId}`);
     } catch (e) {
       toast.error(errorMessage(e));

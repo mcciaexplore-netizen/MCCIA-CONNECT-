@@ -28,7 +28,7 @@ export default handler({
   GET: async (req, url) => {
     const slug = url.searchParams.get('module');
     if (!slug) {
-      await requireUser(req, 'admin');
+      await requireUser(req, 'super_admin');
       return await db.select().from(slotConfig);
     }
 
@@ -42,7 +42,7 @@ export default handler({
 
   // Saves (creates or replaces) a module's slot config.
   PUT: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const moduleId = needString(body.moduleId, 'Module');
 

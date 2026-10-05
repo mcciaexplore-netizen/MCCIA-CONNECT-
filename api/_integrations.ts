@@ -8,7 +8,7 @@ import { HttpError, loadSettings } from './_lib.js';
  */
 export async function sendMail(to: string, subject: string, text: string) {
   const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, ''); // Google shows it in groups of four
   if (!user || !pass) throw new HttpError(500, 'Email is not configured (GMAIL_USER / GMAIL_APP_PASSWORD)');
   if (/[\r\n<>]/.test(to)) throw new HttpError(400, 'Invalid recipient');
   const brand = (await loadSettings()).brand.name;

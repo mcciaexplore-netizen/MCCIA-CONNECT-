@@ -24,7 +24,7 @@ const ALL_TABS: [Tab, string][] = [['overview', 'Overview'], ['history', 'Histor
 export default function ClientProfile() {
   const { clientId } = useParams();
   const { clients, tickets, bookings, auditLogs, role, base } = useData();
-  const admin = role === 'admin';
+  const admin = role === 'super_admin';
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
   const page = usePageData('clients', 'tickets', 'bookings', ...(admin ? (['auditLogs'] as Slice[]) : []));

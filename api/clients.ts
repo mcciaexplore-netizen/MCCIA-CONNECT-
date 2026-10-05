@@ -43,13 +43,13 @@ export default handler({
   GET: async (req, url) => {
     const historyOf = url.searchParams.get('history');
     if (historyOf) {
-      await requireUser(req, 'admin');
+      await requireUser(req, 'super_admin');
       if (!UUID.test(historyOf)) throw new HttpError(400, 'Invalid client');
       return await coordinatorHistory(historyOf);
     }
     const user = await requireUser(req);
     const mine =
-      user.role === 'admin'
+      user.role === 'super_admin'
         ? undefined
         : or(
             eq(clients.assignedCoordinatorId, user.coordinatorId!),
@@ -59,14 +59,14 @@ export default handler({
   },
 
   POST: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const [client] = await db.insert(clients).values(parseClient((await readBody(req)).client)).returning();
     await audit(user, 'client.created', 'client', client.id, undefined, { company: client.companyName, contact: client.personName });
     return client;
   },
 
   PATCH: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const id = needString(body.id, 'Client');
     const [before] = await db.select().from(clients).where(eq(clients.id, id));
@@ -83,7 +83,7 @@ export default handler({
   // Assigns a coordinator to a client, or reassigns (a reason of 20+ characters is then required). The client's open
   // tickets and upcoming sessions move to the new coordinator.
   PUT: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const clientId = needString(body.clientId, 'Client');
     const coordinatorId = needString(body.coordinatorId, 'Coordinator');

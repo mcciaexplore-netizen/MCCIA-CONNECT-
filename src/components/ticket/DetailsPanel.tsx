@@ -45,7 +45,7 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       <Field label="Coordinator">
         <div className="flex items-center justify-between gap-2">
           {coordinator ? <span className="inline-flex items-center gap-2"><Avatar name={coordinator.name} color={coordinator.color} size="sm" />{coordinator.name}</span> : <span className="text-ink-3">Unassigned</span>}
-          {role === 'admin' && <button className="btn px-2 py-1 text-xs" onClick={() => setReassigning(true)}>{coordinator ? 'Reassign' : 'Assign'}</button>}
+          {role === 'super_admin' && <button className="btn px-2 py-1 text-xs" onClick={() => setReassigning(true)}>{coordinator ? 'Reassign' : 'Assign'}</button>}
         </div>
       </Field>
 

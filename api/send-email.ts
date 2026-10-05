@@ -10,7 +10,7 @@ export default handler({
     const body = await readBody(req);
 
     if (body.test) {
-      if (user.role !== 'admin') throw new HttpError(403, 'Only admins can send a test email');
+      if (user.role !== 'super_admin') throw new HttpError(403, 'Only admins can send a test email');
       await sendMail(user.email, 'CRM test email', 'Email sending from the CRM is working.');
       return { ok: true };
     }
@@ -25,7 +25,7 @@ export default handler({
       .innerJoin(clients, eq(tickets.clientId, clients.id))
       .where(eq(tickets.id, ticketId));
     if (!row) throw new HttpError(404, 'Ticket not found');
-    if (user.role !== 'admin' && row.ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
+    if (user.role !== 'super_admin' && row.ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
 
     await sendMail(row.email, `${subject} [${row.ticket.ticketNumber}]`, message);
     await audit(user, 'email.sent', 'ticket', ticketId, undefined, { subject });

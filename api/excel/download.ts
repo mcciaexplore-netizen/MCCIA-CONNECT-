@@ -17,7 +17,7 @@ const workbook = (buffer: ArrayBuffer | Buffer, filename: string) =>
 // ?ids=a,b limits it to those tickets (the tickets list's "Export Excel"); ?audit=1 is the audit log instead (one "Audit Logs" tab).
 export default handler({
   GET: async (req, url) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const today = studioDate(new Date());
 
     if (url.searchParams.get('audit')) {

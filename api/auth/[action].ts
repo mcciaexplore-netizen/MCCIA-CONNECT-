@@ -51,7 +51,7 @@ const createUser = handler({
   POST: async (req) => {
     const body = await readBody(req);
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
-    const actor = count === 0 ? null : await requireUser(req, 'admin');
+    const actor = count === 0 ? null : await requireUser(req, 'super_admin');
     if (!actor && (!process.env.JWT_SECRET || body.setupKey !== process.env.JWT_SECRET)) throw new HttpError(403, 'The first admin needs the setup key (JWT_SECRET)');
 
     const email = needEmail(body.email);
@@ -59,9 +59,9 @@ const createUser = handler({
     const password = needString(body.password, 'Password');
     if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
     try {
-      const [created] = await db.insert(users).values({ email, name, role: 'admin', passwordHash: await hashPassword(password) }).returning({ id: users.id });
-      await audit(actor ?? { name, role: 'admin' }, 'user.created', 'user', created.id, undefined, { email, role: 'admin' });
-      return { id: created.id, email, name, role: 'admin' };
+      const [created] = await db.insert(users).values({ email, name, role: 'super_admin', passwordHash: await hashPassword(password) }).returning({ id: users.id });
+      await audit(actor ?? { name, role: 'super_admin' }, 'user.created', 'user', created.id, undefined, { email, role: 'super_admin' });
+      return { id: created.id, email, name, role: 'super_admin' };
     } catch (e) {
       throw isUniqueViolation(e) ? new HttpError(409, 'A user with this email already exists') : e;
     }

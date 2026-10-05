@@ -25,8 +25,16 @@ async function saveQuestions(moduleId: string, formType: string, questions: Form
 }
 
 export default handler({
-  // ?slug=... is public (booking page, active modules only); without it, staff get every module.
+  // ?slug=... (one booking page) and ?public=1 (the live ones, for the landing page) are public; without either, staff get every module.
   GET: async (req, url) => {
+    if (url.searchParams.has('public')) {
+      const live = await db
+        .select({ id: modules.id, slug: modules.slug, name: modules.name, description: modules.description, color: modules.color })
+        .from(modules)
+        .where(eq(modules.isActive, true))
+        .orderBy(asc(modules.name));
+      return { modules: live, venue: (await loadSettings()).venue.address };
+    }
     const slug = url.searchParams.get('slug');
     if (slug) {
       const [module] = await db
@@ -42,7 +50,7 @@ export default handler({
   },
 
   POST: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const name = needString(body.name, 'Name');
     const slug = slugify(optString(body.slug) || name);
@@ -61,7 +69,7 @@ export default handler({
 
   // Saves whichever of the module's details (name, description, colour, live) and forms (booking questions, post-consultation questions) are sent.
   PATCH: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const id = needString(body.id, 'Module');
 

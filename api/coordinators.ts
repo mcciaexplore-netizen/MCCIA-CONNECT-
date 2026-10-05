@@ -10,13 +10,13 @@ export default handler({
   // Admins see everyone; a coordinator only sees their own record.
   GET: async (req) => {
     const user = await requireUser(req);
-    const self = user.role === 'admin' ? undefined : eq(coordinators.id, user.coordinatorId!);
+    const self = user.role === 'super_admin' ? undefined : eq(coordinators.id, user.coordinatorId!);
     return await db.select().from(coordinators).where(self).orderBy(asc(coordinators.name));
   },
 
   // Creates the login (a users row, role = coordinator) and the matching coordinator row in one step.
   POST: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const name = needString(body.name, 'Name');
     const email = needEmail(body.email);
@@ -42,7 +42,7 @@ export default handler({
 
   // Edit details or activate/deactivate. Deactivating also blocks their login.
   PATCH: async (req) => {
-    const user = await requireUser(req, 'admin');
+    const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const id = needString(body.id, 'Coordinator');
 

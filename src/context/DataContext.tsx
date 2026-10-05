@@ -155,7 +155,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const [modules, coordinators, settings] = await Promise.all([
         get<Module[]>('/api/modules'),
         get<Coordinator[]>('/api/coordinators'),
-        role === 'admin' ? get<AppSettings>('/api/settings') : DEFAULT_SETTINGS,
+        role === 'super_admin' ? get<AppSettings>('/api/settings') : DEFAULT_SETTINGS,
       ]);
       setBase({ modules, coordinators, settings });
       setBaseReady(true);

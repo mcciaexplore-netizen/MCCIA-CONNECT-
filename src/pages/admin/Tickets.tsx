@@ -22,7 +22,7 @@ export default function Tickets() {
   const { tickets, modules, coordinators, role, base, getClient, getModule, getCoordinator, getSession, mutate, exportExcel } = useData();
   const load = usePageData('tickets', 'clients', 'bookings');
   const navigate = useNavigate();
-  const admin = role === 'admin';
+  const admin = role === 'super_admin';
   // The dashboard's alerts link here with ?coordinator=none (unassigned) or ?notes=pending (post-consultation not filled).
   const [params] = useSearchParams();
   const [filters, setFilters] = useState({ ...NO_FILTERS, coordinatorId: params.get('coordinator') ?? '', notes: params.get('notes') ?? '' });
