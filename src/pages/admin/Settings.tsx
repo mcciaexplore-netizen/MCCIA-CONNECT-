@@ -125,7 +125,7 @@ export default function Settings() {
                 <input type="checkbox" checked={form.send_confirmations} onChange={(e) => set({ send_confirmations: e.target.checked })} />
                 Email clients a confirmation when they book
               </label>
-              <TestButton label="Send test email" busy="Sending…" path="/api/send-email" body={{ test: true }} success="Test email sent to you" />
+              <TestButton label="Send test email" busy="Sending…" path="/api/send-email" body={{ test: true }} success="Test emails sent to you: one from Gmail, one from Zoho" />
             </>
           )}
         </Panel>

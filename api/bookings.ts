@@ -4,10 +4,12 @@ import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQ
 import { loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail, triggerAppsScript } from './_integrations.js';
+import { adminCopy, clientConfirmation, coordinatorNotice } from './_mail.js';
 import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
 import { BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
-const formatWhen = (date: Date) => date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full', timeStyle: 'short' });
+/** A meeting link we are willing to store, mail and show: https only. */
+const HTTPS_LINK = /^https:\/\/[^\s]{1,500}$/;
 
 /**
  * Called by the Apps Script (apps-script/main.gs) once it has created the calendar event: stores the Meet link and event id.
@@ -20,7 +22,7 @@ async function saveMeetLink(body: Record<string, unknown>) {
 
   const bookingId = needString(body.bookingId, 'Booking');
   const link = optString(body.meetLink);
-  if (link && !/^https:\/\/[^\s]{1,500}$/.test(link)) throw new HttpError(400, 'Invalid meeting link');
+  if (link && !HTTPS_LINK.test(link)) throw new HttpError(400, 'Invalid meeting link');
   const [row] = UUID.test(bookingId)
     ? await db.select({ booking: bookings, ticketId: tickets.id }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).where(eq(bookings.id, bookingId))
     : [];
@@ -150,7 +152,6 @@ export default handler({
     // Apps Script, then email. Their failures never undo the booking.
     const settings = await loadSettings();
     let meetingLink: string | null = null;
-    let scriptSentConfirmation = false;
     try {
       // Creates the Calendar event (and the Meet link for online sessions).
       const reply = await triggerAppsScript({
@@ -166,34 +167,24 @@ export default handler({
         mode,
         venueAddress: settings.venue.address,
         bookingId,
-        sendConfirmation: settings.notifications.send_confirmations, // the script sends the client's email unless this is false
       });
-      // The script replies with the event it created: { success, eventId, meetingLink, clientEmailSent }. Only online sessions have a link.
+      // The script replies with the event it created: { success, eventId, meetingLink }. Only online sessions have a link.
       if (reply?.success === false) throw new Error(`Apps Script reported: ${String(reply.error)}`);
-      scriptSentConfirmation = reply?.clientEmailSent === true;
       const googleEventId = typeof reply?.eventId === 'string' && reply.eventId ? reply.eventId : null;
       const replyLink = reply?.meetingLink ?? reply?.meetLink;
-      meetingLink = mode === 'online' && typeof replyLink === 'string' && replyLink ? replyLink : null;
+      meetingLink = mode === 'online' && typeof replyLink === 'string' && HTTPS_LINK.test(replyLink) ? replyLink : null;
       if (googleEventId || meetingLink) await db.update(bookings).set({ googleEventId, meetingLink }).where(eq(bookings.id, bookingId));
     } catch (e) {
       console.error('Apps Script failed:', e);
     }
 
-    const where =
-      mode === 'online'
-        ? meetingLink
-          ? `Online. Join here: ${meetingLink}`
-          : 'Online. The meeting link will be shared before the session.'
-        : `In person: ${settings.venue.address || settings.brand.name}`;
-    const details = `When: ${formatWhen(start)} (IST)\nWhere: ${where}\nReference: ${ticketNumber}`;
-    const mails: Promise<void>[] = [];
-    // The Apps Script emails the client itself; ours is the fallback for when it did not (failed, slow, not set up).
-    if (settings.notifications.send_confirmations && !scriptSentConfirmation) {
-      mails.push(sendMail(clientInput.email, `Booking confirmed: ${module.name}`, `Hello ${clientInput.personName},\n\nYour ${module.name} session is confirmed.\n\n${details}\n\nWe look forward to seeing you.\n${settings.brand.name}`));
-    }
-    if (settings.notifications.admin_email) {
-      mails.push(sendMail(settings.notifications.admin_email, `New booking ${ticketNumber}: ${module.name}`, `${clientInput.personName} (${clientInput.companyName}) booked ${module.name}.\n\n${details}`));
-    }
+    // Clients are mailed from the Gmail account; the coordinator and the booking copy go out from the Zoho account.
+    const booking = { brand: settings.brand.name, clientName: clientInput.personName, companyName: clientInput.companyName, coordinatorName: coordinator?.name, ticketNumber, moduleName: module.name, start, mode, meetingLink, venue: settings.venue.address };
+    const mails: Promise<unknown>[] = [];
+    if (settings.notifications.send_confirmations) mails.push(sendMail('client', { to: clientInput.email, ...clientConfirmation(booking) }));
+    if (coordinator?.email) mails.push(sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) }));
+    const copyTo = settings.notifications.admin_email;
+    if (copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase()) mails.push(sendMail('internal', { to: copyTo, ...adminCopy(booking) }));
     for (const result of await Promise.allSettled(mails)) if (result.status === 'rejected') console.error('Booking email failed:', result.reason);
 
     return { bookingId, ticketId, ticketNumber, meetingLink };
