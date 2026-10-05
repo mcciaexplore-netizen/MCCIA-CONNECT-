@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { audit, db, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser } from './_lib.js';
+import { audit, cached, db, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser } from './_lib.js';
 import { formQuestions, modules } from './_schema.js';
 import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type FieldType, type FormField } from '../src/types/index.js';
 
@@ -33,7 +33,7 @@ export default handler({
         .from(modules)
         .where(eq(modules.isActive, true))
         .orderBy(asc(modules.name));
-      return { modules: live, venue: (await loadSettings()).venue.address };
+      return cached({ modules: live, venue: (await loadSettings()).venue.address }, 30);
     }
     const slug = url.searchParams.get('slug');
     if (slug) {
@@ -42,7 +42,7 @@ export default handler({
         .from(modules)
         .where(and(eq(modules.slug, slug), eq(modules.isActive, true)));
       if (!module) throw new HttpError(404, 'This booking page does not exist');
-      return { ...module, questions: (await loadBookingQuestions()).get(module.id) ?? [], venue: (await loadSettings()).venue.address };
+      return cached({ ...module, questions: (await loadBookingQuestions()).get(module.id) ?? [], venue: (await loadSettings()).venue.address }, 30);
     }
     await requireUser(req);
     const [rows, questions, postQuestions] = await Promise.all([db.select().from(modules).orderBy(asc(modules.name)), loadBookingQuestions(), loadPostQuestions()]);

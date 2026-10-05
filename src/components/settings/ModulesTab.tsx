@@ -1,13 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import toast from 'react-hot-toast';
 import { useData } from '../../context/DataContext';
+import BookingLink from '../ui/BookingLink';
 import EmptyState from '../ui/EmptyState';
 import type { Module } from '../../types';
 
 function ModuleCard({ module }: { module: Module }) {
   const { mutate } = useData();
   const [draft, setDraft] = useState({ name: module.name, description: module.description ?? '', color: module.color, isActive: module.isActive });
-  const link = `${window.location.origin}/book/${module.slug}`;
 
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -32,10 +31,7 @@ function ModuleCard({ module }: { module: Module }) {
         <input type="checkbox" checked={draft.isActive} onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })} />
         Booking page is live
       </label>
-      <div className="flex items-center gap-2 text-ink-2">
-        <span className="truncate">{link}</span>
-        <button type="button" className="btn shrink-0 px-2 py-1 text-xs" onClick={() => navigator.clipboard.writeText(link).then(() => toast.success('Link copied'))}>Copy</button>
-      </div>
+      <BookingLink module={{ slug: module.slug, isActive: draft.isActive }} />
       <div className="sm:col-span-2">
         <button className="btn btn-primary">Save</button>
       </div>

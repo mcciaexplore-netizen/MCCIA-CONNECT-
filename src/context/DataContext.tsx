@@ -23,6 +23,51 @@ const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', c
 export type Slice = keyof Records;
 
 const EMPTY_BASE: Base = { modules: [], coordinators: [], settings: DEFAULT_SETTINGS };
+
+/** What each kind of write can change besides its own answer: reloaded quietly afterwards, and only what is already on screen. */
+const AFTER: Record<string, { slices: Slice[]; base?: boolean }> = {
+  '/api/tickets': { slices: ['tickets', 'bookings', 'clients'] },
+  '/api/clients': { slices: ['clients', 'tickets', 'bookings'] },
+  '/api/bookings': { slices: ['bookings', 'tickets', 'clients'] },
+  '/api/coordinators': { slices: [], base: true },
+  '/api/modules': { slices: [], base: true },
+  '/api/settings': { slices: [], base: true },
+  '/api/slots': { slices: ['slotConfigs'] },
+};
+
+// A person who was signed in last time has a hint kept here (never a secret). It lets the app ask for their data at the same moment
+// it asks who they are, instead of one trip after the other. A wrong hint costs nothing: the answers are thrown away.
+const HINT = 'crm.signedIn';
+const hinted = () => {
+  try {
+    return localStorage.getItem(HINT) === '1';
+  } catch {
+    return false;
+  }
+};
+const hint = (on: boolean) => {
+  try {
+    if (on) localStorage.setItem(HINT, '1');
+    else localStorage.removeItem(HINT);
+  } catch {
+    // private windows and blocked storage just skip the head start
+  }
+};
+/** The pages that open on the lists, so those lists are worth fetching before the page itself has even loaded. */
+const LISTS_FIRST = /^\/(admin\/(dashboard|tickets|clients|coordinators)|coordinator\/(dashboard|tickets|clients|schedule)|login)?(\/|$)/;
+const STAFF_PATH = /^\/(admin|coordinator|login)?(\/|$)/;
+
+const fetchBase = async (): Promise<Base> => {
+  const [modules, coordinators, settings] = await Promise.all([api<Module[]>('/api/modules'), api<Coordinator[]>('/api/coordinators'), api<Partial<AppSettings>>('/api/settings?mine=1')]);
+  return { modules, coordinators, settings: { ...DEFAULT_SETTINGS, ...settings } };
+};
+const fetchSlices = async (slices: Slice[]): Promise<Partial<Records>> => {
+  const rows = await Promise.all(slices.map((slice) => api<unknown[]>(RECORD_PATHS[slice])));
+  return Object.fromEntries(slices.map((slice, i) => [slice, rows[i]]));
+};
+const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
+/** Puts a row the server just returned into a list: replaces the same id in place, or adds it at the top. */
+const upsert = <T extends { id: string }>(list: T[], row: T) => (list.some((x) => x.id === row.id) ? list.map((x) => (x.id === row.id ? row : x)) : [row, ...list]);
 const NONE: never[] = []; // one shared empty list, so an unloaded slice does not look like a change on every render
 
 /** Who is signed in, as GET /api/auth/me returns it (read from the session cookie on the server). */
@@ -53,7 +98,7 @@ interface DataContextValue extends Base, Records {
   refresh: () => Promise<void>;
   /** Authenticated GET for data that is not part of the shared state (e.g. one client's coordinator history). */
   get: <T = unknown>(path: string) => Promise<T>;
-  /** Calls a write endpoint, toasts the outcome, reloads data. Resolves to null when it failed. */
+  /** Calls a write endpoint, toasts the outcome and shows the saved result straight away (the rest reloads quietly). Resolves to null when it failed. */
   mutate: <T = unknown>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown, success?: string) => Promise<T | null>;
   /** Downloads an Excel file, generated fresh: every module's tab, just the given tickets, or (audit) the audit log. */
   exportExcel: (options?: { ids?: string[]; audit?: boolean }) => Promise<void>;
@@ -92,6 +137,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [records, setRecords] = useState<Partial<Records>>({});
   const [error, setError] = useState('');
   const wanted = useRef(new Set<Slice>());
+  const newest = useRef<Record<string, number>>({}); // the latest request per slice: an older answer arriving late is ignored
   // The latest state for the loaders below, which must not change identity every time data arrives.
   const loaded = useRef({ baseReady, records });
   loaded.current = { baseReady, records };
@@ -99,11 +145,28 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const role = user?.role ?? null;
 
   // ---------- auth ----------
-  // The session is an httpOnly cookie, so the browser asks the server who it belongs to.
+  // The session is an httpOnly cookie, so the browser asks the server who it belongs to. If they were signed in last time, their
+  // data is requested at the same moment (one trip instead of two); a wrong guess is simply discarded.
   useEffect(() => {
-    api<Me>('/api/auth/me')
-      .then(setUser)
-      .catch(() => setUser(null))
+    const path = window.location.pathname;
+    const early = hinted() && STAFF_PATH.test(path) ? Promise.all([fetchBase(), fetchSlices(LISTS_FIRST.test(path) ? ['tickets', 'clients', 'bookings'] : [])]).catch(() => null) : null;
+    Promise.all([api<Me>('/api/auth/me'), early])
+      .then(([me, data]) => {
+        if (data) {
+          const slices = Object.keys(data[1]) as Slice[];
+          slices.forEach((slice) => wanted.current.add(slice));
+          setStudioZone(data[0].settings.timezone.tz);
+          setBase(data[0]);
+          setBaseReady(true);
+          setRecords(data[1]);
+        }
+        hint(true);
+        setUser(me);
+      })
+      .catch(() => {
+        hint(false);
+        setUser(null);
+      })
       .finally(() => setAuthLoading(false));
   }, []);
 
@@ -115,19 +178,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    setUser(await api<Me>('/api/auth/login', { method: 'POST', body: { email, password } }));
+    const me = await api<Me>('/api/auth/login', { method: 'POST', body: { email, password } });
+    hint(true);
+    setUser(me);
   }, []);
 
   const signOut = useCallback(async () => {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    hint(false);
     setUser(null);
     clearData();
   }, [clearData]);
 
-  // A request the server refuses with 401 means the session ended (expired, or the account was deactivated).
+  // A request the server refuses with 401 means the session ended (expired, password changed, or the account was deactivated).
   const sessionEnded = useCallback(
     (e: unknown) => {
       if (!(e instanceof ApiError) || e.status !== 401) return false;
+      hint(false);
       setUser(null);
       clearData();
       toast.error('Your session ended. Please sign in again.');
@@ -149,15 +216,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const loadBase = useCallback(async () => {
     if (!role) return;
-    const get = <T,>(path: string) => api<T>(path);
+    const mine = (newest.current.base = (newest.current.base ?? 0) + 1);
     try {
-      const [modules, coordinators, settings] = await Promise.all([
-        get<Module[]>('/api/modules'),
-        get<Coordinator[]>('/api/coordinators'),
-        role === 'super_admin' ? get<AppSettings>('/api/settings') : get<Pick<AppSettings, 'brand' | 'venue' | 'timezone'>>('/api/settings?public=1').then((s) => ({ ...DEFAULT_SETTINGS, ...s })),
-      ]);
-      setStudioZone(settings.timezone.tz);
-      setBase({ modules, coordinators, settings });
+      const next = await fetchBase();
+      if (mine !== newest.current.base) return;
+      setStudioZone(next.settings.timezone.tz);
+      setBase(next);
       setBaseReady(true);
     } catch (e) {
       fail(e, loaded.current.baseReady);
@@ -167,9 +231,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const loadSlices = useCallback(
     async (slices: Slice[]) => {
       if (!role || !slices.length) return;
+      const mine = slices.map((slice) => [slice, (newest.current[slice] = (newest.current[slice] ?? 0) + 1)] as const);
       try {
-        const rows = await Promise.all(slices.map((slice) => api<unknown[]>(RECORD_PATHS[slice])));
-        setRecords((current) => ({ ...current, ...Object.fromEntries(slices.map((slice, i) => [slice, rows[i]])) }));
+        const rows = await fetchSlices(slices);
+        const current = slices.filter((slice) => newest.current[slice] === mine.find(([s]) => s === slice)![1]);
+        setRecords((now) => ({ ...now, ...Object.fromEntries(current.map((slice) => [slice, rows[slice]])) }));
       } catch (e) {
         fail(e, slices.every((slice) => slice in loaded.current.records));
       }
@@ -177,6 +243,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [role, fail],
   );
 
+  /** Reloads the base data and every slice a page has asked for (also what "Retry" calls). */
   const refresh = useCallback(async () => {
     setError('');
     await Promise.all([loadBase(), loadSlices([...wanted.current])]);
@@ -191,43 +258,68 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [loadSlices],
   );
 
-  // Load the base data on sign-in (pages ask for the rest with usePageData).
+  // Load the base data on sign-in (pages ask for the rest with usePageData); already done when it came with the "who am I" answer.
   useEffect(() => {
-    if (role) loadBase();
+    if (role && !loaded.current.baseReady) loadBase();
   }, [role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const get = useCallback(<T,>(path: string) => api<T>(path), []);
+
+  /** Puts what a write's own answer says straight into the screen (the saved ticket, client, coordinator, module, setting). */
+  const apply = useCallback((path: string, method: string, result: unknown) => {
+    const row = result as Record<string, unknown> | null;
+    if (!row || typeof row !== 'object') return;
+    if (path === '/api/tickets' && method === 'PATCH' && 'ticketNumber' in row) setRecords((now) => (now.tickets ? { ...now, tickets: upsert(now.tickets, row as unknown as Ticket) } : now));
+    else if (path === '/api/clients' && (method === 'PATCH' || method === 'POST') && 'companyName' in row) setRecords((now) => (now.clients ? { ...now, clients: upsert(now.clients, row as unknown as Client) } : now));
+    else if (path === '/api/slots' && method === 'PUT' && 'moduleId' in row) setRecords((now) => (now.slotConfigs ? { ...now, slotConfigs: upsert(now.slotConfigs, row as unknown as SlotConfig) } : now));
+    else if (path === '/api/coordinators' && (method === 'PATCH' || method === 'POST') && 'email' in row) setBase((now) => ({ ...now, coordinators: upsert(now.coordinators, row as unknown as Coordinator).sort(byName) }));
+    else if (path === '/api/modules' && (method === 'PATCH' || method === 'POST') && 'slug' in row) setBase((now) => ({ ...now, modules: upsert(now.modules, row as unknown as Module).sort(byName) }));
+    else if (path === '/api/settings' && method === 'PUT' && 'brand' in row) {
+      setStudioZone((row as unknown as AppSettings).timezone.tz);
+      setBase((now) => ({ ...now, settings: { ...DEFAULT_SETTINGS, ...(row as unknown as AppSettings) } }));
+    }
+  }, []);
 
   const mutate: DataContextValue['mutate'] = useCallback(
     async (path, method, body, success) => {
       try {
         const result = await api(path, { method, body });
         if (success) toast.success(success);
-        await refresh();
+        apply(path, method, result);
+        // Whatever else the write may have changed is reloaded quietly: nothing waits for it.
+        const after = AFTER[/^\/api\/[a-z-]+/.exec(path)?.[0] ?? ''];
+        if (after) {
+          if (after.base) loadBase();
+          loadSlices(after.slices.filter((slice) => wanted.current.has(slice)));
+        }
         return result as never;
       } catch (e) {
         if (!sessionEnded(e)) toast.error(errorMessage(e));
         return null;
       }
     },
-    [refresh, sessionEnded],
+    [apply, loadBase, loadSlices, sessionEnded],
   );
 
-  const exportExcel: DataContextValue['exportExcel'] = useCallback(async ({ ids, audit } = {}) => {
-    try {
-      const query = audit ? 'audit=1' : `modules=all${ids ? `&ids=${ids.join(',')}` : ''}`;
-      const file = await api<Blob>(`/api/excel/download?${query}`, { blob: true });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(file);
-      const brand = base.settings.brand.name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'Studio';
-      link.download = `${brand}-${audit ? 'Audit-Logs' : 'Bookings'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-      toast.success(audit ? 'Audit log downloaded' : 'Excel downloaded');
-    } catch (e) {
-      if (!sessionEnded(e)) toast.error(errorMessage(e));
-    }
-  }, [sessionEnded, base.settings.brand.name]);
+  const brandName = base.settings.brand.name;
+  const exportExcel: DataContextValue['exportExcel'] = useCallback(
+    async ({ ids, audit } = {}) => {
+      try {
+        const query = audit ? 'audit=1' : `modules=all${ids ? `&ids=${ids.join(',')}` : ''}`;
+        const file = await api<Blob>(`/api/excel/download?${query}`, { blob: true });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(file);
+        const brand = brandName.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'Studio';
+        link.download = `${brand}-${audit ? 'Audit-Logs' : 'Bookings'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        toast.success(audit ? 'Audit log downloaded' : 'Excel downloaded');
+      } catch (e) {
+        if (!sessionEnded(e)) toast.error(errorMessage(e));
+      }
+    },
+    [sessionEnded, brandName],
+  );
 
   // ---------- lookups ----------
   const tickets = records.tickets ?? NONE;
@@ -247,33 +339,37 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return { clients: byId(clients), modules: byId(base.modules), coordinators: byId(base.coordinators), sessions, byTicket: new Map(sessions.map((s) => [s.ticket.id, s])) };
   }, [tickets, clients, bookings, base.modules, base.coordinators]);
 
-  const value: DataContextValue = {
-    ...base,
-    tickets,
-    clients,
-    bookings,
-    slotConfigs: records.slotConfigs ?? NONE,
-    authLoading,
-    user,
-    role,
-    coordinator: role === 'coordinator' ? (base.coordinators[0] ?? null) : null,
-    base: role === 'coordinator' ? '/coordinator' : '/admin',
-    signIn,
-    signOut,
-    sessions: maps.sessions,
-    getClient: (id) => maps.clients.get(id),
-    getModule: (id) => maps.modules.get(id),
-    getCoordinator: (id) => (id ? maps.coordinators.get(id) : undefined),
-    getSession: (ticketId) => maps.byTicket.get(ticketId),
-    refresh,
-    get,
-    mutate,
-    exportExcel,
-    want,
-    ready: Object.keys(records) as Slice[],
-    baseReady,
-    error,
-  };
+  // One value that only changes when something it holds changes, so a screen is not redrawn for news that is not about it.
+  const value = useMemo<DataContextValue>(
+    () => ({
+      ...base,
+      tickets,
+      clients,
+      bookings,
+      slotConfigs: records.slotConfigs ?? NONE,
+      authLoading,
+      user,
+      role,
+      coordinator: role === 'coordinator' ? (base.coordinators[0] ?? null) : null,
+      base: role === 'coordinator' ? '/coordinator' : '/admin',
+      signIn,
+      signOut,
+      sessions: maps.sessions,
+      getClient: (id) => maps.clients.get(id),
+      getModule: (id) => maps.modules.get(id),
+      getCoordinator: (id) => (id ? maps.coordinators.get(id) : undefined),
+      getSession: (ticketId) => maps.byTicket.get(ticketId),
+      refresh,
+      get,
+      mutate,
+      exportExcel,
+      want,
+      ready: Object.keys(records) as Slice[],
+      baseReady,
+      error,
+    }),
+    [base, tickets, clients, bookings, records, authLoading, user, role, signIn, signOut, maps, refresh, get, mutate, exportExcel, want, baseReady, error],
+  );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
 import ClientFields from '../../components/ui/ClientFields';
 import DataTable, { type Column } from '../../components/ui/DataTable';
+import Pager, { pageOf } from '../../components/ui/Pager';
 import { formatDate } from '../../lib/utils';
 import { BLANK_CLIENT, type Client } from '../../types';
 
@@ -13,11 +14,19 @@ export default function Clients() {
   const page = usePageData('clients', 'tickets');
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  const [pageNo, setPageNo] = useState(1);
+  const ticketCounts = useMemo(() => {
+    const counts = new Map<string, number>(); // counted once for everyone, not once per row
+    for (const t of tickets) counts.set(t.clientId, (counts.get(t.clientId) ?? 0) + 1);
+    return counts;
+  }, [tickets]);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK_CLIENT);
 
   const query = search.trim().toLowerCase();
   const rows = clients.filter((c) => !query || `${c.companyName} ${c.personName} ${c.email} ${c.phone}`.toLowerCase().includes(query));
+
+  const { rows: shown } = pageOf(rows, pageNo);
 
   const columns: Column<Client>[] = [
     {
@@ -36,7 +45,7 @@ export default function Clients() {
     { header: 'Email', cell: (c) => c.email },
     { header: 'Phone', cell: (c) => c.phone },
     { header: 'Coordinator', cell: (c) => getCoordinator(c.assignedCoordinatorId)?.name ?? <span className="text-ink-3">Unassigned</span> },
-    { header: 'Tickets', cell: (c) => tickets.filter((t) => t.clientId === c.id).length },
+    { header: 'Tickets', cell: (c) => ticketCounts.get(c.id) ?? 0 },
     { header: 'Added', cell: (c) => formatDate(c.createdAt) },
   ];
 
@@ -67,9 +76,10 @@ export default function Clients() {
         </form>
       )}
 
-      <input className="input mb-4 max-w-xs" placeholder="Search company, contact, email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <input className="input mb-4 max-w-xs" placeholder="Search company, contact, email…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
 
-      <DataTable columns={columns} data={rows} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
+      <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
+      <Pager total={rows.length} page={pageNo} onPage={setPageNo} />
     </div>
   );
 }

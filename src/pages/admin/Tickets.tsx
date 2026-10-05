@@ -6,6 +6,7 @@ import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import EmptyState from '../../components/ui/EmptyState';
+import Pager, { pageOf } from '../../components/ui/Pager';
 import Icon from '../../components/ui/Icon';
 import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
@@ -14,7 +15,6 @@ import { awaitingNotes } from '../../lib/dashboard';
 import { confirmCancel, formatDate, isOpen } from '../../lib/utils';
 import { BOOKING_MODES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
-const PAGE_SIZE = 25;
 const NO_FILTERS = { search: '', status: '', moduleId: '', coordinatorId: '', mode: '', notes: '' };
 
 /** Zoho Desk style ticket list. Shared by admins (all tickets) and coordinators (MyTickets): the API already scopes the list. */
@@ -62,9 +62,7 @@ export default function Tickets() {
     );
   });
 
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const current = Math.min(page, pages);
-  const start = (current - 1) * PAGE_SIZE;
+  const { rows: shown, start } = pageOf(rows, page);
 
   const bulk = async (patch: { status?: TicketStatus; coordinatorId?: string }) => {
     const result = await mutate<{ updated: number; failed: { error: string }[] }>('/api/tickets', 'PATCH', { ids: selectedIds, ...patch });
@@ -78,7 +76,7 @@ export default function Tickets() {
 
   const link = (t: Ticket) => getSession(t.id)?.booking.meetingLink;
   const columns: Column<Ticket>[] = [
-    { header: '#', cell: (t) => rows.indexOf(t) + 1, className: 'w-10 text-ink-3', desktopOnly: true },
+    { header: '#', cell: (t) => start + shown.indexOf(t) + 1, className: 'w-10 text-ink-3', desktopOnly: true },
     { header: 'Ticket ID', cell: (t) => t.ticketNumber, isId: true },
     { header: 'Company', cell: (t) => getClient(t.clientId)?.companyName ?? '—' },
     { header: 'Person', cell: (t) => getClient(t.clientId)?.personName ?? '—' },
@@ -190,7 +188,7 @@ export default function Tickets() {
           <DataTable
             key={tableKey}
             columns={columns}
-            data={rows.slice(start, start + PAGE_SIZE)}
+            data={shown}
             rowKey={(t) => t.id}
             onRowClick={(t) => navigate(`${base}/tickets/${t.id}`)}
             selectable
@@ -198,13 +196,7 @@ export default function Tickets() {
             empty="No tickets match these filters." emptyIcon="filter" emptyAction={active ? { label: 'Clear filters', onClick: () => filter({ ...NO_FILTERS }) } : undefined}
           />
 
-          <div className="mt-3 flex items-center justify-between text-xs text-ink-2">
-            <span>{rows.length ? `Showing ${start + 1}-${Math.min(start + PAGE_SIZE, rows.length)} of ${rows.length}` : 'Showing 0 of 0'}</span>
-            <div className="flex gap-2">
-              <button className="btn" disabled={current === 1} onClick={() => goTo(current - 1)}>Previous</button>
-              <button className="btn" disabled={current === pages} onClick={() => goTo(current + 1)}>Next</button>
-            </div>
-          </div>
+          <Pager total={rows.length} page={page} onPage={goTo} always />
         </>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { audit, db, handler, HttpError, loadSettings, needString, readBody, requireUser } from './_lib.js';
+import { audit, cached, db, handler, HttpError, loadSettings, needString, readBody, requireUser } from './_lib.js';
 import { loadAvailability, studioDate } from './_availability.js';
 import { modules, slotConfig } from './_schema.js';
 
@@ -38,7 +38,8 @@ export default handler({
     const from = url.searchParams.get('from') ?? studioDate(new Date(), tz);
     if (!DATE.test(from)) throw new HttpError(400, 'from must be a date like 2026-10-12');
     const days = Math.min(MAX_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
-    return (await loadAvailability(module.id, from, days, tz)).slots;
+    // Kept for 10 s by the CDN: a slot taken in that moment is caught by the booking itself (it re-checks and says so).
+    return cached((await loadAvailability(module.id, from, days, tz)).slots, 10);
   },
 
   // Saves (creates or replaces) a module's slot config.

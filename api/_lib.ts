@@ -37,6 +37,13 @@ export function handler(methods: Partial<Record<'GET' | 'POST' | 'PATCH' | 'PUT'
   };
 }
 
+/**
+ * A public answer the CDN may keep for `seconds` (and serve a little longer while it fetches a fresh one), so most visitors get it
+ * from a server near them instead of from the database. Only for data that is the same for everybody.
+ */
+export const cached = (data: unknown, seconds: number) =>
+  Response.json(data, { headers: { 'Cache-Control': `public, s-maxage=${seconds}, stale-while-revalidate=${seconds}` } });
+
 export async function readBody(req: Request): Promise<Record<string, unknown>> {
   try {
     const body = await req.json();
@@ -124,17 +131,21 @@ export async function getUser(req: Request): Promise<AuthUser | null> {
   const claims = verifyToken(readCookie(req, SESSION_COOKIE));
   if (!claims) return null;
 
-  // The database has the last word, so deactivating someone cuts access immediately.
-  const [row] = await db.select().from(users).where(and(eq(users.id, claims.userId), eq(users.isActive, true)));
+  // The database has the last word, so deactivating someone cuts access immediately. One query: the login and, for a coordinator, their record.
+  const [found] = await db
+    .select({ row: users, coordinator: coordinators })
+    .from(users)
+    .leftJoin(coordinators, eq(coordinators.authUserId, users.id))
+    .where(and(eq(users.id, claims.userId), eq(users.isActive, true)));
+  const row = found?.row;
   if (!row || !(ROLES as readonly string[]).includes(row.role)) return null;
   if (claims.pv !== passwordStamp(row.passwordHash)) return null; // the password changed since this session began
 
   const user: AuthUser = { id: row.id, email: row.email, role: row.role, name: row.name, coordinatorId: null };
   if (row.role === 'coordinator') {
-    const [coordinator] = await db.select().from(coordinators).where(eq(coordinators.authUserId, row.id));
-    if (!coordinator?.isActive) return null;
-    user.coordinatorId = coordinator.id;
-    user.name = coordinator.name;
+    if (!found.coordinator?.isActive) return null;
+    user.coordinatorId = found.coordinator.id;
+    user.name = found.coordinator.name;
   }
   return user;
 }

@@ -1,16 +1,21 @@
-import { audit, db, handler, HttpError, loadSettings, readBody, requireUser } from './_lib.js';
+import { audit, cached, db, handler, HttpError, loadSettings, readBody, requireUser } from './_lib.js';
 import { appSettings } from './_schema.js';
 import { DEFAULT_SETTINGS, TIMEZONES, type AppSettings, type PublicSettings } from '../src/types/index.js';
 
 export default handler({
-  // ?public=1 is anyone's: the studio name, venue and time zone (login page, landing page, every role). Everything else is admin only.
+  // ?public=1 is anyone's: the studio name, venue and time zone (login page, landing page, every role); the CDN keeps it for 30 s.
+  // ?mine=1 is for anyone signed in: everything for an admin, that same public part for a coordinator.
+  // Without either, admins only.
   GET: async (req, url) => {
     if (url.searchParams.has('public')) {
       const { brand, venue, timezone } = await loadSettings();
-      return { brand, venue, timezone } satisfies PublicSettings;
+      return cached({ brand, venue, timezone } satisfies PublicSettings, 30);
     }
-    await requireUser(req, 'super_admin');
-    return await loadSettings();
+    const user = await requireUser(req, ...(url.searchParams.has('mine') ? [] : (['super_admin'] as const)));
+    const settings = await loadSettings();
+    if (user.role === 'super_admin') return settings;
+    const { brand, venue, timezone } = settings;
+    return { brand, venue, timezone } satisfies PublicSettings;
   },
 
   // Body: any of the setting keys, e.g. { venue: { address: "..." } }. Unknown fields are dropped.

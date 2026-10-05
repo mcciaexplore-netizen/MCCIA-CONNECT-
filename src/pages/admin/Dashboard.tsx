@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
+import BookingLink from '../../components/ui/BookingLink';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import ModuleBadge, { moduleColor } from '../../components/ui/ModuleBadge';
 import ModePill from '../../components/ui/ModePill';
@@ -106,7 +107,7 @@ export default function Dashboard() {
             ['Pending post-consult', own.filter((s) => awaitingNotes(s, now)).length],
           ] as const;
           return (
-            <div key={module.id} className="card border-t-4" style={{ borderTopColor: moduleColor(module) }}>
+            <div key={module.id} className="card min-w-0 border-t-4" style={{ borderTopColor: moduleColor(module) }}>
               <p className="mb-3 font-semibold">{module.name}</p>
               <dl className="space-y-1.5">
                 {figures.map(([label, value]) => (
@@ -116,6 +117,10 @@ export default function Dashboard() {
                   </div>
                 ))}
               </dl>
+              <div className="mt-3 border-t border-line pt-3">
+                <p className="mb-1 text-xs text-ink-3">Booking link for clients</p>
+                <BookingLink module={module} />
+              </div>
             </div>
           );
         })}

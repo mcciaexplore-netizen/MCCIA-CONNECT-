@@ -1,16 +1,16 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
 import { useEntityLogs } from '../../lib/useEntityLogs';
 import ActivitiesTab from '../../components/client/ActivitiesTab';
 import ContactPanel from '../../components/client/ContactPanel';
-import MonthlyBookings from '../../components/client/MonthlyBookings';
 import TicketsSection from '../../components/client/TicketsSection';
 import ActivityList from '../../components/ui/ActivityList';
 import DataState from '../../components/ui/DataState';
 import EmptyState from '../../components/ui/EmptyState';
 import Avatar from '../../components/ui/Avatar';
 import ClientStatCards from '../../components/ui/ClientStatCards';
+import { MonthlyBookings } from '../../lib/pages';
 import { cn } from '../../lib/utils';
 
 type Tab = 'overview' | 'history' | 'activities';
@@ -80,7 +80,9 @@ export default function ClientProfile() {
           <div className="space-y-4">
             <ClientStatCards tickets={theirs} />
             <TicketsSection tickets={theirs} />
-            <MonthlyBookings bookings={bookings.filter((b) => b.clientId === client.id)} />
+            <Suspense fallback={<section className="card h-[290px]" />}>
+              <MonthlyBookings bookings={bookings.filter((b) => b.clientId === client.id)} />
+            </Suspense>
           </div>
         )}
         {tab === 'history' && admin && (

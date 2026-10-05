@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import { useData } from '../../context/DataContext';
 import { breadcrumb } from '../../lib/nav';
@@ -39,7 +39,9 @@ export default function Layout() {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-6" style={{ background: 'var(--bg-page)' }}>
-          <Outlet />
+          <Suspense fallback={<p role="status" className="animate-pulse text-ink-2">Loading…</p>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>
