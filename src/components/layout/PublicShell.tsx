@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { cn, usePublicSettings } from '../../lib/utils';
+import { cn } from '../../lib/utils';
+import Logo from '../ui/Logo';
 
 interface Props {
   children: ReactNode;
@@ -7,15 +8,14 @@ interface Props {
   footer?: ReactNode;
 }
 
-/** The public pages' frame: a header bar with the studio's name (from Settings) over a centred column. No login involved. */
+/** The public pages' frame: a white header bar with the MCCIA logo over a centred column. No login involved. */
 export default function PublicShell({ children, wide, footer }: Props) {
-  const { brand } = usePublicSettings();
   const width = wide ? 'max-w-5xl' : 'max-w-[600px]';
   return (
     <div className="flex min-h-screen flex-col bg-page">
-      <header className="bg-primary-dark text-white">
-        <div className={cn('mx-auto flex h-14 items-center px-4', width)}>
-          <span className="text-lg font-bold tracking-wider">{brand.name}</span>
+      <header className="border-b-4 border-primary-dark bg-white">
+        <div className={cn('mx-auto flex h-16 items-center px-4', width)}>
+          <Logo className="h-9" />
         </div>
       </header>
       <main className={cn('mx-auto w-full flex-1 px-4 py-8', width)}>{children}</main>

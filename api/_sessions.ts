@@ -29,8 +29,9 @@ export type BookingRow = NonNullable<Awaited<ReturnType<typeof loadBooking>>>;
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : 'unknown error');
 
-export const mailOf = ({ booking, ticket, client, module, coordinator }: BookingRow, settings: AppSettings, linkProblem?: string): BookingMail => ({
+export const mailOf = ({ booking, ticket, client, module, coordinator }: BookingRow, settings: AppSettings, siteUrl: string, linkProblem?: string): BookingMail => ({
   brand: settings.brand.name,
+  siteUrl,
   zone: settings.timezone,
   clientName: client.personName,
   companyName: client.companyName,
@@ -92,13 +93,13 @@ export async function createCalendarEvent({ booking, ticket, client, module, coo
 }
 
 /** Emails the client their Meet link if the confirmation went out without one. Once: the ticket note it leaves ends the wait. */
-export async function announceLink(bookingId: string) {
+export async function announceLink(bookingId: string, siteUrl: string) {
   const row = await loadBooking(bookingId);
   if (!row?.booking.meetingLink || row.booking.mode !== 'online' || !waitingForLink(row.ticket.internalNotes)) return;
   const settings = await loadSettings();
   if (settings.notifications.send_confirmations) {
     try {
-      await sendMail('client', { to: row.client.email, ...clientLink(mailOf(row, settings)) });
+      await sendMail('client', { to: row.client.email, ...clientLink(mailOf(row, settings, siteUrl)) });
     } catch (e) {
       console.error('Meet link email failed:', e);
       return; // still waiting, so the note stays as it is
@@ -111,7 +112,7 @@ export async function announceLink(bookingId: string) {
  * After a ticket is cancelled: removes the Calendar event (a failure is noted on the ticket, so staff can delete it by hand)
  * and, for a session still to come, tells the client and the coordinator (unless the coordinator cancelled it themselves).
  */
-export async function cancelSession(actor: AuthUser, bookingId: string) {
+export async function cancelSession(actor: AuthUser, bookingId: string, siteUrl: string) {
   const row = await loadBooking(bookingId);
   if (!row) return;
   const settings = await loadSettings();
@@ -128,7 +129,7 @@ export async function cancelSession(actor: AuthUser, bookingId: string) {
   }
   if (row.booking.endTime.getTime() <= Date.now()) return; // nothing to tell anyone about a session that is over
 
-  const mail = mailOf(row, settings);
+  const mail = mailOf(row, settings, siteUrl);
   await sendAll([
     ...(settings.notifications.send_confirmations ? [sendMail('client', { to: row.client.email, ...clientCancelled(mail) })] : []),
     ...(row.coordinator?.email && row.coordinator.id !== actor.coordinatorId ? [sendMail('internal', { to: row.coordinator.email, ...coordinatorCancelled(mail, actor.name) })] : []),

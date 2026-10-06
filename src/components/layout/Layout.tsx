@@ -4,10 +4,11 @@ import { useData } from '../../context/DataContext';
 import { breadcrumb } from '../../lib/nav';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
+import Logo from '../ui/Logo';
 import Sidebar from './Sidebar';
 
 export default function Layout() {
-  const { role, user, coordinator, settings, signOut } = useData();
+  const { role, user, coordinator, signOut } = useData();
   const { pathname } = useLocation();
   const [menu, setMenu] = useState(false);
   const name = coordinator?.name ?? user?.name ?? '';
@@ -31,7 +32,7 @@ export default function Layout() {
             ))}
           </nav>
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold uppercase tracking-widest text-primary-dark">{settings.brand.name}</span>
+            <Logo className="h-6" />
             <span title={name}><Avatar name={name} color={coordinator?.color} size="sm" /></span>
             <button title="Sign out" onClick={signOut} className="rounded p-1 text-ink-2 transition hover:bg-page hover:text-primary">
               <Icon name="logout" />

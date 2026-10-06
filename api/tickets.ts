@@ -1,6 +1,6 @@
 import { and, desc, eq, gt } from 'drizzle-orm';
 import { assignClient } from './_assign.js';
-import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, UUID, type AuthUser } from './_lib.js';
+import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { cancelSession } from './_sessions.js';
 import { bookings, clients, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
 import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, TICKET_STATUSES, type FeedbackForm, type TicketStatus } from '../src/types/index.js';
@@ -15,7 +15,7 @@ const NOTHING = 'Nothing to update';
  * future bookings follow, and so will their next booking. Replacing one coordinator with another needs a reason.
  * Cancelling removes the Calendar event and tells the client and the coordinator.
  */
-async function updateTicket(user: AuthUser, id: string, body: Record<string, unknown>) {
+async function updateTicket(user: AuthUser, id: string, body: Record<string, unknown>, siteUrl: string) {
   const [ticket] = UUID.test(id) ? await db.select().from(tickets).where(eq(tickets.id, id)) : [];
   if (!ticket) throw new HttpError(404, 'Ticket not found');
   if (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
@@ -106,7 +106,7 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   if (toClient) await assignClient(user, ticket.clientId, toClient.coordinatorId, toClient.reason, { id, bookingId: ticket.bookingId, coordinatorId: ticket.coordinatorId });
 
   await audit(user, after.postConsultation ? 'ticket.post_consultation' : 'ticket.updated', 'ticket', id, before, after);
-  if (patch.status === 'cancelled') await cancelSession(user, ticket.bookingId);
+  if (patch.status === 'cancelled') await cancelSession(user, ticket.bookingId, siteUrl);
   const [updated] = await db.select().from(tickets).where(eq(tickets.id, id));
   return updated;
 }
@@ -184,7 +184,8 @@ export default handler({
   PATCH: async (req) => {
     const user = await requireUser(req);
     const body = await readBody(req);
-    if (!Array.isArray(body.ids)) return await updateTicket(user, needString(body.id, 'Ticket'), body);
+    const siteUrl = siteOrigin(req);
+    if (!Array.isArray(body.ids)) return await updateTicket(user, needString(body.id, 'Ticket'), body, siteUrl);
 
     if (!body.ids.length || body.ids.length > MAX_BULK) throw new HttpError(400, `Choose between 1 and ${MAX_BULK} tickets`);
     if (body.dueDate !== undefined || body.note !== undefined) throw new HttpError(400, 'Bulk updates only change status or coordinator');
@@ -194,7 +195,7 @@ export default handler({
     const moved = new Set<string>(); // clients this request has just assigned: their other tickets moved along with them
     for (const id of body.ids.map(String)) {
       try {
-        const ticket = await updateTicket(user, id, body);
+        const ticket = await updateTicket(user, id, body, siteUrl);
         if (body.coordinatorId) moved.add(ticket.clientId);
         updated++;
       } catch (e) {

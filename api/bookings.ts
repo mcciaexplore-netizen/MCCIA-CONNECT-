@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadSettings, needString, optString, ownedBy, parseClient, readBody, requireUser, UUID, type Actor, type AuthUser } from './_lib.js';
+import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadSettings, needString, optString, ownedBy, parseClient, readBody, requireUser, siteOrigin, UUID, type Actor, type AuthUser } from './_lib.js';
 import { loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
@@ -31,16 +31,16 @@ async function syncCalendar(bookingId: string, settings: AppSettings) {
 }
 
 /** The client was told the link will follow: note it on the ticket (staff see why) and check once more, in case it arrived meanwhile. */
-async function awaitLink(row: BookingRow, linkProblem: string | undefined) {
+async function awaitLink(row: BookingRow, linkProblem: string | undefined, siteUrl: string) {
   await addNote((await loadBooking(row.booking.id))!.ticket, `${LINK_WAITING}: ${linkProblem}. Use "Create Meet link" on this ticket if it does not arrive.`);
-  await announceLink(row.booking.id);
+  await announceLink(row.booking.id, siteUrl);
 }
 
 /**
  * Called by the Apps Script (apps-script/main.gs) once it has created the calendar event: stores the Meet link and event id.
  * Needs APPS_SCRIPT_SECRET (also set as the script's SHARED_SECRET); without it the endpoint is closed.
  */
-async function saveMeetLink(body: Record<string, unknown>) {
+async function saveMeetLink(body: Record<string, unknown>, siteUrl: string) {
   const secret = process.env.APPS_SCRIPT_SECRET;
   const given = Buffer.from(typeof body.secret === 'string' ? body.secret : '');
   if (!secret || given.length !== Buffer.byteLength(secret) || !timingSafeEqual(given, Buffer.from(secret))) throw new HttpError(403, 'Not allowed');
@@ -55,7 +55,7 @@ async function saveMeetLink(body: Record<string, unknown>) {
   const patch = { googleEventId: optString(body.eventId) || row.booking.googleEventId, meetingLink: row.booking.mode === 'online' && link ? link : row.booking.meetingLink };
   await db.update(bookings).set(patch).where(eq(bookings.id, bookingId));
   await audit({ name: 'Apps Script', role: 'integration' }, 'booking.meet_link', 'ticket', row.ticket.id, undefined, { meetingLink: patch.meetingLink });
-  await announceLink(bookingId);
+  await announceLink(bookingId, siteUrl);
   return { ok: true };
 }
 
@@ -67,7 +67,7 @@ async function ownBooking(user: AuthUser, bookingId: string) {
 }
 
 /** Staff ask for the calendar event and Meet link again (it failed or was never set up when the booking was made). Mails the client the link. */
-async function createMeetLink(user: AuthUser, body: Record<string, unknown>) {
+async function createMeetLink(user: AuthUser, body: Record<string, unknown>, siteUrl: string) {
   const bookingId = needString(body.bookingId, 'Booking');
   const row = await ownBooking(user, bookingId);
   if (row.booking.mode !== 'online') throw new HttpError(400, 'Only online sessions have a Meet link');
@@ -86,7 +86,7 @@ async function createMeetLink(user: AuthUser, body: Record<string, unknown>) {
   }
   const created = await loadBooking(bookingId);
   if (!created?.booking.meetingLink) throw new HttpError(502, 'Google did not return a Meet link. Try again in a minute.');
-  await announceLink(bookingId);
+  await announceLink(bookingId, siteUrl);
   await audit(user, 'booking.meet_created', 'ticket', row.ticket.id, undefined, { meetingLink: created.booking.meetingLink });
   return { meetingLink: created.booking.meetingLink };
 }
@@ -96,7 +96,7 @@ async function createMeetLink(user: AuthUser, body: Record<string, unknown>) {
  * Moves a scheduled session to another open slot of its module (same mode), replaces its Calendar event (a new Meet link),
  * sets the ticket to Rescheduled, emails the client and the coordinator, and logs it. Admins, or the session's coordinator.
  */
-async function rescheduleSession(user: AuthUser, bookingId: string, body: Record<string, unknown>) {
+async function rescheduleSession(user: AuthUser, bookingId: string, body: Record<string, unknown>, siteUrl: string) {
   const row = await ownBooking(user, bookingId);
   if (row.booking.status !== 'scheduled') throw new HttpError(400, 'Only a scheduled session can be rescheduled');
   const reason = needString(body.reason, 'Reason');
@@ -132,12 +132,12 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
   await audit(user, 'booking.rescheduled', 'ticket', row.ticket.id, { startsAt: previous.start.toISOString(), status: row.ticket.status }, { startsAt: start.toISOString(), status: 'rescheduled', reason });
 
   const { row: moved, missingLink, linkProblem } = await syncCalendar(bookingId, settings);
-  const mail = mailOf(moved, settings, linkProblem);
+  const mail = mailOf(moved, settings, siteUrl, linkProblem);
   await sendAll([
     ...(settings.notifications.send_confirmations ? [sendMail('client', { to: moved.client.email, ...clientRescheduled(mail, previous.start) })] : []),
     ...(moved.coordinator?.email && moved.coordinator.id !== user.coordinatorId ? [sendMail('internal', { to: moved.coordinator.email, ...coordinatorRescheduled(mail, previous.start, user.name, reason) })] : []),
   ]);
-  if (missingLink) await awaitLink(moved, linkProblem);
+  if (missingLink) await awaitLink(moved, linkProblem, siteUrl);
   return { bookingId, startsAt: start.toISOString(), endsAt: end.toISOString(), meetingLink: (await loadBooking(bookingId))!.booking.meetingLink };
 }
 
@@ -178,10 +178,11 @@ export default handler({
   // staff's { action: 'create-meet' } and the reschedule route.
   POST: async (req, url): Promise<BookingResult | Record<string, unknown>> => {
     const body = await readBody(req);
+    const siteUrl = siteOrigin(req);
     const rescheduleId = url.searchParams.get('reschedule') ?? /^\/api\/bookings\/([^/]+)\/reschedule\/?$/.exec(url.pathname)?.[1];
-    if (rescheduleId) return await rescheduleSession(await requireUser(req), rescheduleId, body);
-    if (body.action === 'update-meet') return await saveMeetLink(body);
-    if (body.action === 'create-meet') return await createMeetLink(await requireUser(req), body);
+    if (rescheduleId) return await rescheduleSession(await requireUser(req), rescheduleId, body, siteUrl);
+    if (body.action === 'update-meet') return await saveMeetLink(body, siteUrl);
+    if (body.action === 'create-meet') return await createMeetLink(await requireUser(req), body, siteUrl);
     const user = await getUser(req);
     const actor: Actor = user ?? { name: 'Client (booking form)', role: 'client' };
     // The public pages allow 3 bookings per IP per hour; staff booking for clients are not limited.
@@ -274,14 +275,14 @@ export default handler({
     const { row, missingLink, linkProblem } = await syncCalendar(bookingId, settings);
 
     // Clients are mailed from the Gmail account; the coordinator and the booking copy go out from the Zoho account.
-    const booking = mailOf(row, settings, linkProblem);
+    const booking = mailOf(row, settings, siteUrl, linkProblem);
     const copyTo = settings.notifications.admin_email;
     await sendAll([
       ...(settings.notifications.send_confirmations ? [sendMail('client', { to: clientInput.email, ...clientConfirmation(booking) })] : []),
       ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
       ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
     ]);
-    if (missingLink) await awaitLink(row, linkProblem);
+    if (missingLink) await awaitLink(row, linkProblem, siteUrl);
 
     return { bookingId, ticketId, ticketNumber, meetingLink: row.booking.meetingLink };
   },

@@ -12,6 +12,7 @@ const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;'
 
 export interface BookingMail {
   brand: string;
+  siteUrl: string; // the site's address, where the logo for HTML emails is served from
   zone: StudioZone;
   clientName: string;
   companyName: string;
@@ -34,6 +35,10 @@ const details = (b: BookingMail) => `When: ${formatWhen(b.start, b.zone)}\nWhere
 const staffDetails = (b: BookingMail) =>
   details(b) + (b.mode === 'online' && !b.meetingLink ? `\nGoogle Meet: NOT created (${b.linkProblem ?? 'no reason given'}). Open the ticket and choose "Create Meet link".` : '');
 
+/** The top of an HTML email: the MCCIA logo (public/mccia-logo.png) on white. The logo has no background, so a dark band would hide it. */
+const logoBand = (b: BookingMail) =>
+  `<div style="background:#ffffff;padding:20px;text-align:center;border-bottom:4px solid ${NAVY};"><img src="${esc(b.siteUrl)}/mccia-logo.png" alt="${esc(b.brand)}" width="160" height="43" style="display:inline-block;border:0;"></div>`;
+
 interface ClientMessage {
   subject: string;
   lead: { text: string; html: string };
@@ -51,7 +56,7 @@ function clientMessage(b: BookingMail, { subject, lead, where = true, extra = []
       : row('Venue', esc(b.venue || b.brand));
   const html =
     `<div style="font-family:Outfit,Arial,sans-serif;max-width:600px;color:#1a1f36;">` +
-    `<div style="background:${NAVY};padding:20px;text-align:center;"><h2 style="color:#ffffff;margin:0;">${esc(b.brand)}</h2></div>` +
+    logoBand(b) +
     `<div style="padding:24px;"><p>Hello ${esc(b.clientName)},</p><p>${lead.html}</p>` +
     `<table style="width:100%;border-collapse:collapse;">` +
     row('Reference', `<b style="color:${BLUE};">${esc(b.ticketNumber)}</b>`) +
@@ -60,7 +65,8 @@ function clientMessage(b: BookingMail, { subject, lead, where = true, extra = []
     row('Mode', b.mode === 'online' ? 'Online (Google Meet)' : 'In person') +
     (where ? place : '') +
     `</table><p>${esc(closing)}</p></div>` +
-    `<div style="background:#e7ecf4;padding:14px;text-align:center;font-size:12px;color:#6b7280;">${esc(b.venue || b.brand)}</div></div>`;
+    (b.venue ? `<div style="background:#e7ecf4;padding:14px;text-align:center;font-size:12px;color:#6b7280;">${esc(b.venue)}</div>` : '') +
+    `</div>`;
   const facts = where ? details(b) : `When: ${formatWhen(b.start, b.zone)}\nReference: ${b.ticketNumber}`;
   const more = extra.map(([label, value]) => `\n${label}: ${value}`).join('');
   return { subject, text: `Hello ${b.clientName},\n\n${lead.text}\n\n${facts}${more}\n\n${closing}\n${b.brand}`, html };
@@ -97,7 +103,7 @@ export const clientRescheduled = (b: BookingMail, previous: Date) =>
 export function feedbackRequest(b: BookingMail, link: string) {
   const html =
     `<div style="font-family:Outfit,Arial,sans-serif;max-width:600px;color:#1a1f36;">` +
-    `<div style="background:${NAVY};padding:20px;text-align:center;"><h2 style="color:#ffffff;margin:0;">${esc(b.brand)}</h2></div>` +
+    logoBand(b) +
     `<div style="padding:24px;"><p>Hello ${esc(b.clientName)},</p>` +
     `<p>Thank you for your <b>${esc(b.moduleName)}</b> session on ${esc(formatWhen(b.start, b.zone))}. We would love to hear how it went: it takes a minute.</p>` +
     `<p style="text-align:center;margin:24px 0;"><a href="${esc(link)}" style="display:inline-block;background:${BLUE};color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;">Give feedback</a></p>` +

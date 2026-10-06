@@ -43,8 +43,8 @@ export default handler({
       db.update(feedbackTokens).set({ used: true }).where(and(eq(feedbackTokens.ticketId, ticketId), eq(feedbackTokens.used, false))),
       db.insert(feedbackTokens).values({ ticketId, expiresAt }).returning(),
     ]);
-    const url = `${siteOrigin(req)}/feedback/${link.token}`;
-    await sendMail('client', { to: row.client.email, ...feedbackRequest(mailOf(row, await loadSettings()), url) });
+    const siteUrl = siteOrigin(req);
+    await sendMail('client', { to: row.client.email, ...feedbackRequest(mailOf(row, await loadSettings(), siteUrl), `${siteUrl}/feedback/${link.token}`) });
     await audit(user, 'feedback.requested', 'ticket', ticketId, undefined, { to: row.client.email, expires: expiresAt.toISOString() });
     return { ok: true };
   },
