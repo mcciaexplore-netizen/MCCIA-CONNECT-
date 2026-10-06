@@ -5,7 +5,12 @@ import { useData } from './context/DataContext';
 import { homeFor, usePublicSettings } from './lib/utils';
 import type { Role } from './types';
 import Layout from './components/layout/Layout';
-import { BookingPage, ClientProfile, Clients, ConfirmationPage, Coordinators, CreateBooking, Dashboard, FeedbackPage, FormBuilder, Landing, Login, MyAccount, MyClients, MyDashboard, MySchedule, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets, AuditLogs } from './lib/pages';
+import { AuditLogs, ClientProfile, Clients, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets } from './lib/pages';
+import BookingPage from './pages/public/BookingPage';
+import ConfirmationPage from './pages/public/ConfirmationPage';
+import FeedbackPage from './pages/public/FeedbackPage';
+import Landing from './pages/public/Landing';
+import Login from './pages/Login';
 
 /** Needs a signed-in user with the given role; anyone else is sent to login or to their own home. */
 function ProtectedRoute({ role }: { role: Role }) {
@@ -31,7 +36,6 @@ export default function App() {
   useEffect(() => {
     document.title = brand.name;
   }, [brand.name]);
-  useEffect(() => preload('public'), []);
   return (
     <>
       <Suspense fallback={<p role="status" className="animate-pulse p-8 text-center text-ink-2">Loading…</p>}>

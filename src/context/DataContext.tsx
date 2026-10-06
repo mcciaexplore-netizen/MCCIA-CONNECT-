@@ -149,6 +149,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // data is requested at the same moment (one trip instead of two); a wrong guess is simply discarded.
   useEffect(() => {
     const path = window.location.pathname;
+    // A client on a booking, confirmation or feedback page is nobody to sign in: no need to ask who they are (unless staff were here before).
+    if (!STAFF_PATH.test(path) && !hinted()) {
+      setAuthLoading(false);
+      return;
+    }
     const early = hinted() && STAFF_PATH.test(path) ? Promise.all([fetchBase(), fetchSlices(LISTS_FIRST.test(path) ? ['tickets', 'clients', 'bookings'] : [])]).catch(() => null) : null;
     Promise.all([api<Me>('/api/auth/me'), early])
       .then(([me, data]) => {
