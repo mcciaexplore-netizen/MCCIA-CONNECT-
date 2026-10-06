@@ -146,5 +146,8 @@ export const companyNote = (client: Client | undefined, clients: Client[], compa
 export const confirmDelete = (ticketNumber: string) =>
   window.confirm(`Delete ${ticketNumber} for good? Its booking, notes and feedback link are removed and the Google Calendar event is deleted. The client is NOT emailed (cancel the session instead to tell them). This cannot be undone.`);
 
+export const confirmDeleteClient = (name: string, company: string, tickets: number) =>
+  window.confirm(`Delete ${name} (${company}) for good? ${tickets ? `Their ${tickets} ticket${tickets === 1 ? '' : 's'} and sessions are deleted too, and their Google Calendar events removed.` : 'They have no tickets.'} Nobody is emailed. This cannot be undone.`);
+
 export const confirmCancel = (count = 1) =>
   window.confirm(count === 1 ? 'Cancel this session? The calendar event is deleted and the client is emailed. This cannot be undone.' : `Cancel ${count} sessions? Their calendar events are deleted and the clients are emailed. This cannot be undone.`);

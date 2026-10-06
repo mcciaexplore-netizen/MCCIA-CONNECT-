@@ -7,6 +7,7 @@ const PATHS = {
   logout: 'M9 4H5v16h4 M16 8l4 4-4 4 M20 12H9',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z M12 15a3 3 0 100-6 3 3 0 000 6z',
   pencil: 'M4 20h4L19 9l-4-4L4 16v4z M13.5 6.5l4 4',
+  trash: 'M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6',
   filter: 'M3 5h18l-7 8v6l-4 2v-8L3 5z',
   link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1 M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
   calendar: 'M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4',

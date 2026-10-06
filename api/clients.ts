@@ -1,8 +1,9 @@
-import { desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID } from './_lib.js';
 import { assignClient } from './_assign.js';
 import { companyOf, returnFollowUps } from './_companies.js';
-import { bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, tickets, users } from './_schema.js';
+import { inBackground, removeCalendarEvents } from './_sessions.js';
+import { adminNotifications, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, tickets, users } from './_schema.js';
 import type { CoordinatorHistoryEntry } from '../src/types/index.js';
 
 /**
@@ -121,5 +122,43 @@ export default handler({
     const body = await readBody(req);
     await assignClient(user, needString(body.clientId, 'Client'), needString(body.coordinatorId, 'Coordinator'), optString(body.reason));
     return { ok: true };
+  },
+
+  // ?id=<client> (admins only): removes the client for good with all their tickets, sessions, feedback links and coordinator history, and
+  // their Calendar events. The company goes too when this was its last client. Nobody is emailed; the audit log keeps a record.
+  DELETE: async (req, url) => {
+    const user = await requireUser(req, 'super_admin');
+    const id = url.searchParams.get('id') ?? '';
+    const [client] = UUID.test(id) ? await db.select().from(clients).where(eq(clients.id, id)) : [];
+    if (!client) throw new HttpError(404, 'Client not found');
+    const sessions = await db.select({ bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).where(eq(bookings.clientId, id));
+    const ticketIds = sessions.map((s) => s.ticketId);
+
+    // One transaction: everything of the client, then the company if nobody is left in it.
+    const lastOfCompany = client.companyId ? sql`not exists (select 1 from ${clients} where ${clients.companyId} = ${client.companyId})` : sql`false`;
+    await db.batch([
+      db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, db.select({ id: tickets.id }).from(tickets).where(eq(tickets.clientId, id)))),
+      db.delete(tickets).where(eq(tickets.clientId, id)),
+      db.delete(bookings).where(eq(bookings.clientId, id)),
+      db.delete(coordinatorAssignments).where(eq(coordinatorAssignments.clientId, id)),
+      db.delete(coordinatorReassignments).where(eq(coordinatorReassignments.clientId, id)),
+      db.delete(clients).where(eq(clients.id, id)),
+      ...(client.companyId
+        ? [
+            db.delete(adminNotifications).where(and(eq(adminNotifications.companyId, client.companyId), lastOfCompany)),
+            db.delete(coordinatorReassignments).where(and(eq(coordinatorReassignments.companyId, client.companyId), lastOfCompany)),
+            db.delete(companies).where(and(eq(companies.id, client.companyId), lastOfCompany)),
+          ]
+        : []),
+    ]);
+    await audit(user, 'client.deleted', 'client', id, {
+      company: client.companyName,
+      contact: client.personName,
+      email: client.email,
+      tickets: sessions.map((s) => s.ticketNumber),
+    });
+    const eventIds = sessions.flatMap((s) => (s.eventId ? [s.eventId] : []));
+    if (eventIds.length) inBackground(`Removing the Google Calendar events of the deleted client ${client.personName} (${client.companyName})`, () => removeCalendarEvents(eventIds));
+    return { id, ticketIds, bookingIds: sessions.map((s) => s.bookingId) };
   },
 });

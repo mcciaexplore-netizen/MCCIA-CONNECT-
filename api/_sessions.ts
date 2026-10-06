@@ -137,6 +137,18 @@ export async function announceLink(bookingId: string, siteUrl: string, first = f
   if (row.coordinator?.email) await sendAll([sendMail('internal', { to: row.coordinator.email, ...coordinatorLinkReady(mail) })]);
 }
 
+/** Removes these Google Calendar events (for tickets that were deleted). Tries every one, then fails once if any could not be removed. */
+export async function removeCalendarEvents(eventIds: string[]) {
+  const results = await Promise.allSettled(
+    eventIds.map(async (eventId) => {
+      const failure = scriptFailure(await triggerAppsScript({ action: 'cancel', eventId }));
+      if (failure) throw new Error(`Apps Script reported: ${failure}`);
+    }),
+  );
+  const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed.length) throw new Error(`${failed.length} of ${eventIds.length} could not be removed (${errorText(failed[0].reason)})`);
+}
+
 /**
  * After a ticket is cancelled: removes the Calendar event (a failure is noted on the ticket, so staff can delete it by hand)
  * and, for a session still to come, tells the client and the coordinator (unless the coordinator cancelled it themselves).

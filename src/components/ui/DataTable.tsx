@@ -18,6 +18,7 @@ interface Props<T> {
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void; // also the eye icon
   onEdit?: (row: T) => void; // pencil icon
+  onDelete?: (row: T) => void; // trash icon
   selectable?: boolean;
   onSelectionChange?: (rows: T[]) => void;
   empty?: string;
@@ -26,11 +27,11 @@ interface Props<T> {
 }
 
 /** Dense Zoho Desk style table; below 768px a list of cards instead. Styles live in index.css (.dt). */
-export default function DataTable<T>({ columns, data, rowKey, onRowClick, onEdit, selectable, onSelectionChange, empty = 'Nothing here yet.', emptyIcon, emptyAction }: Props<T>) {
+export default function DataTable<T>({ columns, data, rowKey, onRowClick, onEdit, onDelete, selectable, onSelectionChange, empty = 'Nothing here yet.', emptyIcon, emptyAction }: Props<T>) {
   const mobile = useIsMobile();
   const [selected, setSelected] = useState(new Set<string>());
-  const hasActions = Boolean(onRowClick || onEdit);
-  const actions = [{ icon: 'eye', title: 'View', run: onRowClick }, { icon: 'pencil', title: 'Edit', run: onEdit }] as const;
+  const hasActions = Boolean(onRowClick || onEdit || onDelete);
+  const actions = [{ icon: 'eye', title: 'View', run: onRowClick }, { icon: 'pencil', title: 'Edit', run: onEdit }, { icon: 'trash', title: 'Delete', run: onDelete }] as const;
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
   const select = (next: Set<string>) => {
@@ -41,7 +42,7 @@ export default function DataTable<T>({ columns, data, rowKey, onRowClick, onEdit
   const all = data.length > 0 && data.every((row) => selected.has(rowKey(row)));
 
   const nothing = <EmptyState icon={emptyIcon} message={empty} action={emptyAction} />;
-  if (mobile) return data.length ? <DataCards columns={columns} data={data} rowKey={rowKey} onRowClick={onRowClick} onEdit={onEdit} selectable={selectable} selected={selected} onToggle={toggle} /> : <div className="card">{nothing}</div>;
+  if (mobile) return data.length ? <DataCards columns={columns} data={data} rowKey={rowKey} onRowClick={onRowClick} onEdit={onEdit} onDelete={onDelete} selectable={selectable} selected={selected} onToggle={toggle} /> : <div className="card">{nothing}</div>;
 
   return (
     <div className="dt-wrap">
@@ -50,7 +51,7 @@ export default function DataTable<T>({ columns, data, rowKey, onRowClick, onEdit
           <tr>
             {selectable && <th className="w-9"><input type="checkbox" checked={all} onChange={() => select(all ? new Set() : new Set(data.map(rowKey)))} /></th>}
             {columns.map((c) => <th key={c.header} className={c.className}>{c.header}</th>)}
-            {hasActions && <th className="w-[72px]" />}
+            {hasActions && <th className={onDelete ? 'w-[104px]' : 'w-[72px]'} />}
           </tr>
         </thead>
         <tbody>
@@ -66,7 +67,7 @@ export default function DataTable<T>({ columns, data, rowKey, onRowClick, onEdit
                 <td onClick={stop}>
                   <div className="dt-actions text-ink-2">
                     {actions.map(({ icon, title, run }) => run && (
-                      <button key={icon} title={title} className="rounded p-1 hover:bg-white hover:text-primary" onClick={() => run(row)}><Icon name={icon} /></button>
+                      <button key={icon} title={title} className={cn('rounded p-1 hover:bg-white', icon === 'trash' ? 'hover:text-danger' : 'hover:text-primary')} onClick={() => run(row)}><Icon name={icon} /></button>
                     ))}
                   </div>
                 </td>

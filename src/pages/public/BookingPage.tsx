@@ -118,7 +118,7 @@ export default function BookingPage() {
                     {submitting ? 'Confirming…' : 'Confirm Booking'}
                   </button>
                 )}
-                {submitting && mode === 'online' && <p className="text-center text-xs text-ink-2">Setting up your Google Meet link. This can take a few seconds.</p>}
+                {submitting && mode === 'online' && <p className="text-center text-xs text-ink-2">Your Google Meet link will be emailed to you.</p>}
                 <button className="w-full text-sm text-ink-2 hover:underline" disabled={submitting} onClick={() => { setConflict(null); setStep(2); }}>Back</button>
               </div>
             )}

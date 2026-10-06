@@ -8,13 +8,14 @@ interface Props<T> {
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
   onEdit?: (row: T) => void;
+  onDelete?: (row: T) => void;
   selectable?: boolean;
   selected: Set<string>;
   onToggle: (key: string) => void;
 }
 
 /** A DataTable on a phone: one card per row. Columns without a header sit before the title; the id column (else the first headed one) is the title. */
-export default function DataCards<T>({ columns, data, rowKey, onRowClick, onEdit, selectable, selected, onToggle }: Props<T>) {
+export default function DataCards<T>({ columns, data, rowKey, onRowClick, onEdit, onDelete, selectable, selected, onToggle }: Props<T>) {
   const shown = columns.filter((c) => !c.desktopOnly);
   const lead = shown.filter((c) => !c.header);
   const headed = shown.filter((c) => c.header);
@@ -31,6 +32,7 @@ export default function DataCards<T>({ columns, data, rowKey, onRowClick, onEdit
             {lead.map((c, i) => <span key={i}>{c.cell(row)}</span>)}
             <span className={cn('min-w-0 flex-1', title?.isId && 'text-primary')}>{title?.cell(row)}</span>
             {onEdit && <button type="button" aria-label="Edit" className="rounded p-1 text-ink-2 hover:text-primary" onClick={(e) => { stop(e); onEdit(row); }}><Icon name="pencil" /></button>}
+            {onDelete && <button type="button" aria-label="Delete" className="rounded p-1 text-ink-2 hover:text-danger" onClick={(e) => { stop(e); onDelete(row); }}><Icon name="trash" /></button>}
           </div>
           <dl className="space-y-1">
             {details.map((c) => (

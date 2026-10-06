@@ -6,7 +6,7 @@ import Avatar from '../../components/ui/Avatar';
 import ClientFields from '../../components/ui/ClientFields';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import Pager, { pageOf } from '../../components/ui/Pager';
-import { formatDate } from '../../lib/utils';
+import { confirmDeleteClient, formatDate } from '../../lib/utils';
 import { BLANK_CLIENT, type Client } from '../../types';
 
 export default function Clients() {
@@ -57,6 +57,8 @@ export default function Clients() {
     { header: 'Added', cell: (c) => formatDate(c.createdAt) },
   ];
 
+  const remove = (c: Client) => confirmDeleteClient(c.personName, c.companyName, ticketCounts.get(c.id) ?? 0) && mutate(`/api/clients?id=${c.id}`, 'DELETE', undefined, 'Client deleted');
+
   const add = async (e: FormEvent) => {
     e.preventDefault();
     if (await mutate('/api/clients', 'POST', { client: form }, 'Client added')) {
@@ -86,7 +88,7 @@ export default function Clients() {
 
       <input className="input mb-4 max-w-xs" placeholder="Search company, contact, email…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
 
-      <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
+      <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} onDelete={remove} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
       <Pager total={rows.length} page={pageNo} onPage={setPageNo} />
     </div>
   );

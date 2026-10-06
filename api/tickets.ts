@@ -4,8 +4,7 @@ import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
-import { scriptFailure, triggerAppsScript } from './_integrations.js';
-import { cancelSession, inBackground, loadBooking } from './_sessions.js';
+import { cancelSession, inBackground, loadBooking, removeCalendarEvents } from './_sessions.js';
 import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
 import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_STATUSES, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
 
@@ -281,12 +280,7 @@ export default handler({
       mode: row.booking.mode,
     });
     const eventId = row.booking.googleEventId;
-    if (eventId) {
-      inBackground(`Removing the Google Calendar event of the deleted ticket ${row.ticket.ticketNumber}`, async () => {
-        const failure = scriptFailure(await triggerAppsScript({ action: 'cancel', eventId }));
-        if (failure) throw new Error(`Apps Script reported: ${failure}`);
-      });
-    }
+    if (eventId) inBackground(`Removing the Google Calendar event of the deleted ticket ${row.ticket.ticketNumber}`, () => removeCalendarEvents([eventId]));
     return { id, bookingId: row.booking.id };
   },
 });

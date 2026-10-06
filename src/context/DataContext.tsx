@@ -278,7 +278,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const row = result as Record<string, unknown> | null;
     if (!row || typeof row !== 'object') return;
     if (path === '/api/tickets' && method === 'PATCH' && 'ticketNumber' in row) setRecords((now) => (now.tickets ? { ...now, tickets: upsert(now.tickets, row as unknown as Ticket) } : now));
-    else if (path.startsWith('/api/tickets') && method === 'DELETE' && 'bookingId' in row) setRecords((now) => ({ ...now, ...(now.tickets && { tickets: now.tickets.filter((t) => t.id !== row.id) }), ...(now.bookings && { bookings: now.bookings.filter((b) => b.id !== row.bookingId) }) }));
+    else if (path.startsWith('/api/clients') && method === 'DELETE' && 'ticketIds' in row) {
+      const gone = row as unknown as { id: string; ticketIds: string[]; bookingIds: string[] };
+      setRecords((now) => ({ ...now, ...(now.clients && { clients: now.clients.filter((c) => c.id !== gone.id) }), ...(now.tickets && { tickets: now.tickets.filter((t) => !gone.ticketIds.includes(t.id)) }), ...(now.bookings && { bookings: now.bookings.filter((b) => !gone.bookingIds.includes(b.id)) }) }));
+    } else if (path.startsWith('/api/tickets') && method === 'DELETE' && 'bookingId' in row) setRecords((now) => ({ ...now, ...(now.tickets && { tickets: now.tickets.filter((t) => t.id !== row.id) }), ...(now.bookings && { bookings: now.bookings.filter((b) => b.id !== row.bookingId) }) }));
     else if (path === '/api/clients' && (method === 'PATCH' || method === 'POST') && 'companyName' in row) setRecords((now) => (now.clients ? { ...now, clients: upsert(now.clients, row as unknown as Client) } : now));
     else if (path === '/api/slots' && method === 'PUT' && 'moduleId' in row) setRecords((now) => (now.slotConfigs ? { ...now, slotConfigs: upsert(now.slotConfigs, row as unknown as SlotConfig) } : now));
     else if (path === '/api/coordinators' && (method === 'PATCH' || method === 'POST' || method === 'PUT') && 'email' in row) setBase((now) => ({ ...now, coordinators: upsert(now.coordinators, row as unknown as Coordinator).sort(byName) }));

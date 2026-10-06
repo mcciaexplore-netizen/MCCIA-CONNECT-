@@ -11,7 +11,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import Avatar from '../../components/ui/Avatar';
 import ClientStatCards from '../../components/ui/ClientStatCards';
 import { MonthlyBookings } from '../../lib/pages';
-import { cn } from '../../lib/utils';
+import { cn, confirmDeleteClient } from '../../lib/utils';
 
 type Tab = 'overview' | 'history' | 'activities';
 const ALL_TABS: [Tab, string][] = [['overview', 'Overview'], ['history', 'History'], ['activities', 'Activities']];
@@ -24,7 +24,7 @@ const ALL_TABS: [Tab, string][] = [['overview', 'Overview'], ['history', 'Histor
  */
 export default function ClientProfile() {
   const { clientId } = useParams();
-  const { clients, tickets, bookings, role, base } = useData();
+  const { clients, tickets, bookings, role, base, mutate } = useData();
   const admin = role === 'super_admin';
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
@@ -45,6 +45,9 @@ export default function ClientProfile() {
   const tabs = admin ? ALL_TABS : ALL_TABS.filter(([key]) => key !== 'history');
   const theirs = tickets.filter((t) => t.clientId === client.id);
   const ticketNumbers = new Map(theirs.map((t) => [t.id, t.ticketNumber]));
+  const remove = async () => {
+    if (confirmDeleteClient(client.personName, client.companyName, theirs.length) && (await mutate(`/api/clients?id=${client.id}`, 'DELETE', undefined, 'Client deleted'))) navigate(`${base}/clients`);
+  };
   // Everything that happened to the client or to any of their tickets (newest first).
   const history = auditLogs.filter(
     (log) => (log.entityType === 'client' && log.entityId === client.id) || (log.entityType === 'ticket' && log.entityId && ticketNumbers.has(log.entityId)),
@@ -65,7 +68,12 @@ export default function ClientProfile() {
               <p className="text-ink-2">{client.companyName}</p>
             </div>
           </div>
-          {admin && <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking', { state: { clientId: client.id } })}>+ Add Ticket</button>}
+          {admin && (
+            <div className="flex gap-2">
+              <button className="btn btn-danger" onClick={remove}>Delete client</button>
+              <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking', { state: { clientId: client.id } })}>+ Add Ticket</button>
+            </div>
+          )}
         </div>
 
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line">
