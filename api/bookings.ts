@@ -34,7 +34,8 @@ async function syncCalendar(bookingId: string, settings: AppSettings) {
 
 /** The client was told the link will follow: note it on the ticket (staff see why) and check once more, in case it arrived meanwhile. */
 async function awaitLink(row: BookingRow, linkProblem: string | undefined, siteUrl: string) {
-  await addNote((await loadBooking(row.booking.id))!.ticket, `${LINK_WAITING}: ${linkProblem}. Use "Create Meet link" on this ticket if it does not arrive.`);
+  const why = linkProblem ? `${linkProblem}. Use "Create Meet link" on this ticket if it does not arrive.` : 'the link is emailed on its own once Google has made it.';
+  await addNote((await loadBooking(row.booking.id))!.ticket, `${LINK_WAITING}: ${why}`);
   await announceLink(row.booking.id, siteUrl);
 }
 
@@ -122,7 +123,7 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
   const note = { text: `Rescheduled from ${formatWhen(previous.start, settings.timezone)} to ${formatWhen(start, settings.timezone)} by ${user.name}: ${reason}`, author: user.name, at: new Date().toISOString() };
   // The old Meet link goes with the old event.
   await db.batch([
-    db.update(bookings).set({ startTime: start, endTime: end, meetingLink: null }).where(eq(bookings.id, bookingId)),
+    db.update(bookings).set({ startTime: start, endTime: end, meetingLink: null, reminderSent: false }).where(eq(bookings.id, bookingId)),
     db.update(tickets).set({ status: 'rescheduled', internalNotes: [...row.ticket.internalNotes, note] }).where(eq(tickets.id, row.ticket.id)),
   ]);
   // The same double-check as a new booking: if someone took the last place at the same moment, put everything back.
@@ -221,6 +222,8 @@ export default handler({
     for (const question of (await loadBookingQuestions()).get(module.id) ?? []) {
       const value = optString(given[question.id]);
       if (question.required && !value) throw new HttpError(400, `"${question.label}" is required`);
+      // A list question only accepts one of its own options, whatever the browser sent.
+      if (value && (question.type === 'select' || question.type === 'radio') && !question.options.includes(value)) throw new HttpError(400, `Invalid answer for ${question.label}`);
       if (value) answers[question.id] = value;
     }
 
@@ -348,7 +351,11 @@ export default handler({
       ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
       ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
     ]);
-    if (missingLink) await awaitLink(row, linkProblem, siteUrl);
+    // The confirmation only says the Meet link is coming; it goes out in its own email as soon as it exists (now, or when the Apps Script calls back).
+    if (row.booking.mode === 'online') {
+      if (missingLink) await awaitLink(row, linkProblem, siteUrl);
+      else await announceLink(bookingId, siteUrl, true);
+    }
 
     return { bookingId, ticketId, ticketNumber, meetingLink: row.booking.meetingLink };
   },

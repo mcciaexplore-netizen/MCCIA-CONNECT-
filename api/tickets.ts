@@ -1,15 +1,18 @@
-import { and, desc, eq, gt } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, lt } from 'drizzle-orm';
 import { assignClient } from './_assign.js';
-import { clashesOf } from './_availability.js';
+import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
+import { runScheduled } from './_scheduled.js';
 import { cancelSession } from './_sessions.js';
 import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
-import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, TICKET_STATUSES, type FeedbackForm, type TicketStatus } from '../src/types/index.js';
+import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_STATUSES, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
 const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails, so a big batch would not finish in time
 const NOTHING = 'Nothing to update';
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY = 24 * 60 * 60_000;
 
 /**
  * Applies status / coordinatorId (+ reason) / dueDate / note / postConsultation to one ticket (checking this user may),
@@ -87,6 +90,16 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
     patch.dueDate = due;
     before.dueDate = ticket.dueDate?.toISOString() ?? null;
     after.dueDate = due?.toISOString() ?? null;
+  }
+
+  // Payment is recorded by hand, by an admin (Paid / Unpaid / Waived).
+  const payment = body.paymentStatus ?? body.payment_status;
+  if (payment !== undefined && payment !== ticket.paymentStatus) {
+    if (user.role !== 'super_admin') throw new HttpError(403, 'Only admins can set the payment');
+    if (!PAYMENT_STATUSES.includes(payment as PaymentStatus)) throw new HttpError(400, 'Payment must be paid, unpaid or waived');
+    patch.paymentStatus = payment as PaymentStatus;
+    before.payment = ticket.paymentStatus;
+    after.payment = payment;
   }
 
   if (body.note !== undefined) {
@@ -173,7 +186,10 @@ const feedbackToken = (url: URL) => url.searchParams.get('feedback') ?? /^\/api\
 
 export default handler({
   // Admins see every ticket, coordinators only the ones assigned to them. /api/feedback/:token (a rewrite to ?feedback=) is the public feedback form.
+  // ?action=send-reminders is the daily job (see _scheduled.ts). ?date_from= and ?date_to= (YYYY-MM-DD, studio time) keep only the
+  // tickets whose session starts in that range. ?feedback is the client's feedback form (public).
   GET: async (req, url) => {
+    if (url.searchParams.get('action') === 'send-reminders') return await runScheduled(req, siteOrigin(req));
     const token = feedbackToken(url);
     if (token) {
       const { ticket, booking, client, module } = await openFeedback(token);
@@ -183,7 +199,20 @@ export default handler({
     }
     const user = await requireUser(req);
     await returnFollowUps();
-    return await db.select().from(tickets).where(ownedBy(user, tickets.coordinatorId)).orderBy(desc(tickets.createdAt));
+    const from = url.searchParams.get('date_from');
+    const to = url.searchParams.get('date_to');
+    if ((from && !DATE.test(from)) || (to && !DATE.test(to))) throw new HttpError(400, 'date_from and date_to must be dates like 2026-10-12');
+    const { tz } = from || to ? (await loadSettings()).timezone : { tz: '' };
+    const inRange = from || to
+      ? inArray(
+          tickets.bookingId,
+          db
+            .select({ id: bookings.id })
+            .from(bookings)
+            .where(and(from ? gte(bookings.startTime, new Date(studioTime(from, '00:00', tz))) : undefined, to ? lt(bookings.startTime, new Date(studioTime(to, '00:00', tz) + DAY)) : undefined)),
+        )
+      : undefined;
+    return await db.select().from(tickets).where(and(ownedBy(user, tickets.coordinatorId), inRange)).orderBy(desc(tickets.createdAt));
   },
 
   // The feedback form's submission (public, the token is the permission).
@@ -205,7 +234,7 @@ export default handler({
     if (!Array.isArray(body.ids)) return await updateTicket(user, needString(body.id, 'Ticket'), body, siteUrl);
 
     if (!body.ids.length || body.ids.length > MAX_BULK) throw new HttpError(400, `Choose between 1 and ${MAX_BULK} tickets`);
-    if (body.dueDate !== undefined || body.note !== undefined) throw new HttpError(400, 'Bulk updates only change status or coordinator');
+    if (body.dueDate !== undefined || body.note !== undefined || body.paymentStatus !== undefined || body.payment_status !== undefined) throw new HttpError(400, 'Bulk updates only change status or coordinator');
     if (body.status === 'cancelled' && body.ids.length > MAX_BULK_CANCEL) throw new HttpError(400, `Cancel at most ${MAX_BULK_CANCEL} sessions at a time`);
     const failed: { id: string; error: string }[] = [];
     let updated = 0;

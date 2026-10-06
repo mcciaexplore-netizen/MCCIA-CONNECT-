@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, HttpError } from './_lib.js';
 import { auditLogs, bookings, clients, coordinators, modules, tickets } from './_schema.js';
-import { FEEDBACK_FIELDS, STATUS_LABELS, type AppSettings, type StudioZone } from '../src/types/index.js';
+import { FEEDBACK_FIELDS, PAYMENT_LABELS, STATUS_LABELS, type AppSettings, type StudioZone } from '../src/types/index.js';
 
 /**
  * The Excel file is never stored. Neon is the source of truth and every download is generated fresh from it, so
@@ -46,7 +46,7 @@ const COLUMNS: { header: string; width: number; value: (r: Row, zone: StudioZone
   { header: 'Person Name', width: 18, value: (r) => r.client.personName },
   { header: 'Contact (Phone)', width: 14, value: (r) => r.client.phone },
   { header: 'Email', width: 24, value: (r) => r.client.email },
-  { header: 'Payment', width: 10, value: () => '' }, // nothing in the database records payment yet
+  { header: 'Payment', width: 10, value: (r) => PAYMENT_LABELS[r.ticket.paymentStatus] ?? '' }, // set by an admin on the ticket
   { header: 'Mode of Consultation', width: 12, value: (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline') },
   { header: 'Date (DD/MM/YYYY)', width: 12, value: (r, z) => dateText(z, r.booking.startTime) },
   { header: 'Month/Year', width: 10, value: (r, z) => monthText(z, r.booking.startTime) },
@@ -68,7 +68,7 @@ const COLUMNS: { header: string; width: number; value: (r: Row, zone: StudioZone
   { header: 'Industry/Sector', width: 18, value: (r) => r.client.industry ?? '' },
   { header: 'Scale', width: 10, value: (r) => r.client.scale ?? '' },
   { header: 'Job Title', width: 16, value: (r) => r.client.jobTitle ?? '' },
-  { header: 'Meeting Recording Link', width: 20, value: (r) => r.booking.meetingLink ?? '' },
+  { header: 'Google Meet Link', width: 20, value: (r) => r.booking.meetingLink ?? '' },
   { header: 'Testimonial Link', width: 20, value: (r) => post(r, 'testimonial_link') },
   { header: 'Interaction Status', width: 14, value: (r) => post(r, 'interaction_status') },
   { header: 'Active User', width: 10, value: (r) => post(r, 'active_user') },
@@ -79,12 +79,12 @@ const COLUMNS: { header: string; width: number; value: (r: Row, zone: StudioZone
   { header: 'AI Use Description', width: 30, value: (r) => post(r, 'ai_use_description') },
 ];
 
-const MAROON = 'FF8B1A1A';
+const HEADER = 'FF0157B3'; // the brand blue
 const INK = 'FF1A1F36';
 const BORDER = { style: 'thin', color: { argb: 'FFE5E7EB' } } as const;
 const PREFERRED_ORDER = ['ai-consultation', 'applet-setup', 'cluster-development'];
 
-/** One styled tab: a maroon header (frozen, filterable), then one row per entry. */
+/** One styled tab: a blue header (frozen, filterable), then one row per entry. */
 function addSheet(workbook: ExcelJS.Workbook, name: string, columns: { header: string; width: number }[], rows: (string | number)[][]) {
   const sheet = workbook.addWorksheet(name.replace(/[\\/?*:[\]]/g, '-').slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
   sheet.columns = columns.map(({ header, width }) => ({ header, width }));
@@ -93,7 +93,7 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, columns: { header: s
   const header = sheet.getRow(1);
   header.height = 20;
   header.eachCell((cell) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MAROON } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER } };
     cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
     cell.alignment = { vertical: 'middle' };
     cell.border = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };

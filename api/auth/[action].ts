@@ -7,6 +7,15 @@ import { coordinators, users } from '../_schema.js';
 /** What the browser keeps in its context: who is signed in. */
 const me = (user: AuthUser) => ({ userId: user.id, role: user.role, coordinatorId: user.coordinatorId, name: user.name, email: user.email });
 
+/** A sign-in, a failed sign-in and a sign-out are written to the audit log with the address they came from. A problem writing it never blocks the sign-in itself. */
+async function trail(req: Request, action: 'auth.login' | 'auth.login_failed' | 'auth.logout', who: string, role: string, entityId: string | null = null) {
+  try {
+    await audit({ name: who, role }, action, 'auth', entityId, undefined, { ip: clientIp(req), timestamp: new Date().toISOString() });
+  } catch (e) {
+    console.error('Audit log failed:', e);
+  }
+}
+
 // Verified against this when the email is unknown, so the reply takes as long as for a wrong password.
 const DECOY_HASH = `${'00'.repeat(16)}:${'00'.repeat(64)}`;
 
@@ -24,15 +33,20 @@ const login = handler({
 
     const [row] = await db.select().from(users).where(eq(users.email, email));
     const valid = await verifyPassword(password, row?.passwordHash ?? DECOY_HASH);
-    if (!row || !valid || !row.isActive) throw refuse();
+    const denied = async () => {
+      await trail(req, 'auth.login_failed', email || '(blank)', 'anonymous');
+      return refuse();
+    };
+    if (!row || !valid || !row.isActive) throw await denied();
 
     let coordinatorId: string | null = null;
     if (row.role === 'coordinator') {
       const [coordinator] = await db.select().from(coordinators).where(eq(coordinators.authUserId, row.id));
-      if (!coordinator?.isActive) throw refuse();
+      if (!coordinator?.isActive) throw await denied();
       coordinatorId = coordinator.id;
     }
     await refundAttempt('login', ip);
+    await trail(req, 'auth.login', row.email, row.role, row.id);
     const token = signToken({ userId: row.id, role: row.role, coordinatorId, pv: passwordStamp(row.passwordHash) });
     const user: AuthUser = { id: row.id, email: row.email, role: row.role, name: row.name, coordinatorId };
     return Response.json(me(user), { headers: { 'Set-Cookie': sessionCookie(req, token) } });
@@ -40,7 +54,11 @@ const login = handler({
 });
 
 const logout = handler({
-  POST: async (req) => Response.json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(req, null) } }),
+  POST: async (req) => {
+    const user = await getUser(req);
+    if (user) await trail(req, 'auth.logout', user.email, user.role, user.id);
+    return Response.json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(req, null) } });
+  },
 });
 
 const current = handler({

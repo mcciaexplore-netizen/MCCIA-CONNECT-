@@ -3,7 +3,8 @@ import { useParams } from 'react-router';
 import { format } from 'date-fns';
 import PublicShell from '../../components/layout/PublicShell';
 import EmptyState from '../../components/ui/EmptyState';
-import { api, ApiError, errorMessage, formatTime, pollMeetLink } from '../../lib/utils';
+import Icon from '../../components/ui/Icon';
+import { api, ApiError, errorMessage, formatTime } from '../../lib/utils';
 import type { BookingSummary } from '../../types';
 
 /** /confirmed/:bookingId (public): the receipt shown after booking. */
@@ -19,13 +20,6 @@ export default function ConfirmationPage() {
       .catch(setError);
   }, [bookingId]);
   useEffect(load, [load]);
-
-  // An online booking may not have its Meet link yet (the Apps Script saves it a few seconds later): poll for it for a while.
-  const waitingForLink = booking?.mode === 'online' && !booking.meetingLink;
-  useEffect(() => {
-    if (!waitingForLink || !bookingId) return;
-    return pollMeetLink(bookingId, (meetingLink) => meetingLink && setBooking((current) => current && { ...current, meetingLink }));
-  }, [waitingForLink, bookingId]);
 
   const rows: [string, string][] = booking
     ? [
@@ -68,12 +62,13 @@ export default function ConfirmationPage() {
               </div>
             ))}
           </dl>
-          {booking.mode === 'online' &&
-            (booking.meetingLink ? (
-              <a className="btn btn-primary h-11 w-full" href={booking.meetingLink} target="_blank" rel="noreferrer">Join Google Meet</a>
-            ) : (
-              <p className="rounded-md bg-gold-light px-4 py-3 text-sm text-[#8a6d1c]">Your Google Meet link is being prepared and will be emailed to you.</p>
-            ))}
+          {/* The link comes by email, in its own message: nothing here waits for it. */}
+          {booking.mode === 'online' && (
+            <p role="status" className="flex items-start gap-3 rounded-md border border-primary bg-primary-light px-4 py-3 text-left text-sm text-primary-dark">
+              <Icon name="mail" className="mt-0.5 h-5 w-5 shrink-0" />
+              <span>Your Google Meet link is being generated and will be emailed to you within a few minutes.</span>
+            </p>
+          )}
           {booking.confirmationEmail && <p className="text-sm text-ink-2">Confirmation email sent to <span className="font-medium text-ink">{booking.clientEmail}</span></p>}
         </div>
       )}

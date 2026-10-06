@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { audit, cached, db, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser } from './_lib.js';
 import { formQuestions, modules } from './_schema.js';
-import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type FieldType, type FormField } from '../src/types/index.js';
+import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type DisabledModule, type FieldType, type FormField } from '../src/types/index.js';
 
 const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
@@ -38,11 +38,14 @@ export default handler({
     const slug = url.searchParams.get('slug');
     if (slug) {
       const [module] = await db
-        .select({ id: modules.id, slug: modules.slug, name: modules.name, description: modules.description, color: modules.color })
+        .select({ id: modules.id, slug: modules.slug, name: modules.name, description: modules.description, color: modules.color, isActive: modules.isActive })
         .from(modules)
-        .where(and(eq(modules.slug, slug), eq(modules.isActive, true)));
+        .where(eq(modules.slug, slug));
       if (!module) throw new HttpError(404, 'This booking page does not exist');
-      return cached({ ...module, questions: (await loadBookingQuestions()).get(module.id) ?? [], venue: (await loadSettings()).venue.address }, 30);
+      // A module that is switched off still has its page: it says so, and who to contact.
+      const { isActive, ...page } = module;
+      if (!isActive) return cached({ disabled: true, contactEmail: (await loadSettings()).notifications.admin_email } satisfies DisabledModule, 30);
+      return cached({ ...page, questions: (await loadBookingQuestions()).get(module.id) ?? [], venue: (await loadSettings()).venue.address }, 30);
     }
     await requireUser(req);
     const [rows, questions, postQuestions] = await Promise.all([db.select().from(modules).orderBy(asc(modules.name)), loadBookingQuestions(), loadPostQuestions()]);

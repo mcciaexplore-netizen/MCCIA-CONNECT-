@@ -55,6 +55,8 @@ export default handler({
       maxParallel: count(body.maxParallel, 'Max parallel', 1, 1000),
       onlineCapacity: count(body.onlineCapacity, 'Online capacity', 0, 1000),
       offlineCapacity: count(body.offlineCapacity, 'Offline capacity', 0, 1000),
+      // Left out when not sent, so saving with an older form keeps the window as it is.
+      ...(body.maxAdvanceDays !== undefined && { maxAdvanceDays: count(body.maxAdvanceDays, 'Booking window (days)', 1, 365) }),
     };
 
     const [config] = await db.insert(slotConfig).values(values).onConflictDoUpdate({ target: slotConfig.moduleId, set: values }).returning();
@@ -64,6 +66,7 @@ export default handler({
       overrides: dateOverrides.length,
       online: values.onlineCapacity,
       offline: values.offlineCapacity,
+      ...('maxAdvanceDays' in values && { bookAheadDays: values.maxAdvanceDays }),
     });
     return config;
   },

@@ -19,6 +19,7 @@ const PATHS = {
   'bar-chart': 'M5 20V10 M12 20V4 M19 20v-7',
   menu: 'M4 6h16 M4 12h16 M4 18h16',
   alert: 'M12 3l10 18H2L12 3z M12 10v5 M12 18v.5',
+  mail: 'M3 6h18v12H3z M3 7l9 6 9-6',
   star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3z',
 } as const;
 

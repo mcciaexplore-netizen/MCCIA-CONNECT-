@@ -4,18 +4,20 @@ import toast from 'react-hot-toast';
 import PublicShell from '../../components/layout/PublicShell';
 import CoordinatorConflict from '../../components/booking/CoordinatorConflict';
 import DetailsStep from '../../components/booking/DetailsStep';
+import ModuleUnavailable from '../../components/booking/ModuleUnavailable';
 import ReviewStep from '../../components/booking/ReviewStep';
 import StepIndicator from '../../components/booking/StepIndicator';
 import EmptyState from '../../components/ui/EmptyState';
 import SlotPicker from '../../components/ui/SlotPicker';
 import { api, ApiError, errorMessage } from '../../lib/utils';
-import { BLANK_CLIENT, type BookingConflict, type BookingMode, type BookingResult, type ClientInput, type PublicModule } from '../../types';
+import { BLANK_CLIENT, type BookingConflict, type BookingMode, type BookingResult, type ClientInput, type DisabledModule, type PublicModule } from '../../types';
 
 /** /book/:moduleSlug (public, no login): 1. Your Details → 2. Choose Slot → 3. Confirm. */
 export default function BookingPage() {
   const { moduleSlug } = useParams();
   const navigate = useNavigate();
   const [module, setModule] = useState<PublicModule | null>(null);
+  const [disabled, setDisabled] = useState<DisabledModule | null>(null); // the module is switched off
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [step, setStep] = useState(1);
   const [client, setClient] = useState<ClientInput>(BLANK_CLIENT);
@@ -27,8 +29,8 @@ export default function BookingPage() {
 
   const loadModule = useCallback(() => {
     setLoadError(null);
-    api<PublicModule>(`/api/modules?slug=${encodeURIComponent(moduleSlug ?? '')}`)
-      .then(setModule)
+    api<PublicModule | DisabledModule>(`/api/modules?slug=${encodeURIComponent(moduleSlug ?? '')}`)
+      .then((result) => ('disabled' in result ? setDisabled(result) : setModule(result)))
       .catch(setLoadError);
   }, [moduleSlug]);
   useEffect(loadModule, [loadModule]);
@@ -64,7 +66,9 @@ export default function BookingPage() {
 
   return (
     <PublicShell>
-      {loadError ? (
+      {disabled ? (
+        <ModuleUnavailable contactEmail={disabled.contactEmail} />
+      ) : loadError ? (
         <div className="card">
           {loadError instanceof ApiError && loadError.status === 404 ? (
             <EmptyState icon="calendar" message="This booking page does not exist" hint="Check the link you were given, or ask the studio for a new one." />

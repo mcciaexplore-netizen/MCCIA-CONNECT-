@@ -16,13 +16,14 @@ const DEFAULTS = {
   bufferBefore: 0,
   bufferAfter: 0,
   minNotice: 60,
+  maxAdvanceDays: 60,
   slotIncrement: 60,
   maxParallel: 1,
   onlineCapacity: 1,
   offlineCapacity: 1,
 };
 
-type NumberKey = 'slotIncrement' | 'minNotice' | 'bufferBefore' | 'bufferAfter' | 'maxParallel' | 'onlineCapacity' | 'offlineCapacity';
+type NumberKey = 'slotIncrement' | 'minNotice' | 'maxAdvanceDays' | 'bufferBefore' | 'bufferAfter' | 'maxParallel' | 'onlineCapacity' | 'offlineCapacity';
 interface NumberField {
   key: NumberKey;
   label: string;
@@ -34,6 +35,7 @@ const TIMING: NumberField[] = [
   { key: 'bufferBefore', label: 'Buffer before (min)', hint: 'Kept free before each booking' },
   { key: 'bufferAfter', label: 'Buffer after (min)', hint: 'Kept free after each booking' },
   { key: 'minNotice', label: 'Minimum notice (min)', hint: 'How soon before a slot it can still be booked' },
+  { key: 'maxAdvanceDays', label: 'How far ahead can clients book? (days)', hint: 'Slots further away than this are not offered' },
 ];
 const CAPACITY: NumberField[] = [
   { key: 'maxParallel', label: 'Max parallel bookings', hint: 'At the same time, online and offline together' },
@@ -57,7 +59,7 @@ function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotCon
       {fields.map(({ key, label, hint }) => (
         <div key={key}>
           <label className="label">{label}</label>
-          <input className="input" type="number" min={key === 'slotIncrement' ? 5 : key === 'maxParallel' ? 1 : 0} required value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })} />
+          <input className="input" type="number" min={key === 'slotIncrement' ? 5 : key === 'maxParallel' || key === 'maxAdvanceDays' ? 1 : 0} required value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })} />
           <p className="mt-1 text-xs text-ink-3">{hint}</p>
         </div>
       ))}

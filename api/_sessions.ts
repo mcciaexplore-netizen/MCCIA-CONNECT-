@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, loadSettings, type AuthUser } from './_lib.js';
 import { scriptFailure, sendMail, triggerAppsScript } from './_integrations.js';
-import { clientCancelled, clientLink, coordinatorCancelled, type BookingMail } from './_mail.js';
+import { clientCancelled, clientLink, coordinatorCancelled, coordinatorLinkReady, type BookingMail } from './_mail.js';
 import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
 import type { AppSettings, InternalNote } from '../src/types/index.js';
 
@@ -39,9 +39,11 @@ export const mailOf = ({ booking, ticket, client, module, coordinator }: Booking
   ticketNumber: ticket.ticketNumber,
   moduleName: module.name,
   start: booking.startTime,
+  end: booking.endTime,
   mode: booking.mode,
   meetingLink: booking.meetingLink,
   venue: settings.venue.address,
+  contactEmail: settings.notifications.admin_email,
   linkProblem,
 });
 
@@ -66,6 +68,8 @@ export const addNote = (ticket: BookingRow['ticket'], text: string) =>
  * Throws when the script cannot be reached or says no. A booking that already has an event gets a new one in its place.
  */
 export async function createCalendarEvent({ booking, ticket, client, module, coordinator }: BookingRow, settings: AppSettings) {
+  // Noted before asking: if no link has come back 30 minutes later, the daily check tells the admin (see _scheduled.ts).
+  if (booking.mode === 'online') await db.update(bookings).set({ meetLinkRequestedAt: new Date(), meetLinkFailedNotified: false }).where(eq(bookings.id, booking.id));
   const reply = await triggerAppsScript({
     action: booking.googleEventId ? 'reschedule' : 'create',
     ...(booking.googleEventId && { oldEventId: booking.googleEventId }),
@@ -92,20 +96,26 @@ export async function createCalendarEvent({ booking, ticket, client, module, coo
   if (googleEventId || meetingLink) await db.update(bookings).set({ ...(googleEventId && { googleEventId }), ...(meetingLink && { meetingLink }) }).where(eq(bookings.id, booking.id));
 }
 
-/** Emails the client their Meet link if the confirmation went out without one. Once: the ticket note it leaves ends the wait. */
-export async function announceLink(bookingId: string, siteUrl: string) {
+/**
+ * Emails the client their Meet link (and tells the coordinator it is ready) once the link exists, if they were waiting for it. Once: the
+ * ticket note it leaves ends the wait. The confirmation email never carries the link, so every online booking gets it here:
+ * `first` is the booking's own first announcement (the link was already there when it was made), which needs no "waiting" note before it.
+ */
+export async function announceLink(bookingId: string, siteUrl: string, first = false) {
   const row = await loadBooking(bookingId);
-  if (!row?.booking.meetingLink || row.booking.mode !== 'online' || !waitingForLink(row.ticket.internalNotes)) return;
+  if (!row?.booking.meetingLink || row.booking.mode !== 'online' || !(first || waitingForLink(row.ticket.internalNotes))) return;
   const settings = await loadSettings();
+  const mail = mailOf(row, settings, siteUrl);
   if (settings.notifications.send_confirmations) {
     try {
-      await sendMail('client', { to: row.client.email, ...clientLink(mailOf(row, settings, siteUrl)) });
+      await sendMail('client', { to: row.client.email, ...clientLink(mail) });
     } catch (e) {
       console.error('Meet link email failed:', e);
       return; // still waiting, so the note stays as it is
     }
   }
   await addNote(row.ticket, settings.notifications.send_confirmations ? LINK_SENT : LINK_READY);
+  if (row.coordinator?.email) await sendAll([sendMail('internal', { to: row.coordinator.email, ...coordinatorLinkReady(mail) })]);
 }
 
 /**

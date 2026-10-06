@@ -28,6 +28,10 @@ export const CLOSED_STATUSES: readonly TicketStatus[] = ['completed', 'cancelled
 export const BOOKING_MODES = ['online', 'offline'] as const;
 export type BookingMode = (typeof BOOKING_MODES)[number];
 
+export const PAYMENT_STATUSES = ['paid', 'unpaid', 'waived'] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+export const PAYMENT_LABELS: Record<PaymentStatus, string> = { paid: 'Paid', unpaid: 'Unpaid', waived: 'Waived' };
+
 export const BOOKING_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
@@ -124,7 +128,7 @@ export interface AppSettings {
   brand: { name: string };
   apps_script_url: { url: string };
   venue: { address: string };
-  notifications: { admin_email: string; send_confirmations: boolean };
+  notifications: { admin_email: string; send_confirmations: boolean; lead_time_hours: number }; // lead_time_hours: how long before a session the reminder goes out (0 = no reminders)
   timezone: StudioZone;
 }
 
@@ -144,7 +148,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   brand: { name: 'MCCIA Pune AI Studio' },
   apps_script_url: { url: '' },
   venue: { address: '' },
-  notifications: { admin_email: '', send_confirmations: true },
+  notifications: { admin_email: '', send_confirmations: true, lead_time_hours: 24 },
   timezone: (({ tz, label, offset, locale }) => ({ tz, label, offset, locale }))(TIMEZONES[0]),
 };
 
@@ -258,6 +262,11 @@ export interface CoordinatorHistoryEntry {
 
 /** What the public booking page may see of a module (and the venue it shows for in-person sessions). */
 export type PublicModule = Pick<Module, 'id' | 'slug' | 'name' | 'description' | 'color' | 'questions'> & { venue: string };
+/** What a booking page's address answers for a module that is switched off (not a 404): the page says so and shows who to contact. */
+export interface DisabledModule {
+  disabled: true;
+  contactEmail: string;
+}
 
 /** What the landing page lists: the live booking pages, and the studio address for its footer. */
 export interface LandingData {

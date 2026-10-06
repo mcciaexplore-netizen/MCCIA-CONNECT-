@@ -59,6 +59,7 @@ export function openModes(config: Config, taken: Taken[], start: Date, end: Date
 export function computeSlots(config: Config, taken: Taken[], from: string, days: number, tz: string, now = new Date()): SlotInfo[] {
   const length = Math.max(5, config.slotIncrement) * MINUTE;
   const earliest = now.getTime() + config.minNotice * MINUTE;
+  const latest = now.getTime() + config.maxAdvanceDays * DAY; // nothing is offered (or accepted) further ahead than this
   const slots: SlotInfo[] = [];
 
   for (let i = 0; i < days; i++) {
@@ -66,7 +67,7 @@ export function computeSlots(config: Config, taken: Taken[], from: string, days:
 
     for (const { start, end } of hoursOn(config, date)) {
       for (let t = studioTime(date, start, tz); t + length <= studioTime(date, end, tz); t += length) {
-        if (t < earliest) continue;
+        if (t < earliest || t > latest) continue;
         slots.push({ startsAt: new Date(t).toISOString(), endsAt: new Date(t + length).toISOString(), modes: openModes(config, taken, new Date(t), new Date(t + length)) });
       }
     }

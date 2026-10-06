@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, type AuditLog, type BookingSummary, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
+import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, type AuditLog, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
 
 const MOBILE = '(max-width: 767px)';
 /** True below 768px: tables turn into card lists and the navigation becomes a menu. */
@@ -52,6 +52,8 @@ export const formatDate = (iso: string | null) => {
   return `${w.day} ${w.month} ${w.year}`;
 };
 export const formatTime = (iso: string) => written(iso, TIME_PARTS).time;
+/** The calendar date (YYYY-MM-DD) of an instant in the studio's time zone. */
+export const studioDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: studioTz }).format(new Date(iso));
 export const formatDateTime = (iso: string | null) => {
   if (!iso) return '—';
   const w = written(iso, { ...DAY_PARTS, ...TIME_PARTS });
@@ -118,34 +120,6 @@ export async function api<T = unknown>(path: string, { method = 'GET', body, blo
   }
   return (blob ? res.blob() : res.json()) as Promise<T>;
 }
-
-/**
- * Asks for the booking's Google Meet link every `interval` ms until it exists, then calls onReceived(link).
- * Calls onReceived(null) when `timeout` ms pass without one. Returns a function that stops the polling.
- */
-export function pollMeetLink(bookingId: string, onReceived: (link: string | null) => void, timeout = 10_000, interval = 2000) {
-  const maxAttempts = timeout / interval;
-  let attempts = 0;
-  const poll = setInterval(async () => {
-    attempts++;
-    try {
-      const { meetingLink } = await api<BookingSummary>(`/api/bookings?id=${encodeURIComponent(bookingId)}`);
-      if (meetingLink) {
-        clearInterval(poll);
-        onReceived(meetingLink);
-        return;
-      }
-    } catch {
-      // the next attempt tries again
-    }
-    if (attempts >= maxAttempts) {
-      clearInterval(poll);
-      onReceived(null);
-    }
-  }, interval);
-  return () => clearInterval(poll);
-}
-
 
 /** The studio name, venue and time zone for pages with nobody signed in (login, landing, booking), fetched once. */
 let publicSettings: Promise<PublicSettings> | undefined;

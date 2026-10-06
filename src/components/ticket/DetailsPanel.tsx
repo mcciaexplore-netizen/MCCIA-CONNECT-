@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { useData } from '../../context/DataContext';
 import { companyNote, confirmCancel, formatDate, isOpen } from '../../lib/utils';
-import { STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
+import { PAYMENT_LABELS, PAYMENT_STATUSES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
 import ModePill from '../ui/ModePill';
@@ -46,6 +46,16 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       </Field>
 
       <Field label="Module"><ModuleBadge module={getModule(ticket.moduleId)} /></Field>
+
+      <Field label="Payment">
+        {role === 'super_admin' ? (
+          <select className="input" value={ticket.paymentStatus} onChange={(e) => mutate('/api/tickets', 'PATCH', { id: ticket.id, paymentStatus: e.target.value }, 'Payment updated')}>
+            {PAYMENT_STATUSES.map((p) => <option key={p} value={p}>{PAYMENT_LABELS[p]}</option>)}
+          </select>
+        ) : (
+          <span>{PAYMENT_LABELS[ticket.paymentStatus]}</span>
+        )}
+      </Field>
 
       <Field label="Coordinator">
         <div className="flex items-center justify-between gap-2">

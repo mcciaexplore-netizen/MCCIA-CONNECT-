@@ -12,10 +12,10 @@ import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
-import { confirmCancel, formatDate, isOpen } from '../../lib/utils';
+import { confirmCancel, formatDate, isOpen, studioDay } from '../../lib/utils';
 import { BOOKING_MODES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
-const NO_FILTERS = { search: '', status: '', moduleId: '', coordinatorId: '', mode: '', notes: '' };
+const NO_FILTERS = { search: '', status: '', moduleId: '', coordinatorId: '', mode: '', notes: '', dateFrom: '', dateTo: '' };
 
 /** Zoho Desk style ticket list. Shared by admins (all tickets) and coordinators (MyTickets): the API already scopes the list. */
 export default function Tickets() {
@@ -24,8 +24,9 @@ export default function Tickets() {
   const navigate = useNavigate();
   const admin = role === 'super_admin';
   // The dashboard's alerts link here with ?coordinator=none (unassigned) or ?notes=pending (post-consultation not filled).
-  const [params] = useSearchParams();
-  const [filters, setFilters] = useState({ ...NO_FILTERS, coordinatorId: params.get('coordinator') ?? '', notes: params.get('notes') ?? '' });
+  // ?date_from= and ?date_to= (YYYY-MM-DD) keep tickets whose session starts in that range; the address follows the date boxes.
+  const [params, setParams] = useSearchParams();
+  const [filters, setFilters] = useState({ ...NO_FILTERS, coordinatorId: params.get('coordinator') ?? '', notes: params.get('notes') ?? '', dateFrom: params.get('date_from') ?? '', dateTo: params.get('date_to') ?? '' });
   const [showFilters, setShowFilters] = useState(true);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -37,6 +38,13 @@ export default function Tickets() {
   };
   const filter = (patch: Partial<typeof NO_FILTERS>) => {
     setFilters({ ...filters, ...patch });
+    if ('dateFrom' in patch || 'dateTo' in patch) {
+      const next = { dateFrom: 'date_from', dateTo: 'date_to' } as const;
+      setParams((current) => {
+        for (const [key, name] of Object.entries(next)) if (key in patch) (patch[key as keyof typeof next] ? current.set(name, patch[key as keyof typeof next]!) : current.delete(name));
+        return current;
+      }, { replace: true });
+    }
     setPage(1);
     clearSelection();
   };
@@ -51,6 +59,7 @@ export default function Tickets() {
   const rows = tickets.filter((t) => {
     const client = getClient(t.clientId);
     const session = getSession(t.id);
+    const day = session ? studioDay(session.booking.startTime) : '';
     const text = [t.ticketNumber, client?.companyName, client?.personName, client?.phone, client?.email].join(' ').toLowerCase();
     return (
       (!query || text.includes(query)) &&
@@ -58,6 +67,8 @@ export default function Tickets() {
       (!filters.moduleId || t.moduleId === filters.moduleId) &&
       (!filters.coordinatorId || (filters.coordinatorId === 'none' ? !t.coordinatorId && isOpen(t.status) : t.coordinatorId === filters.coordinatorId)) &&
       (!filters.mode || session?.booking.mode === filters.mode) &&
+      (!filters.dateFrom || (day !== '' && day >= filters.dateFrom)) &&
+      (!filters.dateTo || (day !== '' && day <= filters.dateTo)) &&
       (!filters.notes || Boolean(session && awaitingNotes(session, now)))
     );
   });
@@ -158,6 +169,14 @@ export default function Tickets() {
                 <option value="">All modes</option>
                 {BOOKING_MODES.map((m) => <option key={m} value={m}>{m === 'online' ? 'Online' : 'Offline'}</option>)}
               </select>
+              <label className="flex items-center gap-1.5 text-xs text-ink-2">
+                From
+                <input type="date" aria-label="Session from" className="input w-auto" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(e) => filter({ dateFrom: e.target.value })} />
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-ink-2">
+                To
+                <input type="date" aria-label="Session to" className="input w-auto" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(e) => filter({ dateTo: e.target.value })} />
+              </label>
               <select className="input w-auto" value={filters.notes} onChange={(e) => filter({ notes: e.target.value })}>
                 <option value="">All post-consultation</option>
                 <option value="pending">Post-consultation not filled</option>

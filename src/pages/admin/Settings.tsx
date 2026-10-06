@@ -147,6 +147,11 @@ export default function Settings() {
                 <input type="checkbox" checked={form.send_confirmations} onChange={(e) => set({ send_confirmations: e.target.checked })} />
                 Email clients a confirmation when they book
               </label>
+              <div>
+                <label className="label">Send a reminder this many hours before a session</label>
+                <input className="input w-32" type="number" min={0} max={168} value={form.lead_time_hours} onChange={(e) => set({ lead_time_hours: Number(e.target.value) })} />
+                <p className="mt-1 text-xs text-ink-3">The reminder email goes out once a day (about 11:30 am IST) to clients whose session starts within this time. 0 turns reminders off.</p>
+              </div>
               <TestButton label="Send test email" busy="Sending…" path="/api/send-email" body={{ test: true }} success="Test emails sent to you: one from Gmail, one from Zoho" />
             </>
           )}

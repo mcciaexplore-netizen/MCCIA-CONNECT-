@@ -20,16 +20,23 @@ export interface BookingMail {
   ticketNumber: string;
   moduleName: string;
   start: Date;
+  end: Date;
   mode: BookingMode;
   meetingLink: string | null;
   venue: string;
+  contactEmail: string; // who clients may write to (Settings > Notifications), may be empty
   linkProblem?: string; // why an online session has no Meet link (told to staff, never to the client)
 }
 
-const whereText = (b: BookingMail) =>
-  b.mode === 'online' ? (b.meetingLink ? `Online. Join here: ${b.meetingLink}` : 'Online. The meeting link will be shared before the session.') : `In person: ${b.venue || b.brand}`;
+/** What the email says about the Meet link when it will arrive on its own, in its own email. */
+const LINK_LATER = 'Will be sent to your email within a few minutes.';
 
-const details = (b: BookingMail) => `When: ${formatWhen(b.start, b.zone)}\nWhere: ${whereText(b)}\nReference: ${b.ticketNumber}`;
+const whereText = (b: BookingMail, linkLater = false) =>
+  b.mode === 'online'
+    ? linkLater ? `Online. Google Meet link: ${LINK_LATER}` : b.meetingLink ? `Online. Join here: ${b.meetingLink}` : 'Online. The meeting link will be shared before the session.'
+    : `In person: ${b.venue || b.brand}`;
+
+const details = (b: BookingMail, linkLater = false) => `When: ${formatWhen(b.start, b.zone)}\nWhere: ${whereText(b, linkLater)}\nReference: ${b.ticketNumber}`;
 
 // Staff see what the client cannot: that Google gave no link, why, and what to do.
 const staffDetails = (b: BookingMail) =>
@@ -39,20 +46,25 @@ const staffDetails = (b: BookingMail) =>
 const logoBand = (b: BookingMail) =>
   `<div style="background:#ffffff;padding:20px;text-align:center;border-bottom:4px solid ${NAVY};"><img src="${esc(b.siteUrl)}/mccia-logo.png" alt="${esc(b.brand)}" width="160" height="43" style="display:inline-block;border:0;"></div>`;
 
+const row = (label: string, value: string) => `<tr><td style="padding:8px;color:#6b7280;">${label}</td><td style="padding:8px;">${value}</td></tr>`;
+const venueBand = (b: BookingMail) => (b.venue ? `<div style="background:#e7ecf4;padding:14px;text-align:center;font-size:12px;color:#6b7280;">${esc(b.venue)}</div>` : '');
+
 interface ClientMessage {
   subject: string;
   lead: { text: string; html: string };
   where?: boolean; // show the Meet link / venue (not for a cancellation)
+  linkLater?: boolean; // an online session's link comes in its own email: say so instead of showing it
   extra?: [string, string][]; // more rows, e.g. the previous time of a rescheduled session
   closing?: string;
 }
 
 /** One email to the person who booked (sent from the Gmail account): the plain text and an HTML version with the same details. */
-function clientMessage(b: BookingMail, { subject, lead, where = true, extra = [], closing = 'We look forward to seeing you.' }: ClientMessage) {
-  const row = (label: string, value: string) => `<tr><td style="padding:8px;color:#6b7280;">${label}</td><td style="padding:8px;">${value}</td></tr>`;
+function clientMessage(b: BookingMail, { subject, lead, where = true, linkLater = false, extra = [], closing = 'We look forward to seeing you.' }: ClientMessage) {
   const place =
     b.mode === 'online'
-      ? row('Meet link', b.meetingLink ? `<a href="${esc(b.meetingLink)}" style="display:inline-block;background:${BLUE};color:#ffffff;padding:8px 16px;border-radius:6px;text-decoration:none;">Join Google Meet</a>` : 'The link will be shared before the session.')
+      ? linkLater
+        ? row('Google Meet link', LINK_LATER)
+        : row('Meet link', b.meetingLink ? `<a href="${esc(b.meetingLink)}" style="display:inline-block;background:${BLUE};color:#ffffff;padding:8px 16px;border-radius:6px;text-decoration:none;">Join Google Meet</a>` : 'The link will be shared before the session.')
       : row('Venue', esc(b.venue || b.brand));
   const html =
     `<div style="font-family:Outfit,Arial,sans-serif;max-width:600px;color:#1a1f36;">` +
@@ -65,9 +77,9 @@ function clientMessage(b: BookingMail, { subject, lead, where = true, extra = []
     row('Mode', b.mode === 'online' ? 'Online (Google Meet)' : 'In person') +
     (where ? place : '') +
     `</table><p>${esc(closing)}</p></div>` +
-    (b.venue ? `<div style="background:#e7ecf4;padding:14px;text-align:center;font-size:12px;color:#6b7280;">${esc(b.venue)}</div>` : '') +
+    venueBand(b) +
     `</div>`;
-  const facts = where ? details(b) : `When: ${formatWhen(b.start, b.zone)}\nReference: ${b.ticketNumber}`;
+  const facts = where ? details(b, linkLater) : `When: ${formatWhen(b.start, b.zone)}\nReference: ${b.ticketNumber}`;
   const more = extra.map(([label, value]) => `\n${label}: ${value}`).join('');
   return { subject, text: `Hello ${b.clientName},\n\n${lead.text}\n\n${facts}${more}\n\n${closing}\n${b.brand}`, html };
 }
@@ -76,11 +88,33 @@ const named = (b: BookingMail, text: (module: string) => string) => ({ text: tex
 
 /** The booking confirmation. */
 export const clientConfirmation = (b: BookingMail) =>
-  clientMessage(b, { subject: `Booking confirmed: ${b.moduleName} (${b.ticketNumber})`, lead: named(b, (m) => `Your ${m} session is confirmed.`) });
+  clientMessage(b, { subject: `Booking confirmed: ${b.moduleName} (${b.ticketNumber})`, lead: named(b, (m) => `Your ${m} session is confirmed.`), linkLater: true });
 
-/** Follow-up for a confirmation that went out before the Meet link existed. */
-export const clientLink = (b: BookingMail) =>
-  clientMessage(b, { subject: `Your Google Meet link: ${b.moduleName} (${b.ticketNumber})`, lead: named(b, (m) => `Here is the Google Meet link for your ${m} session.`) });
+/** The Meet link, in its own email, the moment it exists (the confirmation only says it is coming). */
+export function clientLink(b: BookingMail) {
+  const minutes = Math.round((b.end.getTime() - b.start.getTime()) / 60_000);
+  const html =
+    `<div style="font-family:Outfit,Arial,sans-serif;max-width:600px;color:#1a1f36;">` +
+    logoBand(b) +
+    `<div style="padding:24px;"><p>Dear ${esc(b.clientName)},</p><p>Your Google Meet link is ready. Click below to join your session.</p>` +
+    `<table style="width:100%;border-collapse:collapse;">${row('Module', esc(b.moduleName))}${row('Date &amp; Time', esc(formatWhen(b.start, b.zone)))}${row('Duration', `${minutes} minutes`)}</table>` +
+    `<p style="text-align:center;margin:28px 0;"><a href="${esc(b.meetingLink ?? '')}" style="display:inline-block;background:${BLUE};color:#ffffff;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;">Join Google Meet</a></p>` +
+    (b.contactEmail ? `<p style="font-size:13px;color:#6b7280;">If you have questions contact ${esc(b.contactEmail)}.</p>` : '') +
+    `</div>` +
+    venueBand(b) +
+    `</div>`;
+  const text =
+    `Dear ${b.clientName},\n\nYour Google Meet link is ready. Click below to join your session.\n\n` +
+    `Module: ${b.moduleName}\nDate & Time: ${formatWhen(b.start, b.zone)}\nDuration: ${minutes} minutes\nReference: ${b.ticketNumber}\n\n` +
+    `Join Google Meet: ${b.meetingLink}\n` +
+    (b.contactEmail ? `\nIf you have questions contact ${b.contactEmail}.\n` : '') +
+    `\n${b.brand}`;
+  return { subject: `Your Google Meet link — ${b.ticketNumber}`, text, html };
+}
+
+/** Sent ahead of a session (Settings > Notifications says how far ahead). */
+export const clientReminder = (b: BookingMail) =>
+  clientMessage(b, { subject: `Reminder: ${b.moduleName} session (${b.ticketNumber})`, lead: named(b, (m) => `This is a reminder that your ${m} session is coming up.`) });
 
 /** The session was cancelled. */
 export const clientCancelled = (b: BookingMail) =>
@@ -120,6 +154,14 @@ export function coordinatorNotice(b: BookingMail) {
   return {
     subject: `New booking assigned: ${b.ticketNumber}`,
     text: `${b.coordinatorName ? `Hello ${b.coordinatorName},\n\n` : ''}A ${b.moduleName} session was booked for you.\n\nClient: ${b.clientName} (${b.companyName})\n${staffDetails(b)}`,
+  };
+}
+
+/** To the coordinator when the Google Meet link of one of their sessions has been created (Zoho account). */
+export function coordinatorLinkReady(b: BookingMail) {
+  return {
+    subject: `Meet link ready — ${b.ticketNumber}`,
+    text: `The Google Meet link for ${b.clientName} / ${b.companyName} on ${formatWhen(b.start, b.zone)} is ready.\nLink: ${b.meetingLink}\nTicket: ${b.ticketNumber}`,
   };
 }
 

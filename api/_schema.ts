@@ -8,6 +8,7 @@ import type {
   DateOverride,
   FormField,
   InternalNote,
+  PaymentStatus,
   Role,
   TicketStatus,
   WeeklyRule,
@@ -104,6 +105,9 @@ export const bookings = pgTable('bookings', {
   bookingAnswers: jsonb('booking_answers').$type<Record<string, string>>().notNull().default({}),
   status: text('status').$type<BookingStatus>().notNull().default('scheduled'),
   createdBy: text('created_by').notNull().default('client'),
+  reminderSent: boolean('reminder_sent').notNull().default(false), // the "your session is coming up" email has gone out
+  meetLinkRequestedAt: timestamp('meet_link_requested_at', { withTimezone: true }), // when the Apps Script was last asked for a Meet link
+  meetLinkFailedNotified: boolean('meet_link_failed_notified').notNull().default(false), // the admin was told the link never came
   createdAt: createdAt(),
 });
 
@@ -123,6 +127,7 @@ export const tickets = pgTable('tickets', {
   internalNotes: jsonb('internal_notes').$type<InternalNote[]>().notNull().default([]),
   feedbackData: jsonb('feedback_data').$type<Record<string, string>>().notNull().default({}),
   dueDate: timestamp('due_date', { withTimezone: true }),
+  paymentStatus: text('payment_status').$type<PaymentStatus>().notNull().default('unpaid'), // set by an admin
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
@@ -189,6 +194,7 @@ export const slotConfig = pgTable('slot_config', {
   maxParallel: integer('max_parallel').notNull().default(1),
   onlineCapacity: integer('online_capacity').notNull().default(1),
   offlineCapacity: integer('offline_capacity').notNull().default(1),
+  maxAdvanceDays: integer('max_advance_days').notNull().default(60), // how far ahead a session can be booked
 });
 
 export const appSettings = pgTable('app_settings', {
