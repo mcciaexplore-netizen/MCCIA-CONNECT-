@@ -1,8 +1,9 @@
+import { waitUntil } from '@vercel/functions';
 import { eq } from 'drizzle-orm';
 import { db, loadSettings, type AuthUser } from './_lib.js';
 import { scriptFailure, sendMail, triggerAppsScript } from './_integrations.js';
 import { clientCancelled, clientLink, coordinatorCancelled, coordinatorLinkReady, type BookingMail } from './_mail.js';
-import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
+import { adminNotifications, bookings, clients, coordinators, modules, tickets } from './_schema.js';
 import type { AppSettings, InternalNote } from '../src/types/index.js';
 
 /**
@@ -50,6 +51,24 @@ export const mailOf = ({ booking, ticket, client, module, coordinator }: Booking
 /** Sends several emails at once; one failing never stops the others (or the request that sent them). */
 export async function sendAll(mails: Promise<unknown>[]) {
   for (const result of await Promise.allSettled(mails)) if (result.status === 'rejected') console.error('Email failed:', result.reason);
+}
+
+/**
+ * Does `work` after the response has gone out, so nobody waits for Google or the mail servers (Vercel keeps the function running
+ * until the work is done; the function's maxDuration still applies). The request already succeeded, so a failure is not an error
+ * for the person who made it: it is logged and left on the admin dashboard.
+ */
+export function inBackground(what: string, work: () => Promise<unknown>) {
+  waitUntil(
+    work().catch(async (e) => {
+      console.error(`${what} failed:`, e);
+      try {
+        await db.insert(adminNotifications).values({ message: `${what} failed: ${errorText(e)}` });
+      } catch (inner) {
+        console.error('Could not tell the admin:', inner);
+      }
+    }),
+  );
 }
 
 // The ticket's internal notes also record whether the client is still waiting for their Meet link: the last note

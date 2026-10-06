@@ -100,8 +100,8 @@ export async function sendMail(channel: MailChannel, { to, subject, text, html, 
   return sender.user; // who it was sent from, for the test email to report
 }
 
-// A booking waits this long for the script so the confirmation can carry the Meet link. The first call after the script has been
-// idle takes several seconds longer (measured: about 9 s), so the default is generous; APPS_SCRIPT_TIMEOUT_MS overrides it.
+// A call waits this long for the script (it runs after the answer to the client, see inBackground). The first call after the script has
+// been idle takes several seconds longer (measured: about 9 s), so the default is generous; APPS_SCRIPT_TIMEOUT_MS overrides it.
 const APPS_SCRIPT_TIMEOUT_MS = 20_000;
 
 /**

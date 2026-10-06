@@ -304,7 +304,6 @@ export interface BookingResult {
   bookingId: string;
   ticketId: string;
   ticketNumber: string;
-  meetingLink: string | null; // set when the Apps Script created the Meet link in time
 }
 
 /** What the public feedback page shows (GET /api/feedback/:token). */

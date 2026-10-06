@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
+import { useNavigate } from 'react-router';
 import { useData } from '../../context/DataContext';
-import { companyNote, confirmCancel, formatDate, isOpen } from '../../lib/utils';
+import { companyNote, confirmCancel, confirmDelete, formatDate, isOpen } from '../../lib/utils';
 import { PAYMENT_LABELS, PAYMENT_STATUSES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
@@ -21,7 +22,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /** Right column: the ticket's own properties. Status and due date are editable; admins can reassign. */
 export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
-  const { role, clients, companies, getClient, getModule, getCoordinator, getSession, mutate } = useData();
+  const { role, base, clients, companies, getClient, getModule, getCoordinator, getSession, mutate } = useData();
+  const navigate = useNavigate();
   const [reassigning, setReassigning] = useState(false);
   const [editingDue, setEditingDue] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -32,6 +34,9 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
   const mode = booking?.mode;
 
   const update = (patch: { status?: TicketStatus; dueDate?: string | null }) => mutate('/api/tickets', 'PATCH', { id: ticket.id, ...patch }, 'Ticket updated');
+  const remove = async () => {
+    if (confirmDelete(ticket.ticketNumber) && (await mutate(`/api/tickets?id=${ticket.id}`, 'DELETE', undefined, 'Ticket deleted'))) navigate(`${base}/tickets`);
+  };
 
   return (
     <aside className="w-full space-y-5 border-t border-line bg-white p-4 xl:w-[280px] xl:shrink-0 xl:border-l xl:border-t-0">
@@ -89,6 +94,7 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       <Field label="Booking mode">{mode ? <ModePill mode={mode} /> : '—'}</Field>
       {booking?.status === 'scheduled' && isOpen(ticket.status) && <button className="btn w-full" onClick={() => setRescheduling(true)}>Reschedule</button>}
       {rescheduling && booking && <RescheduleModal ticket={ticket} booking={booking} onClose={() => setRescheduling(false)} />}
+      {role === 'super_admin' && <button className="btn btn-danger w-full" onClick={remove}>Delete ticket</button>}
 
       {reassigning && (
         <ReassignModal

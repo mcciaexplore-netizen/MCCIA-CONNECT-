@@ -3,7 +3,7 @@ import { audit, db, HttpError, loadSettings, type Actor } from './_lib.js';
 import { companyOf } from './_companies.js';
 import { sendMail } from './_integrations.js';
 import { clientAssigned, clientAutoAssigned, clientReassignedAway, formatWhen, type AssignmentMail } from './_mail.js';
-import { sendAll } from './_sessions.js';
+import { inBackground, sendAll } from './_sessions.js';
 import { adminNotifications, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, tickets } from './_schema.js';
 import { CLOSED_STATUSES, MIN_REASON_LENGTH, type StudioZone } from '../src/types/index.js';
 
@@ -130,11 +130,13 @@ export async function assignClient(
     by: actor.name,
     reason: reason || undefined,
   };
-  await sendAll([
-    ...(actor.id && actor.id === coordinator.authUserId
-      ? []
-      : [sendMail('internal', { to: coordinator.email, ...(auto ? clientAutoAssigned({ ...mail, coordinatorName: coordinator.name }) : clientAssigned({ ...mail, coordinatorName: coordinator.name, otherCoordinator: from?.name })) })]),
-    ...(from?.email ? [sendMail('internal', { to: from.email, ...clientReassignedAway({ ...mail, coordinatorName: from.name, otherCoordinator: coordinator.name }) })] : []),
-  ]);
+  inBackground(`Emailing about ${company.name}'s new coordinator`, () =>
+    sendAll([
+      ...(actor.id && actor.id === coordinator.authUserId
+        ? []
+        : [sendMail('internal', { to: coordinator.email, ...(auto ? clientAutoAssigned({ ...mail, coordinatorName: coordinator.name }) : clientAssigned({ ...mail, coordinatorName: coordinator.name, otherCoordinator: from?.name })) })]),
+      ...(from?.email ? [sendMail('internal', { to: from.email, ...clientReassignedAway({ ...mail, coordinatorName: from.name, otherCoordinator: coordinator.name }) })] : []),
+    ]),
+  );
   return { previous: from?.name ?? null, coordinator: coordinator.name };
 }

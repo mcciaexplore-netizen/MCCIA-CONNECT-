@@ -4,12 +4,13 @@ import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
-import { cancelSession } from './_sessions.js';
+import { scriptFailure, triggerAppsScript } from './_integrations.js';
+import { cancelSession, inBackground, loadBooking } from './_sessions.js';
 import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
 import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_STATUSES, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
-const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails, so a big batch would not finish in time
+const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails afterwards, so a big batch could outlast the function
 const NOTHING = 'Nothing to update';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY = 24 * 60 * 60_000;
@@ -135,7 +136,8 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   if (toClient) await assignClient(user, ticket.clientId, toClient.coordinatorId, toClient.reason, { id, bookingId: ticket.bookingId, coordinatorId: ticket.coordinatorId });
 
   await audit(user, after.postConsultation ? 'ticket.post_consultation' : 'ticket.updated', 'ticket', id, before, after);
-  if (patch.status === 'cancelled') await cancelSession(user, ticket.bookingId, siteUrl);
+  // Google and the emails follow the answer.
+  if (patch.status === 'cancelled') inBackground(`Removing the calendar event and emailing about ${ticket.ticketNumber}`, () => cancelSession(user, ticket.bookingId, siteUrl));
   const [updated] = await db.select().from(tickets).where(eq(tickets.id, id));
   return updated;
 }
@@ -252,5 +254,39 @@ export default handler({
       }
     }
     return { updated, failed };
+  },
+
+  // ?id=<ticket> (admins only): removes the ticket for good together with its booking and feedback link, and its Calendar event.
+  // The client is not emailed (cancelling is what tells them); the audit log keeps a record of what was deleted.
+  DELETE: async (req, url) => {
+    const user = await requireUser(req, 'super_admin');
+    const id = url.searchParams.get('id') ?? '';
+    const [ticket] = UUID.test(id) ? await db.select().from(tickets).where(eq(tickets.id, id)) : [];
+    const row = ticket && (await loadBooking(ticket.bookingId));
+    if (!row) throw new HttpError(404, 'Ticket not found');
+
+    await db.batch([
+      db.delete(feedbackTokens).where(eq(feedbackTokens.ticketId, id)),
+      db.delete(tickets).where(eq(tickets.id, id)),
+      db.delete(bookings).where(eq(bookings.id, row.booking.id)),
+    ]);
+    await audit(user, 'ticket.deleted', 'ticket', id, {
+      ticket: row.ticket.ticketNumber,
+      status: row.ticket.status,
+      client: row.client.personName,
+      company: row.client.companyName,
+      module: row.module.name,
+      coordinator: row.coordinator?.name ?? 'Unassigned',
+      startsAt: row.booking.startTime.toISOString(),
+      mode: row.booking.mode,
+    });
+    const eventId = row.booking.googleEventId;
+    if (eventId) {
+      inBackground(`Removing the Google Calendar event of the deleted ticket ${row.ticket.ticketNumber}`, async () => {
+        const failure = scriptFailure(await triggerAppsScript({ action: 'cancel', eventId }));
+        if (failure) throw new Error(`Apps Script reported: ${failure}`);
+      });
+    }
+    return { id, bookingId: row.booking.id };
   },
 });

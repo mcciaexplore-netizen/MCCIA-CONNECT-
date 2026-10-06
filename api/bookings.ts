@@ -8,7 +8,7 @@ import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
-import { addNote, announceLink, createCalendarEvent, errorText, HTTPS_LINK, LINK_WAITING, loadBooking, mailOf, sendAll, waitingForLink, type BookingRow } from './_sessions.js';
+import { addNote, announceLink, createCalendarEvent, errorText, HTTPS_LINK, inBackground, LINK_WAITING, loadBooking, mailOf, sendAll, waitingForLink, type BookingRow } from './_sessions.js';
 import { bookings, clients, companies, coordinatorAssignments, coordinators, modules, tickets } from './_schema.js';
 import { BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type AppSettings, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
@@ -137,14 +137,17 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
   }
   await audit(user, 'booking.rescheduled', 'ticket', row.ticket.id, { startsAt: previous.start.toISOString(), status: row.ticket.status }, { startsAt: start.toISOString(), status: 'rescheduled', reason });
 
-  const { row: moved, missingLink, linkProblem } = await syncCalendar(bookingId, settings);
-  const mail = mailOf(moved, settings, siteUrl, linkProblem);
-  await sendAll([
-    ...(settings.notifications.send_confirmations ? [sendMail('client', { to: moved.client.email, ...clientRescheduled(mail, previous.start) })] : []),
-    ...(moved.coordinator?.email && moved.coordinator.id !== user.coordinatorId ? [sendMail('internal', { to: moved.coordinator.email, ...coordinatorRescheduled(mail, previous.start, user.name, reason) })] : []),
-  ]);
-  if (missingLink) await awaitLink(moved, linkProblem, siteUrl);
-  return { bookingId, startsAt: start.toISOString(), endsAt: end.toISOString(), meetingLink: (await loadBooking(bookingId))!.booking.meetingLink };
+  // The new event (and Meet link) and the emails follow the answer.
+  inBackground(`The calendar event and emails for ${row.ticket.ticketNumber}`, async () => {
+    const { row: moved, missingLink, linkProblem } = await syncCalendar(bookingId, settings);
+    const mail = mailOf(moved, settings, siteUrl, linkProblem);
+    await sendAll([
+      ...(settings.notifications.send_confirmations ? [sendMail('client', { to: moved.client.email, ...clientRescheduled(mail, previous.start) })] : []),
+      ...(moved.coordinator?.email && moved.coordinator.id !== user.coordinatorId ? [sendMail('internal', { to: moved.coordinator.email, ...coordinatorRescheduled(mail, previous.start, user.name, reason) })] : []),
+    ]);
+    if (missingLink) await awaitLink(moved, linkProblem, siteUrl);
+  });
+  return { bookingId, startsAt: start.toISOString(), endsAt: end.toISOString() };
 }
 
 export default handler({
@@ -296,7 +299,7 @@ export default handler({
         ...(existing && permanent && existing.assignedCoordinatorId !== permanent.id ? [db.update(clients).set({ assignedCoordinatorId: permanent.id }).where(eq(clients.id, existing.id))] : []),
         // The client had a coordinator but their company did not (older data): the company takes it, so the whole company shares it.
         ...(company && permanent && !company.assignedCoordinatorId ? [db.update(companies).set({ assignedCoordinatorId: permanent.id }).where(eq(companies.id, company.id))] : []),
-        db.insert(bookings).values({ id: bookingId, moduleId: module.id, clientId, coordinatorId, startTime: start, endTime: end, mode, excelRowNumber: nextRowNumber(module.id), bookingAnswers: answers, createdBy: user ? (user.role === 'coordinator' ? 'coordinator' : 'admin') : 'client' }),
+        db.insert(bookings).values({ id: bookingId, moduleId: module.id, clientId, coordinatorId, startTime: start, endTime: end, mode, excelRowNumber: nextRowNumber(module.id), bookingAnswers: answers, createdBy: user ? (user.role === 'coordinator' ? 'coordinator' : 'admin') : 'client', ...(mode === 'online' && { meetLinkRequestedAt: new Date() }) }),
         db.insert(tickets).values({ id: ticketId, bookingId, moduleId: module.id, clientId, coordinatorId, followUpCoordinatorId: standIn?.id ?? null, status: 'pending' }).returning({ ticketNumber: tickets.ticketNumber }),
       ];
       const results = (await db.batch(writes as unknown as [(typeof writes)[0], ...(typeof writes)[number][]])) as unknown as { ticketNumber: string }[][];
@@ -340,23 +343,27 @@ export default handler({
       }
     }
 
-    // Apps Script, then email. Their failures never undo the booking.
-    const { row, missingLink, linkProblem } = await syncCalendar(bookingId, settings);
+    // The booking is saved: the client gets their answer now, and Google and the emails follow. Their failures never undo the booking.
+    inBackground(`The calendar event and emails for ${ticketNumber}`, async () => {
+      // The client's confirmation does not wait for Google: it only says the Meet link follows in its own email. Clients are mailed from the
+      // Gmail account; the coordinator and the booking copy go out from the Zoho account.
+      const [{ row, missingLink, linkProblem }] = await Promise.all([
+        syncCalendar(bookingId, settings),
+        settings.notifications.send_confirmations && loadBooking(bookingId).then((booked) => sendAll([sendMail('client', { to: clientInput.email, ...clientConfirmation(mailOf(booked!, settings, siteUrl)) })])),
+      ]);
+      const booking = mailOf(row, settings, siteUrl, linkProblem);
+      const copyTo = settings.notifications.admin_email;
+      await sendAll([
+        ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
+        ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
+      ]);
+      // The link goes out in its own email as soon as it exists (now, or when the Apps Script calls back).
+      if (row.booking.mode === 'online') {
+        if (missingLink) await awaitLink(row, linkProblem, siteUrl);
+        else await announceLink(bookingId, siteUrl, true);
+      }
+    });
 
-    // Clients are mailed from the Gmail account; the coordinator and the booking copy go out from the Zoho account.
-    const booking = mailOf(row, settings, siteUrl, linkProblem);
-    const copyTo = settings.notifications.admin_email;
-    await sendAll([
-      ...(settings.notifications.send_confirmations ? [sendMail('client', { to: clientInput.email, ...clientConfirmation(booking) })] : []),
-      ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
-      ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
-    ]);
-    // The confirmation only says the Meet link is coming; it goes out in its own email as soon as it exists (now, or when the Apps Script calls back).
-    if (row.booking.mode === 'online') {
-      if (missingLink) await awaitLink(row, linkProblem, siteUrl);
-      else await announceLink(bookingId, siteUrl, true);
-    }
-
-    return { bookingId, ticketId, ticketNumber, meetingLink: row.booking.meetingLink };
+    return { bookingId, ticketId, ticketNumber };
   },
 });
