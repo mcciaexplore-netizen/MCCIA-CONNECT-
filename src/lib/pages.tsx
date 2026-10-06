@@ -25,6 +25,8 @@ const s = {
   TicketDetail: screen('TicketDetail', () => import('../pages/admin/TicketDetail')),
   Clients: screen('Clients', () => import('../pages/admin/Clients')),
   ClientProfile: screen('ClientProfile', () => import('../pages/admin/ClientProfile')),
+  Companies: screen('Companies', () => import('../pages/admin/Companies')),
+  CompanyDetail: screen('CompanyDetail', () => import('../pages/admin/CompanyDetail')),
   Coordinators: screen('Coordinators', () => import('../pages/admin/Coordinators')),
   CreateBooking: screen('CreateBooking', () => import('../pages/admin/CreateBooking')),
   FormBuilder: screen('FormBuilder', () => import('../pages/admin/FormBuilder')),
@@ -45,6 +47,8 @@ export const Tickets = s.Tickets.Screen;
 export const TicketDetail = s.TicketDetail.Screen;
 export const Clients = s.Clients.Screen;
 export const ClientProfile = s.ClientProfile.Screen;
+export const Companies = s.Companies.Screen;
+export const CompanyDetail = s.CompanyDetail.Screen;
 export const Coordinators = s.Coordinators.Screen;
 export const CreateBooking = s.CreateBooking.Screen;
 export const FormBuilder = s.FormBuilder.Screen;
@@ -70,6 +74,8 @@ const ROUTES: [RegExp, Name[]][] = [
   [/^\/admin\/tickets/, ['Tickets']],
   [/^\/admin\/clients\/./, ['ClientProfile']],
   [/^\/admin\/clients/, ['Clients']],
+  [/^\/admin\/companies\/./, ['CompanyDetail']],
+  [/^\/admin\/companies/, ['Companies']],
   [/^\/admin\/coordinators/, ['Coordinators']],
   [/^\/admin\/create-booking/, ['CreateBooking']],
   [/^\/admin\/form-builder/, ['FormBuilder']],
@@ -91,7 +97,7 @@ export function preloadRoute(pathname: string) {
 }
 
 const GROUPS: Record<'super_admin' | 'coordinator', Name[]> = {
-  super_admin: ['Dashboard', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs'],
+  super_admin: ['Dashboard', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Companies', 'CompanyDetail', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs'],
   coordinator: ['MyDashboard', 'MyTickets', 'TicketDetail', 'MyClients', 'ClientProfile', 'MySchedule', 'MySlots', 'CreateBooking', 'MyAccount'],
 };
 

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { api, ApiError, errorMessage, setStudioZone } from '../lib/utils';
-import { DEFAULT_SETTINGS, type AppSettings, type Booking, type Client, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket } from '../types';
+import { DEFAULT_SETTINGS, type AdminNotification, type AppSettings, type Booking, type Client, type CompanyRow, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket } from '../types';
 
 /** Loaded for everyone as soon as they sign in. */
 interface Base {
@@ -17,9 +17,11 @@ interface Records {
   clients: Client[];
   bookings: Booking[];
   slotConfigs: SlotConfig[]; // admin only
+  companies: CompanyRow[]; // admin only
+  notifications: AdminNotification[]; // admin only: the dashboard's messages
 }
 
-const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', clients: '/api/clients', bookings: '/api/bookings', slotConfigs: '/api/slots' };
+const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', clients: '/api/clients', bookings: '/api/bookings', slotConfigs: '/api/slots', companies: '/api/clients?companies=1', notifications: '/api/audit-logs?notifications=1' };
 export type Slice = keyof Records;
 
 const EMPTY_BASE: Base = { modules: [], coordinators: [], settings: DEFAULT_SETTINGS };
@@ -27,12 +29,13 @@ const EMPTY_BASE: Base = { modules: [], coordinators: [], settings: DEFAULT_SETT
 /** What each kind of write can change besides its own answer: reloaded quietly afterwards, and only what is already on screen. */
 const AFTER: Record<string, { slices: Slice[]; base?: boolean }> = {
   '/api/tickets': { slices: ['tickets', 'bookings', 'clients'] },
-  '/api/clients': { slices: ['clients', 'tickets', 'bookings'] },
-  '/api/bookings': { slices: ['bookings', 'tickets', 'clients'] },
+  '/api/clients': { slices: ['clients', 'tickets', 'bookings', 'companies'] },
+  '/api/bookings': { slices: ['bookings', 'tickets', 'clients', 'companies', 'notifications'] },
   '/api/coordinators': { slices: [], base: true },
   '/api/modules': { slices: [], base: true },
   '/api/settings': { slices: [], base: true },
   '/api/slots': { slices: ['slotConfigs'] },
+  '/api/audit-logs': { slices: ['notifications'] },
 };
 
 // A person who was signed in last time has a hint kept here (never a secret). It lets the app ask for their data at the same moment
@@ -352,6 +355,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       clients,
       bookings,
       slotConfigs: records.slotConfigs ?? NONE,
+      companies: records.companies ?? NONE,
+      notifications: records.notifications ?? NONE,
       authLoading,
       user,
       role,

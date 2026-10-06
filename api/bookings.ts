@@ -1,14 +1,16 @@
 import { timingSafeEqual } from 'node:crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadSettings, needString, optString, ownedBy, parseClient, readBody, requireUser, siteOrigin, UUID, type Actor, type AuthUser } from './_lib.js';
-import { clashesOf, ensureCoordinatorFree, loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
+import { clashesOf, ensureCoordinatorFree, freeCoordinators, leastLoaded, loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
+import { assignClient } from './_assign.js';
+import { findCompany } from './_companies.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
 import { addNote, announceLink, createCalendarEvent, errorText, HTTPS_LINK, LINK_WAITING, loadBooking, mailOf, sendAll, waitingForLink, type BookingRow } from './_sessions.js';
-import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
-import { BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type AppSettings, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
+import { bookings, clients, companies, coordinatorAssignments, coordinators, modules, tickets } from './_schema.js';
+import { BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type AppSettings, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
 const MAX_REASON = 500;
 
@@ -179,7 +181,7 @@ export default handler({
 
   // The booking form (public page and admin Create booking), the Apps Script's { action: 'update-meet' } callback,
   // staff's { action: 'create-meet' } and the reschedule route.
-  POST: async (req, url): Promise<BookingResult | Record<string, unknown>> => {
+  POST: async (req, url): Promise<BookingResult | BookingConflict | Record<string, unknown>> => {
     const body = await readBody(req);
     const siteUrl = siteOrigin(req);
     const rescheduleId = url.searchParams.get('reschedule') ?? /^\/api\/bookings\/([^/]+)\/reschedule\/?$/.exec(url.pathname)?.[1];
@@ -225,22 +227,54 @@ export default handler({
     // Returning clients are matched by email; their record is left as it is.
     const [existing] = await db.select().from(clients).where(sql`lower(${clients.email}) = ${clientInput.email}`).orderBy(clients.createdAt).limit(1);
 
-    // Staff booking for a client must choose the coordinator; on the public page it is the client's assigned coordinator (if still active).
+    // The company decides the coordinator: every client of a company shares it, however the company's name is written (see _companies.ts).
+    const company = existing?.companyId ? (await db.select().from(companies).where(eq(companies.id, existing.companyId)))[0] : await findCompany(clientInput.companyName);
+    const permanentId = company?.assignedCoordinatorId ?? existing?.assignedCoordinatorId ?? null;
+    const [permanentRow] = permanentId && UUID.test(permanentId) ? await db.select().from(coordinators).where(eq(coordinators.id, permanentId)) : [];
+    const permanent = permanentRow?.isActive ? permanentRow : undefined; // an inactive coordinator holds nobody
+
+    // Who takes this session. Staff choose: an admin names the coordinator, a coordinator books for themselves and only for their own company
+    // or one nobody has yet. On the public page the rules decide:
+    //  1. the company's coordinator, if free then;
+    //  2. if they are busy: the client is told who else is free and may book with one of them, for this session only;
+    //  3. a company with no coordinator yet gets the free one with the fewest sessions this month, for good.
     const picked = user?.role === 'super_admin' && typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
     if (user?.role === 'super_admin' && !picked) throw new HttpError(400, 'Choose a coordinator for this booking');
-    // A coordinator booking a client is booking for themselves, and only for a client who is theirs or not yet anyone's.
     const own = user?.role === 'coordinator' ? user.coordinatorId : null;
-    if (own && existing?.assignedCoordinatorId && existing.assignedCoordinatorId !== own) throw new HttpError(403, 'This client works with another coordinator. Ask the admin to book this session.');
-    const wanted = picked ?? own ?? existing?.assignedCoordinatorId;
-    const [coordinator] = wanted && UUID.test(wanted) ? await db.select().from(coordinators).where(eq(coordinators.id, wanted)) : [];
-    if (picked && !coordinator?.isActive) throw new HttpError(400, 'Coordinator not found or inactive');
-    const coordinatorId = coordinator?.isActive ? coordinator.id : null;
-    // Their own hours and one session at a time, checked before anything is written (and before a public booking uses up its allowance).
-    if (coordinator?.isActive) await ensureCoordinatorFree(coordinator, start, end, tz, { forClient: !user });
+    if (own && permanent && permanent.id !== own) throw new HttpError(403, "This client's company works with another coordinator. Ask the admin to book this session.");
+
+    let coordinator: typeof coordinators.$inferSelect;
+    let standIn: typeof permanent; // set when this one session is booked with someone else because the company's coordinator was busy
+    let autoAssigned = false;
+    if (user) {
+      const wantedId = picked ?? own;
+      const [row] = wantedId && UUID.test(wantedId) ? await db.select().from(coordinators).where(eq(coordinators.id, wantedId)) : [];
+      if (!row?.isActive) throw new HttpError(400, 'Coordinator not found or inactive');
+      // Their own hours and one session at a time, checked before anything is written.
+      await ensureCoordinatorFree(row, start, end, tz);
+      coordinator = row;
+    } else {
+      const free = await freeCoordinators(start, end, tz);
+      if (permanent && free.some((c) => c.id === permanent.id)) {
+        coordinator = permanent;
+      } else if (permanent) {
+        const others = free.filter((c) => c.id !== permanent.id);
+        const alternative = others.find((c) => c.id === body.coordinatorId);
+        if (!alternative) return { coordinatorConflict: true, assignedCoordinator: { id: permanent.id, name: permanent.name }, availableCoordinators: others.map(({ id, name, color }) => ({ id, name, color })) } satisfies BookingConflict;
+        coordinator = alternative;
+        standIn = permanent;
+      } else {
+        if (!free.length) throw new HttpError(409, 'No coordinators are available at this time. Please choose another slot.');
+        coordinator = await leastLoaded(free, start, tz);
+        autoAssigned = true;
+      }
+    }
+    const coordinatorId = coordinator.id;
 
     const clientId = existing?.id ?? crypto.randomUUID();
     const bookingId = crypto.randomUUID();
     const ticketId = crypto.randomUUID();
+    const companyIdOf = sql<string>`(select id from companies where name_normalized = normalize_company_name(${clientInput.companyName}))`;
 
     // Take one of the IP's 3 allowed bookings now, before anything is written, so parallel requests cannot all get in.
     // It is given back if the booking then does not happen.
@@ -249,13 +283,21 @@ export default handler({
 
     let ticketNumber: string;
     try {
-      // One atomic request: either the client, booking and ticket all exist or none do.
-      const [, , [ticket]] = await db.batch([
-        db.insert(clients).values({ id: clientId, ...clientInput }).onConflictDoNothing(),
+      // One atomic request: either the company, client, booking and ticket all exist or none do.
+      const writes = [
+        ...(company ? [] : [db.insert(companies).values({ name: clientInput.companyName, nameNormalized: sql`normalize_company_name(${clientInput.companyName})` }).onConflictDoNothing()]),
+        // A new client starts with the company's coordinator, when it has one.
+        ...(existing ? [] : [db.insert(clients).values({ id: clientId, ...clientInput, companyId: companyIdOf, assignedCoordinatorId: permanent?.id ?? null })]),
+        ...(!existing && permanent ? [db.insert(coordinatorAssignments).values({ clientId, coordinatorId: permanent.id })] : []),
+        ...(existing && !existing.companyId ? [db.update(clients).set({ companyId: companyIdOf }).where(eq(clients.id, existing.id))] : []),
+        ...(existing && permanent && existing.assignedCoordinatorId !== permanent.id ? [db.update(clients).set({ assignedCoordinatorId: permanent.id }).where(eq(clients.id, existing.id))] : []),
+        // The client had a coordinator but their company did not (older data): the company takes it, so the whole company shares it.
+        ...(company && permanent && !company.assignedCoordinatorId ? [db.update(companies).set({ assignedCoordinatorId: permanent.id }).where(eq(companies.id, company.id))] : []),
         db.insert(bookings).values({ id: bookingId, moduleId: module.id, clientId, coordinatorId, startTime: start, endTime: end, mode, excelRowNumber: nextRowNumber(module.id), bookingAnswers: answers, createdBy: user ? (user.role === 'coordinator' ? 'coordinator' : 'admin') : 'client' }),
-        db.insert(tickets).values({ id: ticketId, bookingId, moduleId: module.id, clientId, coordinatorId, status: coordinatorId ? 'pending' : 'new' }).returning({ ticketNumber: tickets.ticketNumber }),
-      ]);
-      ticketNumber = ticket.ticketNumber;
+        db.insert(tickets).values({ id: ticketId, bookingId, moduleId: module.id, clientId, coordinatorId, followUpCoordinatorId: standIn?.id ?? null, status: 'pending' }).returning({ ticketNumber: tickets.ticketNumber }),
+      ];
+      const results = (await db.batch(writes as unknown as [(typeof writes)[0], ...(typeof writes)[number][]])) as unknown as { ticketNumber: string }[][];
+      ticketNumber = results[results.length - 1][0].ticketNumber;
     } catch (e) {
       await giveBack();
       throw isUniqueViolation(e) ? new HttpError(409, 'Please try booking again.') : e;
@@ -279,6 +321,21 @@ export default handler({
     }
 
     await audit(actor, 'booking.created', 'ticket', ticketId, undefined, { ticket: ticketNumber, module: module.name, client: clientInput.personName, startsAt: start.toISOString(), mode });
+    if (standIn) {
+      await audit(actor, 'booking.temporary_coordinator', 'ticket', ticketId, undefined, {
+        message: `Booking assigned to ${coordinator.name} because ${standIn.name} was unavailable`,
+        temporary: coordinator.name,
+        permanent: standIn.name,
+      });
+    }
+    // A company with no coordinator yet now has one: the free one the form picked, or the one staff chose. Everything of the company follows.
+    if (!permanent) {
+      try {
+        await assignClient(user ?? actor, clientId, coordinator.id, '', undefined, autoAssigned ? { auto: { firstBooking: !company } } : {});
+      } catch (e) {
+        console.error('Assigning the company failed:', e); // the booking stands; the company is given a coordinator on its next booking
+      }
+    }
 
     // Apps Script, then email. Their failures never undo the booking.
     const { row, missingLink, linkProblem } = await syncCalendar(bookingId, settings);

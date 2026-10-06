@@ -23,7 +23,7 @@ export default function TicketDetail() {
   const { tickets, role, base } = useData();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
-  const page = usePageData('tickets', 'clients', 'bookings');
+  const page = usePageData('tickets', 'clients', 'bookings', ...(role === 'super_admin' ? (['companies'] as const) : []));
 
   const ticket = tickets.find((t) => t.id === ticketId);
   const auditLogs = useEntityLogs(ticketId ? [ticketId] : [], role === 'super_admin' && tab === 'audit', tickets);

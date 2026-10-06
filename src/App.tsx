@@ -5,7 +5,7 @@ import { useData } from './context/DataContext';
 import { homeFor, usePublicSettings } from './lib/utils';
 import type { Role } from './types';
 import Layout from './components/layout/Layout';
-import { AuditLogs, ClientProfile, Clients, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets } from './lib/pages';
+import { AuditLogs, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets } from './lib/pages';
 import BookingPage from './pages/public/BookingPage';
 import ConfirmationPage from './pages/public/ConfirmationPage';
 import FeedbackPage from './pages/public/FeedbackPage';
@@ -49,6 +49,8 @@ export default function App() {
           <Route path="tickets/:ticketId" element={<TicketDetail />} />
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:clientId" element={<ClientProfile />} />
+          <Route path="companies" element={<Companies />} />
+          <Route path="companies/:companyId" element={<CompanyDetail />} />
           <Route path="coordinators" element={<Coordinators />} />
           <Route path="create-booking" element={<CreateBooking />} />
           <Route path="form-builder" element={<FormBuilder />} />

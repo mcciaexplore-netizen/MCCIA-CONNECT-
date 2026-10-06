@@ -1,5 +1,5 @@
 import type { InferSelectModel } from 'drizzle-orm';
-import type { auditLogs, bookings, clients, coordinators, modules, slotConfig, tickets } from '../../api/_schema';
+import type { adminNotifications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets } from '../../api/_schema';
 
 // ---------- constants shared by the browser and the API ----------
 
@@ -161,6 +161,10 @@ export type Ticket = Wire<InferSelectModel<typeof tickets>>;
 export type Client = Wire<InferSelectModel<typeof clients>>;
 export type Coordinator = Wire<InferSelectModel<typeof coordinators>>;
 export type Booking = Wire<InferSelectModel<typeof bookings>>;
+export type Company = Wire<InferSelectModel<typeof companies>>;
+/** A company with its numbers, for the admin Companies page (GET /api/clients?companies=1). */
+export type CompanyRow = Company & { clientCount: number; bookingCount: number; lastBooking: string | null };
+export type AdminNotification = Wire<InferSelectModel<typeof adminNotifications>>;
 export type AuditLog = Wire<InferSelectModel<typeof auditLogs>>;
 export type SlotConfig = Wire<InferSelectModel<typeof slotConfig>>;
 /** questions = the booking form, postQuestions = the post-consultation form (defaults when not customised). */
@@ -275,6 +279,16 @@ export interface CoordinatorSlot {
   state: 'available' | 'booked';
   services: string[]; // available: the services that can still be booked in this slot
   booking?: { ticketId: string; ticketNumber: string; clientName: string; companyName: string; moduleName: string; mode: BookingMode; status: BookingStatus };
+}
+
+/**
+ * What POST /api/bookings answers (200, nothing booked) when a client's own coordinator is busy at that time: the coordinators who are free
+ * then. The client can book with one of them once (the company's coordinator does not change) or pick another time.
+ */
+export interface BookingConflict {
+  coordinatorConflict: true;
+  assignedCoordinator: { id: string; name: string };
+  availableCoordinators: { id: string; name: string; color: string }[];
 }
 
 export interface BookingResult {

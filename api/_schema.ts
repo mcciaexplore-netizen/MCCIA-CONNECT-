@@ -58,6 +58,19 @@ export const coordinators = pgTable('coordinators', {
   createdAt: createdAt(),
 });
 
+/**
+ * A company, whoever from it books. Names match without capitals, punctuation or words like "Pvt" and "Ltd" (the normalize_company_name()
+ * function in the database is the one rule for that). assigned_coordinator_id is the company's coordinator; every client of the company
+ * shares it (clients.assigned_coordinator_id is kept in step with it).
+ */
+export const companies = pgTable('companies', {
+  id: id(),
+  name: text('name').notNull(),
+  nameNormalized: text('name_normalized').notNull().unique(),
+  assignedCoordinatorId: uuid('assigned_coordinator_id').references(() => coordinators.id),
+  createdAt: createdAt(),
+});
+
 export const clients = pgTable('clients', {
   id: id(),
   companyName: text('company_name').notNull(),
@@ -72,6 +85,7 @@ export const clients = pgTable('clients', {
   membershipId: text('membership_id'),
   acquisitionFrom: text('acquisition_from'),
   assignedCoordinatorId: uuid('assigned_coordinator_id').references(() => coordinators.id),
+  companyId: uuid('company_id').references(() => companies.id),
   createdAt: createdAt(),
 });
 
@@ -102,6 +116,8 @@ export const tickets = pgTable('tickets', {
   moduleId: uuid('module_id').notNull().references(() => modules.id),
   clientId: uuid('client_id').notNull().references(() => clients.id),
   coordinatorId: uuid('coordinator_id').references(() => coordinators.id),
+  // Set when the session was booked with a stand-in because the company's coordinator was busy: after the session the ticket goes back to them.
+  followUpCoordinatorId: uuid('follow_up_coordinator_id').references(() => coordinators.id),
   status: text('status').$type<TicketStatus>().notNull().default('new'),
   postConsultationData: jsonb('post_consultation_data').$type<Record<string, string>>().notNull().default({}),
   internalNotes: jsonb('internal_notes').$type<InternalNote[]>().notNull().default([]),
@@ -127,7 +143,17 @@ export const coordinatorReassignments = pgTable('coordinator_reassignments', {
   toCoordinatorId: uuid('to_coordinator_id').notNull().references(() => coordinators.id),
   reason: text('reason').notNull(),
   doneBy: uuid('done_by'),
+  companyId: uuid('company_id').references(() => companies.id), // set when the whole company changed coordinator
   createdAt: createdAt(),
+});
+
+/** Messages for the admin dashboard (for example a company that was auto-assigned a coordinator), until dismissed. */
+export const adminNotifications = pgTable('admin_notifications', {
+  id: id(),
+  message: text('message').notNull(),
+  companyId: uuid('company_id').references(() => companies.id),
+  createdAt: createdAt(),
+  dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
 });
 
 export const auditLogs = pgTable('audit_logs', {

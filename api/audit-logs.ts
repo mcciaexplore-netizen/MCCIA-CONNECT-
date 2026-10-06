@@ -1,11 +1,12 @@
-import { and, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { studioTime } from './_availability.js';
-import { db, handler, HttpError, loadSettings, requireUser, UUID } from './_lib.js';
-import { auditLogs } from './_schema.js';
+import { db, handler, HttpError, loadSettings, readBody, requireUser, UUID } from './_lib.js';
+import { adminNotifications, auditLogs } from './_schema.js';
 
 const PAGE_SIZE = 50;
 const MAX_PAGE = 200;
 const MAX_ENTITIES = 200;
+const MAX_NOTICES = 50;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const dayStart = (date: string, tz: string, plusDays = 0) => new Date(studioTime(date, '00:00', tz) + plusDays * 24 * 60 * 60 * 1000);
@@ -15,9 +16,12 @@ export default handler({
   //  ?entities=id,id   every entry about those records (a ticket's or a client's timeline), newest first;
   //  otherwise one page of the whole log: ?limit (50, up to 200) &cursor (the previous page's nextCursor) and the filters
   //  action, doneBy, from / to (YYYY-MM-DD, in the studio's time zone). The filters run here, so they cover the whole log.
+  //  ?notifications=1   the dashboard's messages that nobody has dismissed yet (a company that was auto-assigned a coordinator, ...).
   GET: async (req, url) => {
     await requireUser(req, 'super_admin');
     const q = url.searchParams;
+
+    if (q.has('notifications')) return await db.select().from(adminNotifications).where(isNull(adminNotifications.dismissedAt)).orderBy(desc(adminNotifications.createdAt)).limit(MAX_NOTICES);
 
     const entities = q.get('entities');
     if (entities !== null) {
@@ -59,5 +63,14 @@ export default handler({
       actions: actions.map((a) => a.value),
       people: people.map((p) => p.value as string),
     };
+  },
+
+  // Dismisses a dashboard message ({ id }), or all of them ({ all: true }).
+  PATCH: async (req) => {
+    await requireUser(req, 'super_admin');
+    const body = await readBody(req);
+    if (body.all !== true && !(typeof body.id === 'string' && UUID.test(body.id))) throw new HttpError(400, 'Say which message');
+    await db.update(adminNotifications).set({ dismissedAt: new Date() }).where(and(isNull(adminNotifications.dismissedAt), body.all === true ? undefined : eq(adminNotifications.id, body.id as string)));
+    return { ok: true };
   },
 });

@@ -1,8 +1,10 @@
 import { and, desc, eq, gt } from 'drizzle-orm';
 import { assignClient } from './_assign.js';
+import { clashesOf } from './_availability.js';
+import { returnFollowUps } from './_companies.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { cancelSession } from './_sessions.js';
-import { bookings, clients, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
+import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
 import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, TICKET_STATUSES, type FeedbackForm, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
@@ -16,6 +18,7 @@ const NOTHING = 'Nothing to update';
  * Cancelling removes the Calendar event and tells the client and the coordinator.
  */
 async function updateTicket(user: AuthUser, id: string, body: Record<string, unknown>, siteUrl: string) {
+  await returnFollowUps();
   const [ticket] = UUID.test(id) ? await db.select().from(tickets).where(eq(tickets.id, id)) : [];
   if (!ticket) throw new HttpError(404, 'Ticket not found');
   if (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
@@ -42,16 +45,29 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
     if (newId !== ticket.coordinatorId) {
       const names = new Map((await db.select({ id: coordinators.id, name: coordinators.name, isActive: coordinators.isActive }).from(coordinators)).map((c) => [c.id, c]));
       if (newId && !names.get(newId)?.isActive) throw new HttpError(400, 'Coordinator not found or inactive');
-      const [client] = await db.select({ assignedCoordinatorId: clients.assignedCoordinatorId }).from(clients).where(eq(clients.id, ticket.clientId));
+      // The coordinator the ticket's company already has (the company decides; the client's own is the fallback).
+      const [owner] = await db
+        .select({ company: companies.assignedCoordinatorId, client: clients.assignedCoordinatorId })
+        .from(clients)
+        .leftJoin(companies, eq(companies.id, clients.companyId))
+        .where(eq(clients.id, ticket.clientId));
+      const heldBy = owner?.company ?? owner?.client ?? null;
       const reason = optString(body.reason);
-      // Someone else already had this ticket or this client: say why they are replaced.
-      const replacing = Boolean(ticket.coordinatorId) || Boolean(newId && client?.assignedCoordinatorId && client.assignedCoordinatorId !== newId);
+      // Someone else already had this ticket or this company: say why they are replaced.
+      const replacing = Boolean(ticket.coordinatorId) || Boolean(newId && heldBy && heldBy !== newId);
       if (newId && replacing && reason.length < MIN_REASON_LENGTH) throw new HttpError(400, `Give a reason of at least ${MIN_REASON_LENGTH} characters to reassign a ticket that already has a coordinator`);
-      if (newId && client?.assignedCoordinatorId !== newId) {
+      if (newId && heldBy !== newId) {
         toClient = { coordinatorId: newId, reason };
       } else {
-        // Unassigning, or handing the ticket to the coordinator the client already has: only this ticket changes.
+        // Unassigning, or handing the ticket to the coordinator its company already has: only this ticket changes. That coordinator must be free then too.
+        if (newId) {
+          const [session] = await db.select({ start: bookings.startTime, end: bookings.endTime }).from(bookings).where(eq(bookings.id, ticket.bookingId));
+          if (session && session.end > new Date() && (await clashesOf(newId, session.start, session.end, ticket.bookingId)).length) {
+            throw new HttpError(409, `${names.get(newId)?.name} already has a session at that time. A coordinator cannot take two sessions at the same time.`);
+          }
+        }
         patch.coordinatorId = newId;
+        patch.followUpCoordinatorId = null;
         bookingPatch.coordinatorId = newId;
         if (newId && ticket.status === 'new' && !patch.status) {
           patch.status = 'pending';
@@ -166,6 +182,7 @@ export default handler({
       return form;
     }
     const user = await requireUser(req);
+    await returnFollowUps();
     return await db.select().from(tickets).where(ownedBy(user, tickets.coordinatorId)).orderBy(desc(tickets.createdAt));
   },
 

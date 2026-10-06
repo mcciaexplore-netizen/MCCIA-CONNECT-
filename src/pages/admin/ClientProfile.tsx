@@ -28,7 +28,7 @@ export default function ClientProfile() {
   const admin = role === 'super_admin';
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
-  const page = usePageData('clients', 'tickets', 'bookings');
+  const page = usePageData('clients', 'tickets', 'bookings', ...(admin ? (['companies'] as const) : []));
 
   const client = clients.find((c) => c.id === clientId);
   const auditLogs = useEntityLogs(client ? [client.id, ...tickets.filter((t) => t.clientId === client.id).map((t) => t.id)] : [], admin && tab === 'history', tickets);

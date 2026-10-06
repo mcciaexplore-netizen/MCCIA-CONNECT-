@@ -1,6 +1,6 @@
-import { and, asc, eq, gt, lt, ne } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
 import { db, HttpError } from './_lib.js';
-import { bookings, clients, modules, slotConfig, tickets } from './_schema.js';
+import { bookings, clients, coordinators, modules, slotConfig, tickets } from './_schema.js';
 import type { Availability, BookingMode, CoordinatorSlot, SlotInfo } from '../src/types/index.js';
 
 // Slot config times are in studio time: the time zone in Settings (app_settings.timezone.tz).
@@ -133,6 +133,37 @@ export async function ensureCoordinatorFree(
   const who = forClient ? 'Your coordinator' : coordinator.name;
   if (!withinHours(coordinator.availability, start, end, tz)) throw new HttpError(409, `${who} is not available at that time. Please pick another.`);
   if ((await clashesOf(coordinator.id, start, end, excludeBookingId)).length) throw new HttpError(409, `${who} already has a session at that time. Please pick another.`);
+}
+
+/** Every active coordinator who can take a session at [start, end): inside their own hours and with no other live session overlapping. */
+export async function freeCoordinators(start: Date, end: Date, tz: string) {
+  const [active, busy] = await Promise.all([
+    db.select().from(coordinators).where(eq(coordinators.isActive, true)).orderBy(asc(coordinators.name)),
+    db
+      .select({ id: bookings.coordinatorId })
+      .from(bookings)
+      .where(and(isNotNull(bookings.coordinatorId), ne(bookings.status, 'cancelled'), lt(bookings.startTime, end), gt(bookings.endTime, start))),
+  ]);
+  const taken = new Set(busy.map((b) => b.id));
+  return active.filter((c) => !taken.has(c.id) && withinHours(c.availability, start, end, tz));
+}
+
+/**
+ * Of these coordinators, the one with the fewest sessions in the calendar month (studio time) of `start`, so new clients spread evenly.
+ * A tie is settled at random. Cancelled sessions do not count.
+ */
+export async function leastLoaded<T extends { id: string }>(candidates: T[], start: Date, tz: string): Promise<T> {
+  const [year, month] = studioDate(start, tz).split('-').map(Number);
+  const first = (y: number, m: number) => new Date(studioTime(`${y}-${String(m).padStart(2, '0')}-01`, '00:00', tz));
+  const counts = await db
+    .select({ id: bookings.coordinatorId, n: sql<number>`count(*)::int` })
+    .from(bookings)
+    .where(and(inArray(bookings.coordinatorId, candidates.map((c) => c.id)), ne(bookings.status, 'cancelled'), gte(bookings.startTime, first(year, month)), lt(bookings.startTime, month === 12 ? first(year + 1, 1) : first(year, month + 1))))
+    .groupBy(bookings.coordinatorId);
+  const load = new Map(counts.map((row) => [row.id, row.n]));
+  const fewest = Math.min(...candidates.map((c) => load.get(c.id) ?? 0));
+  const tied = candidates.filter((c) => (load.get(c.id) ?? 0) === fewest);
+  return tied[Math.floor(Math.random() * tied.length)];
 }
 
 /**

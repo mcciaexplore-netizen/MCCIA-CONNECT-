@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, type AuditLog, type BookingSummary, type Client, type ClientInput, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
+import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, type AuditLog, type BookingSummary, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
 
 const MOBILE = '(max-width: 767px)';
 /** True below 768px: tables turn into card lists and the navigation becomes a menu. */
@@ -82,6 +82,7 @@ const show = (value: unknown) =>
 /** What an audit log entry changed, e.g. "status: new → assigned, coordinator: Asha". */
 export function describeChange(log: AuditLog) {
   const after = log.newValue ?? {};
+  if (typeof after.message === 'string') return after.message; // e.g. "Auto-assigned to Neha Joshi (least bookings this month)"
   return Object.entries(after)
     .map(([key, value]) => (log.oldValue && key in log.oldValue ? `${key}: ${show(log.oldValue[key])} → ${show(value)}` : `${key}: ${show(value)}`))
     .join(', ');
@@ -164,5 +165,9 @@ export function usePublicSettings(): PublicSettings {
 }
 
 /** Cancelling a session removes its calendar event and emails the client, and cannot be undone: ask first. */
+/** What the reassign warning needs: a client's company and how many clients it has, since they all move together. */
+export const companyNote = (client: Client | undefined, clients: Client[], companies: CompanyRow[] = []) =>
+  client && { name: companies.find((c) => c.id === client.companyId)?.name ?? client.companyName, clients: client.companyId ? clients.filter((c) => c.companyId === client.companyId).length : 1 };
+
 export const confirmCancel = (count = 1) =>
   window.confirm(count === 1 ? 'Cancel this session? The calendar event is deleted and the client is emailed. This cannot be undone.' : `Cancel ${count} sessions? Their calendar events are deleted and the clients are emailed. This cannot be undone.`);

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { format } from 'date-fns';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
+import AdminNotices from '../../components/ui/AdminNotices';
 import Avatar from '../../components/ui/Avatar';
 import BookingLink from '../../components/ui/BookingLink';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -35,7 +36,7 @@ function Alert({ tone, children, action, onAction }: { tone: 'red' | 'amber'; ch
 /** The studio at a glance. Everything is computed here from the sessions and tickets already loaded (no separate stats request). */
 export default function Dashboard() {
   const { tickets, modules, sessions, getClient, getModule, getCoordinator } = useData();
-  const page = usePageData('tickets', 'bookings', 'clients');
+  const page = usePageData('tickets', 'bookings', 'clients', 'notifications');
   const navigate = useNavigate();
 
   const now = new Date();
@@ -73,6 +74,7 @@ export default function Dashboard() {
         <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking')}>+ Create Booking</button>
       </div>
 
+      <AdminNotices />
       {unassigned > 0 && (
         <Alert tone="red" action="Assign Now" onAction={() => navigate('/admin/tickets?coordinator=none')}>
           {unassigned} ticket{unassigned === 1 ? '' : 's'} unassigned

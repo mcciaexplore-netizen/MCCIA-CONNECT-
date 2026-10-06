@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { useData } from '../../context/DataContext';
-import { confirmCancel, formatDate, isOpen } from '../../lib/utils';
+import { companyNote, confirmCancel, formatDate, isOpen } from '../../lib/utils';
 import { STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
@@ -21,7 +21,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /** Right column: the ticket's own properties. Status and due date are editable; admins can reassign. */
 export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
-  const { role, getClient, getModule, getCoordinator, getSession, mutate } = useData();
+  const { role, clients, companies, getClient, getModule, getCoordinator, getSession, mutate } = useData();
   const [reassigning, setReassigning] = useState(false);
   const [editingDue, setEditingDue] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -83,6 +83,7 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       {reassigning && (
         <ReassignModal
           currentId={owner}
+          company={companyNote(getClient(ticket.clientId), clients, companies)}
           onClose={() => setReassigning(false)}
           onConfirm={(coordinatorId, reason) =>
             mutate('/api/tickets', 'PATCH', { id: ticket.id, coordinatorId, ...(owner && { reason }) }, owner ? 'Coordinator reassigned' : 'Coordinator assigned')

@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
@@ -41,7 +41,15 @@ export default function Clients() {
         </div>
       ),
     },
-    { header: 'Company', cell: (c) => c.companyName },
+    {
+      header: 'Company',
+      cell: (c) =>
+        c.companyId ? (
+          <Link to={`/admin/companies/${c.companyId}`} className="text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{c.companyName}</Link>
+        ) : (
+          c.companyName
+        ),
+    },
     { header: 'Email', cell: (c) => c.email },
     { header: 'Phone', cell: (c) => c.phone },
     { header: 'Coordinator', cell: (c) => getCoordinator(c.assignedCoordinatorId)?.name ?? <span className="text-ink-3">Unassigned</span> },

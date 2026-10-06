@@ -6,13 +6,15 @@ import Modal from './Modal';
 
 interface Props {
   currentId: string | null; // the coordinator being replaced, if any
+  /** A coordinator belongs to a whole company: say so, because every client from it moves. */
+  company?: { name: string; clients: number };
   /** Does the assign/reassign (a PATCH to a ticket, a PUT to a client). Resolves to something truthy on success. */
   onConfirm: (coordinatorId: string, reason: string) => Promise<unknown>;
   onClose: () => void;
 }
 
 /** Assign (no coordinator yet) or reassign (a reason of 20+ characters is required). Used for tickets and clients. */
-export default function ReassignModal({ currentId, onConfirm, onClose }: Props) {
+export default function ReassignModal({ currentId, company, onConfirm, onClose }: Props) {
   const { coordinators, getCoordinator } = useData();
   const current = getCoordinator(currentId);
   const [coordinatorId, setCoordinatorId] = useState('');
@@ -31,6 +33,11 @@ export default function ReassignModal({ currentId, onConfirm, onClose }: Props) 
   return (
     <Modal title={current ? 'Reassign coordinator' : 'Assign coordinator'} onClose={onClose}>
       <form onSubmit={confirm} className="space-y-4">
+        {company && (
+          <p role="alert" className="rounded-md border border-gold bg-gold-light px-3 py-2 text-[#8a6d1c]">
+            This will reassign all clients from {company.name}{company.clients > 1 ? ` (${company.clients} clients)` : ''}. Are you sure?
+          </p>
+        )}
         <div>
           <p className="label">Current coordinator</p>
           {current ? (

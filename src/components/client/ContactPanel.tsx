@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { useData } from '../../context/DataContext';
-import { formatDate, toClientInput, useIsMobile } from '../../lib/utils';
+import { companyNote, formatDate, toClientInput, useIsMobile } from '../../lib/utils';
 import { ACQUISITION_OPTIONS, INDUSTRY_OPTIONS, SCALE_OPTIONS, type Client, type ClientInput, type CoordinatorHistoryEntry } from '../../types';
 import Icon from '../ui/Icon';
 import ReassignModal from '../ui/ReassignModal';
@@ -22,7 +23,7 @@ const FIELDS: { key: TextKey; label: string; type?: string; options?: readonly s
 
 /** The client's coordinator changes (assignments and reassignments) and the Assign / Reassign button. Admin only. */
 function CoordinatorHistory({ client }: { client: Client }) {
-  const { get, mutate } = useData();
+  const { clients, companies, get, mutate } = useData();
   const mobile = useIsMobile();
   const [history, setHistory] = useState<CoordinatorHistoryEntry[]>([]);
   const [reassigning, setReassigning] = useState(false);
@@ -85,9 +86,10 @@ function CoordinatorHistory({ client }: { client: Client }) {
       {reassigning && (
         <ReassignModal
           currentId={client.assignedCoordinatorId}
+          company={companyNote(client, clients, companies)}
           onClose={() => setReassigning(false)}
           onConfirm={(coordinatorId, reason) =>
-            mutate('/api/clients', 'PUT', { clientId: client.id, coordinatorId, reason }, client.assignedCoordinatorId ? 'Client reassigned' : 'Coordinator assigned')
+            mutate('/api/clients', 'PUT', { clientId: client.id, coordinatorId, reason }, client.assignedCoordinatorId ? 'Company reassigned' : 'Coordinator assigned')
           }
         />
       )}
@@ -100,7 +102,7 @@ function CoordinatorHistory({ client }: { client: Client }) {
  * Read-only (coordinators): plain values, no editing, no history.
  */
 export default function ContactPanel({ client, readOnly = false }: { client: Client; readOnly?: boolean }) {
-  const { mutate, getCoordinator, settings } = useData();
+  const { mutate, getCoordinator, companies, settings } = useData();
   const brand = settings.brand.name;
   const [draft, setDraft] = useState(toClientInput(client));
   const [editing, setEditing] = useState<Editing>(null);
@@ -165,8 +167,14 @@ export default function ContactPanel({ client, readOnly = false }: { client: Cli
             )}
           </dd>
         </div>
+        {!readOnly && client.companyId && (
+          <div>
+            <dt className="text-xs text-ink-3">Company record</dt>
+            <dd className="px-1"><Link className="text-primary hover:underline" to={`/admin/companies/${client.companyId}`}>All clients from {companies.find((c) => c.id === client.companyId)?.name ?? client.companyName} →</Link></dd>
+          </div>
+        )}
         <div>
-          <dt className="text-xs text-ink-3">Contact Owner</dt>
+          <dt className="text-xs text-ink-3">Company coordinator</dt>
           <dd className="px-1">{getCoordinator(client.assignedCoordinatorId)?.name ?? '—'}</dd>
         </div>
         <div>

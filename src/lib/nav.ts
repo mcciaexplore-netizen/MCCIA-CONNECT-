@@ -19,7 +19,14 @@ export const NAV: Record<Role, NavSection[]> = {
         { to: '/admin/create-booking', label: 'Create booking' },
       ],
     },
-    { title: 'Clients', icon: 'users', items: [{ to: '/admin/clients', label: 'Clients' }] },
+    {
+      title: 'Clients',
+      icon: 'users',
+      items: [
+        { to: '/admin/clients', label: 'Clients' },
+        { to: '/admin/companies', label: 'Companies' },
+      ],
+    },
     { title: 'Team', icon: 'user-group', items: [{ to: '/admin/coordinators', label: 'Coordinators' }] },
     {
       title: 'Settings',

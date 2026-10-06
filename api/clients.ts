@@ -1,7 +1,8 @@
-import { desc, eq, inArray, or } from 'drizzle-orm';
+import { desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID } from './_lib.js';
 import { assignClient } from './_assign.js';
-import { clients, coordinatorAssignments, coordinatorReassignments, coordinators, tickets, users } from './_schema.js';
+import { companyOf, returnFollowUps } from './_companies.js';
+import { bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, tickets, users } from './_schema.js';
 import type { CoordinatorHistoryEntry } from '../src/types/index.js';
 
 /**
@@ -10,9 +11,10 @@ import type { CoordinatorHistoryEntry } from '../src/types/index.js';
  * so that pair is shown once (as the reassignment, which carries the reason).
  */
 async function coordinatorHistory(clientId: string): Promise<CoordinatorHistoryEntry[]> {
+  const [{ companyId } = { companyId: null }] = await db.select({ companyId: clients.companyId }).from(clients).where(eq(clients.id, clientId));
   const [assignments, reassignments, coordinatorRows] = await Promise.all([
     db.select().from(coordinatorAssignments).where(eq(coordinatorAssignments.clientId, clientId)),
-    db.select().from(coordinatorReassignments).where(eq(coordinatorReassignments.clientId, clientId)),
+    db.select().from(coordinatorReassignments).where(companyId ? or(eq(coordinatorReassignments.clientId, clientId), eq(coordinatorReassignments.companyId, companyId)) : eq(coordinatorReassignments.clientId, clientId)),
     db.select({ id: coordinators.id, name: coordinators.name }).from(coordinators),
   ]);
   const names = new Map(coordinatorRows.map((c) => [c.id, c.name]));
@@ -39,9 +41,25 @@ async function coordinatorHistory(clientId: string): Promise<CoordinatorHistoryE
 }
 
 export default handler({
-  // ?history=<clientId> (admin) is that client's coordinator history. Otherwise: admins see every client;
-  // coordinators the clients assigned to them or with a ticket assigned to them.
+  // ?history=<clientId> (admin) is that client's coordinator history. ?companies=1 (admin) is every company with its coordinator and
+  // numbers. Otherwise: admins see every client; coordinators the clients assigned to them or with a ticket assigned to them.
   GET: async (req, url) => {
+    if (url.searchParams.has('companies')) {
+      await requireUser(req, 'super_admin');
+      const rows = await db
+        .select({
+          ...getTableColumns(companies),
+          clientCount: sql<number>`count(distinct ${clients.id})::int`,
+          bookingCount: sql<number>`(count(${bookings.id}) filter (where ${bookings.status} <> 'cancelled'))::int`,
+          lastBooking: sql<string | null>`max(${bookings.startTime}) filter (where ${bookings.status} <> 'cancelled')`,
+        })
+        .from(companies)
+        .leftJoin(clients, eq(clients.companyId, companies.id))
+        .leftJoin(bookings, eq(bookings.clientId, clients.id))
+        .groupBy(companies.id)
+        .orderBy(sql`max(${bookings.startTime}) desc nulls last`, companies.name);
+      return rows.map((row) => ({ ...row, lastBooking: row.lastBooking ? new Date(row.lastBooking).toISOString() : null }));
+    }
     const historyOf = url.searchParams.get('history');
     if (historyOf) {
       await requireUser(req, 'super_admin');
@@ -49,6 +67,7 @@ export default handler({
       return await coordinatorHistory(historyOf);
     }
     const user = await requireUser(req);
+    await returnFollowUps();
     const mine =
       user.role === 'super_admin'
         ? undefined
@@ -61,7 +80,12 @@ export default handler({
 
   POST: async (req) => {
     const user = await requireUser(req, 'super_admin');
-    const [client] = await db.insert(clients).values(parseClient((await readBody(req)).client)).returning();
+    const [created] = await db.insert(clients).values(parseClient((await readBody(req)).client)).returning();
+    const company = await companyOf(created);
+    const [client] = company.assignedCoordinatorId
+      ? await db.update(clients).set({ assignedCoordinatorId: company.assignedCoordinatorId }).where(eq(clients.id, created.id)).returning()
+      : [{ ...created, companyId: company.id }];
+    if (company.assignedCoordinatorId) await db.insert(coordinatorAssignments).values({ clientId: client.id, coordinatorId: company.assignedCoordinatorId, assignedBy: user.id });
     await audit(user, 'client.created', 'client', client.id, undefined, { company: client.companyName, contact: client.personName });
     return client;
   },
@@ -74,7 +98,16 @@ export default handler({
     if (!before) throw new HttpError(404, 'Client not found');
 
     const values = parseClient(body.client);
-    const [client] = await db.update(clients).set(values).where(eq(clients.id, id)).returning();
+    let [client] = await db.update(clients).set(values).where(eq(clients.id, id)).returning();
+    // A different company name puts the client in that company, and under its coordinator when it has one.
+    if (values.companyName !== before.companyName) {
+      const company = await companyOf({ id, companyName: values.companyName, companyId: null });
+      if (company.assignedCoordinatorId && company.assignedCoordinatorId !== client.assignedCoordinatorId) {
+        await db.insert(coordinatorAssignments).values({ clientId: id, coordinatorId: company.assignedCoordinatorId, assignedBy: user.id });
+        [client] = await db.update(clients).set({ assignedCoordinatorId: company.assignedCoordinatorId }).where(eq(clients.id, id)).returning();
+      }
+      client = { ...client, companyId: company.id };
+    }
 
     const changed = (Object.keys(values) as (keyof typeof values)[]).filter((key) => values[key] !== before[key]);
     await audit(user, 'client.updated', 'client', id, Object.fromEntries(changed.map((k) => [k, before[k]])), Object.fromEntries(changed.map((k) => [k, values[k]])));
