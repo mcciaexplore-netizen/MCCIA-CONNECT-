@@ -39,7 +39,15 @@ export const NAV: Record<Role, NavSection[]> = {
       icon: 'ticket',
       items: [
         { to: '/coordinator/tickets', label: 'My tickets' },
+        { to: '/coordinator/create-booking', label: 'Create booking' },
+      ],
+    },
+    {
+      title: 'Schedule',
+      icon: 'calendar',
+      items: [
         { to: '/coordinator/schedule', label: 'My schedule' },
+        { to: '/coordinator/slots', label: 'My slots' },
       ],
     },
     { title: 'Clients', icon: 'users', items: [{ to: '/coordinator/clients', label: 'My clients' }] },

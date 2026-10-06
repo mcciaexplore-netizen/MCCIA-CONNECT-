@@ -1,6 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import { hashPassword } from './_auth.js';
-import { audit, db, handler, HttpError, isUniqueViolation, needEmail, needPassword, needString, optString, readBody, requireUser } from './_lib.js';
+import { parseHours } from './_availability.js';
+import { audit, db, handler, HttpError, isUniqueViolation, needEmail, needPassword, needString, optString, readBody, requireUser, UUID } from './_lib.js';
 import { coordinators, users } from './_schema.js';
 
 const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
@@ -37,6 +38,28 @@ export default handler({
     } catch (e) {
       throw isUniqueViolation(e) ? new HttpError(409, 'A coordinator with this email already exists') : e;
     }
+  },
+
+  // A coordinator's own hours { availability: { weeklyRules, dateOverrides } | null }. A coordinator sets their own; an admin sends
+  // coordinatorId to set anyone's. null removes the limit: they can then be booked whenever a service is open.
+  PUT: async (req) => {
+    const user = await requireUser(req);
+    const body = await readBody(req);
+    const id = user.role === 'super_admin' ? needString(body.coordinatorId, 'Coordinator') : user.coordinatorId;
+    const [before] = id && UUID.test(id) ? await db.select().from(coordinators).where(eq(coordinators.id, id)) : [];
+    if (!before) throw new HttpError(404, 'Coordinator not found');
+
+    const availability = body.availability === null ? null : parseHours((body.availability ?? {}) as Record<string, unknown>);
+    const [coordinator] = await db.update(coordinators).set({ availability }).where(eq(coordinators.id, before.id)).returning();
+    await audit(
+      user,
+      'coordinator.availability_changed',
+      'coordinator',
+      before.id,
+      { limited: before.availability !== null },
+      { limited: availability !== null, ...(availability && { weeklyRanges: availability.weeklyRules.length, blockedDates: availability.dateOverrides.length }) },
+    );
+    return coordinator;
   },
 
   // Edit any detail (name, email = their login, phone, colour, a new password), or activate / deactivate. Deactivating also blocks their login.

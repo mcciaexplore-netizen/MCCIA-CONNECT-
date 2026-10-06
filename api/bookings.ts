@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadSettings, needString, optString, ownedBy, parseClient, readBody, requireUser, siteOrigin, UUID, type Actor, type AuthUser } from './_lib.js';
-import { loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
+import { clashesOf, ensureCoordinatorFree, loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
@@ -113,6 +113,8 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
   if (!config || !slot?.modes.includes(row.booking.mode)) throw new HttpError(409, 'That time is not available. Please pick another.');
   const end = new Date(slot.endsAt);
   if (body.newEndTime !== undefined && new Date(String(body.newEndTime)).getTime() !== end.getTime()) throw new HttpError(400, `A session at that time ends at ${end.toISOString()}`);
+  // A coordinator is never in two places at once, and keeps to their own hours.
+  if (row.coordinator?.isActive) await ensureCoordinatorFree(row.coordinator, start, end, tz, { excludeBookingId: bookingId });
 
   const previous = { start: row.booking.startTime, end: row.booking.endTime };
   const note = { text: `Rescheduled from ${formatWhen(previous.start, settings.timezone)} to ${formatWhen(start, settings.timezone)} by ${user.name}: ${reason}`, author: user.name, at: new Date().toISOString() };
@@ -122,7 +124,8 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
     db.update(tickets).set({ status: 'rescheduled', internalNotes: [...row.ticket.internalNotes, note] }).where(eq(tickets.id, row.ticket.id)),
   ]);
   // The same double-check as a new booking: if someone took the last place at the same moment, put everything back.
-  if (!openModes(config, await takenAround(row.module.id, start, end, bookingId), start, end).includes(row.booking.mode)) {
+  const crowded = !openModes(config, await takenAround(row.module.id, start, end, bookingId), start, end).includes(row.booking.mode);
+  if (crowded || (row.coordinator && (await clashesOf(row.coordinator.id, start, end, bookingId)).length)) {
     await db.batch([
       db.update(bookings).set({ startTime: previous.start, endTime: previous.end, meetingLink: row.booking.meetingLink }).where(eq(bookings.id, bookingId)),
       db.update(tickets).set({ status: row.ticket.status, internalNotes: row.ticket.internalNotes }).where(eq(tickets.id, row.ticket.id)),
@@ -225,10 +228,15 @@ export default handler({
     // Staff booking for a client must choose the coordinator; on the public page it is the client's assigned coordinator (if still active).
     const picked = user?.role === 'super_admin' && typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
     if (user?.role === 'super_admin' && !picked) throw new HttpError(400, 'Choose a coordinator for this booking');
-    const wanted = picked ?? existing?.assignedCoordinatorId;
+    // A coordinator booking a client is booking for themselves, and only for a client who is theirs or not yet anyone's.
+    const own = user?.role === 'coordinator' ? user.coordinatorId : null;
+    if (own && existing?.assignedCoordinatorId && existing.assignedCoordinatorId !== own) throw new HttpError(403, 'This client works with another coordinator. Ask the admin to book this session.');
+    const wanted = picked ?? own ?? existing?.assignedCoordinatorId;
     const [coordinator] = wanted && UUID.test(wanted) ? await db.select().from(coordinators).where(eq(coordinators.id, wanted)) : [];
     if (picked && !coordinator?.isActive) throw new HttpError(400, 'Coordinator not found or inactive');
     const coordinatorId = coordinator?.isActive ? coordinator.id : null;
+    // Their own hours and one session at a time, checked before anything is written (and before a public booking uses up its allowance).
+    if (coordinator?.isActive) await ensureCoordinatorFree(coordinator, start, end, tz, { forClient: !user });
 
     const clientId = existing?.id ?? crypto.randomUUID();
     const bookingId = crypto.randomUUID();
@@ -244,7 +252,7 @@ export default handler({
       // One atomic request: either the client, booking and ticket all exist or none do.
       const [, , [ticket]] = await db.batch([
         db.insert(clients).values({ id: clientId, ...clientInput }).onConflictDoNothing(),
-        db.insert(bookings).values({ id: bookingId, moduleId: module.id, clientId, coordinatorId, startTime: start, endTime: end, mode, excelRowNumber: nextRowNumber(module.id), bookingAnswers: answers, createdBy: user ? 'admin' : 'client' }),
+        db.insert(bookings).values({ id: bookingId, moduleId: module.id, clientId, coordinatorId, startTime: start, endTime: end, mode, excelRowNumber: nextRowNumber(module.id), bookingAnswers: answers, createdBy: user ? (user.role === 'coordinator' ? 'coordinator' : 'admin') : 'client' }),
         db.insert(tickets).values({ id: ticketId, bookingId, moduleId: module.id, clientId, coordinatorId, status: coordinatorId ? 'pending' : 'new' }).returning({ ticketNumber: tickets.ticketNumber }),
       ]);
       ticketNumber = ticket.ticketNumber;
@@ -257,7 +265,8 @@ export default handler({
     // now that ours is saved. If another booking now overlaps beyond capacity we back out, which in a
     // true tie means both back out and can simply retry. Backing out cancels instead of deleting:
     // ticket numbers come from count(*) + 1, so deleting would leave gaps that make later numbers collide.
-    if (!openModes(config, await takenAround(module.id, start, end, bookingId), start, end).includes(mode)) {
+    const crowded = !openModes(config, await takenAround(module.id, start, end, bookingId), start, end).includes(mode);
+    if (crowded || (coordinatorId && (await clashesOf(coordinatorId, start, end, bookingId)).length)) {
       await db.batch([
         db.update(bookings).set({ status: 'cancelled' }).where(eq(bookings.id, bookingId)),
         db

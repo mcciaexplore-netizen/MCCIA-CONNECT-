@@ -98,6 +98,12 @@ export interface DateOverride {
   end: string;
 }
 
+/** coordinators.availability: a coordinator's own hours, same shape as a service's. null = no personal limit (bookable whenever a service is open). */
+export interface Availability {
+  weeklyRules: WeeklyRule[];
+  dateOverrides: DateOverride[];
+}
+
 /** tickets.internal_notes item. */
 export interface InternalNote {
   text: string;
@@ -260,6 +266,15 @@ export interface SlotInfo {
   startsAt: string;
   endsAt: string;
   modes: BookingMode[];
+}
+
+/** One row of a coordinator's calendar (GET /api/slots?coordinator=): a slot they can still be booked in, or one of their sessions. */
+export interface CoordinatorSlot {
+  startsAt: string;
+  endsAt: string;
+  state: 'available' | 'booked';
+  services: string[]; // available: the services that can still be booked in this slot
+  booking?: { ticketId: string; ticketNumber: string; clientName: string; companyName: string; moduleName: string; mode: BookingMode; status: BookingStatus };
 }
 
 export interface BookingResult {

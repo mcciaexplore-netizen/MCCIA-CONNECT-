@@ -35,6 +35,7 @@ const s = {
   MyTickets: screen('MyTickets', () => import('../pages/coordinator/MyTickets')),
   MyClients: screen('MyClients', () => import('../pages/coordinator/MyClients')),
   MySchedule: screen('MySchedule', () => import('../pages/coordinator/MySchedule')),
+  MySlots: screen('MySlots', () => import('../pages/coordinator/MySlots')),
   MyAccount: screen('MyAccount', () => import('../pages/coordinator/MyAccount')),
   MonthlyBookings: screen('MonthlyBookings', () => import('../components/client/MonthlyBookings')),
 };
@@ -54,6 +55,7 @@ export const MyDashboard = s.MyDashboard.Screen;
 export const MyTickets = s.MyTickets.Screen;
 export const MyClients = s.MyClients.Screen;
 export const MySchedule = s.MySchedule.Screen;
+export const MySlots = s.MySlots.Screen;
 export const MyAccount = s.MyAccount.Screen;
 export const MonthlyBookings = s.MonthlyBookings.Screen;
 
@@ -80,6 +82,8 @@ const ROUTES: [RegExp, Name[]][] = [
   [/^\/coordinator\/clients\/./, ['ClientProfile']],
   [/^\/coordinator\/clients/, ['MyClients']],
   [/^\/coordinator\/schedule/, ['MySchedule']],
+  [/^\/coordinator\/slots/, ['MySlots']],
+  [/^\/coordinator\/create-booking/, ['CreateBooking']],
   [/^\/coordinator\/account/, ['MyAccount']],
 ];
 export function preloadRoute(pathname: string) {
@@ -88,7 +92,7 @@ export function preloadRoute(pathname: string) {
 
 const GROUPS: Record<'super_admin' | 'coordinator', Name[]> = {
   super_admin: ['Dashboard', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs'],
-  coordinator: ['MyDashboard', 'MyTickets', 'TicketDetail', 'MyClients', 'ClientProfile', 'MySchedule', 'MyAccount'],
+  coordinator: ['MyDashboard', 'MyTickets', 'TicketDetail', 'MyClients', 'ClientProfile', 'MySchedule', 'MySlots', 'CreateBooking', 'MyAccount'],
 };
 
 /**

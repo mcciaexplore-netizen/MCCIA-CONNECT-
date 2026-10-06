@@ -13,9 +13,14 @@ import { BLANK_CLIENT, EMAIL_PATTERN, type BookingMode, type BookingResult, type
 const STEPS = ['Client', 'Module', 'Details', 'Slot', 'Coordinator', 'Confirm'];
 const MAX_MATCHES = 6;
 
-/** Book a session on behalf of a client: client → module → details → slot → coordinator → confirm. Same endpoint as the public page. */
+/**
+ * Book a session on behalf of a client: client → module → details → slot → coordinator → confirm. Same endpoint as the public page.
+ * A coordinator uses it too: the booking is theirs, so they skip the coordinator step, and the server only lets them book clients
+ * who are theirs or not yet anyone's, at a time they are free.
+ */
 export default function CreateBooking() {
-  const { clients, coordinators, modules, settings, mutate } = useData();
+  const { clients, coordinators, coordinator: self, role, modules, settings, mutate } = useData();
+  const isCoordinator = role === 'coordinator';
   const page = usePageData('clients');
   const navigate = useNavigate();
   // "+ Add Ticket" on a client's profile arrives here with that client already chosen.
@@ -38,7 +43,7 @@ export default function CreateBooking() {
   const module = modules.find((m) => m.id === moduleId);
   const active = coordinators.filter((c) => c.isActive);
   // The client's own coordinator is suggested; a booking still needs one chosen.
-  const coordinatorId = picked ?? active.find((c) => c.id === existing?.assignedCoordinatorId)?.id ?? '';
+  const coordinatorId = isCoordinator ? (self?.id ?? '') : (picked ?? active.find((c) => c.id === existing?.assignedCoordinatorId)?.id ?? '');
 
   const query = search.trim().toLowerCase();
   const matches = query ? clients.filter((c) => [c.email, c.personName, c.companyName].join(' ').toLowerCase().includes(query)).slice(0, MAX_MATCHES) : [];
@@ -60,7 +65,7 @@ export default function CreateBooking() {
   const confirm = async () => {
     setSubmitting(true);
     const result = await mutate<BookingResult>('/api/bookings', 'POST', { moduleId, startsAt, mode, coordinatorId, client, answers }, 'Booking created');
-    if (result) return navigate(`/admin/tickets/${result.ticketId}`);
+    if (result) return navigate(`${isCoordinator ? '/coordinator' : '/admin'}/tickets/${result.ticketId}`);
     // The time may have just been taken, so show a fresh list.
     setStartsAt('');
     setSlotsKey((key) => key + 1);
@@ -77,12 +82,12 @@ export default function CreateBooking() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Create booking</h1>
-          <p className="page-sub">{client.personName ? `Booking a session for ${client.personName}${client.companyName ? ` (${client.companyName})` : ''}.` : 'Book a session for a client.'} They receive the same confirmation email.</p>
+          <p className="page-sub">{client.personName ? `Booking a session for ${client.personName}${client.companyName ? ` (${client.companyName})` : ''}.` : 'Book a session for a client.'} They receive the same confirmation email.{isCoordinator && ' It goes on your own calendar.'}</p>
         </div>
       </div>
 
       <div className="card p-6">
-        <StepIndicator step={step} steps={STEPS} />
+        <StepIndicator step={isCoordinator && step === 6 ? 5 : step} steps={isCoordinator ? STEPS.filter((label) => label !== 'Coordinator') : STEPS} />
 
         {step === 1 && (
           <div className="space-y-4">
@@ -136,7 +141,7 @@ export default function CreateBooking() {
             <SlotPicker key={`${module.slug}-${slotsKey}`} slug={module.slug} venue={settings.venue.address} mode={mode} onModeChange={setMode} startsAt={startsAt} onSelect={setStartsAt} />
             <div className="flex gap-3">
               {back(3)}
-              <button className="btn btn-primary h-11 flex-1" disabled={!startsAt} onClick={() => setStep(5)}>Next</button>
+              <button className="btn btn-primary h-11 flex-1" disabled={!startsAt} onClick={() => setStep(isCoordinator ? 6 : 5)}>Next</button>
             </div>
           </div>
         )}
@@ -171,7 +176,7 @@ export default function CreateBooking() {
               onEdit={(to) => setStep(to === 1 ? 3 : 4)}
             />
             <div className="flex gap-3">
-              {back(5)}
+              {back(isCoordinator ? 4 : 5)}
               <button className="btn btn-primary h-11 flex-1" disabled={submitting} onClick={confirm}>{submitting ? 'Creating…' : 'Create Booking'}</button>
             </div>
           </div>

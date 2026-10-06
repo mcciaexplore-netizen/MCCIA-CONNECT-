@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type {
   AppSettings,
+  Availability,
   BookingMode,
   BookingStatus,
   DateOverride,
@@ -53,6 +54,7 @@ export const coordinators = pgTable('coordinators', {
   color: text('color').notNull().default('#C41E3A'),
   initials: text('initials'),
   isActive: boolean('is_active').notNull().default(true),
+  availability: jsonb('availability').$type<Availability | null>(), // their own hours; null = no personal limit
   createdAt: createdAt(),
 });
 

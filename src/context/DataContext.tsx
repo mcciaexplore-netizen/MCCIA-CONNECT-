@@ -277,7 +277,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (path === '/api/tickets' && method === 'PATCH' && 'ticketNumber' in row) setRecords((now) => (now.tickets ? { ...now, tickets: upsert(now.tickets, row as unknown as Ticket) } : now));
     else if (path === '/api/clients' && (method === 'PATCH' || method === 'POST') && 'companyName' in row) setRecords((now) => (now.clients ? { ...now, clients: upsert(now.clients, row as unknown as Client) } : now));
     else if (path === '/api/slots' && method === 'PUT' && 'moduleId' in row) setRecords((now) => (now.slotConfigs ? { ...now, slotConfigs: upsert(now.slotConfigs, row as unknown as SlotConfig) } : now));
-    else if (path === '/api/coordinators' && (method === 'PATCH' || method === 'POST') && 'email' in row) setBase((now) => ({ ...now, coordinators: upsert(now.coordinators, row as unknown as Coordinator).sort(byName) }));
+    else if (path === '/api/coordinators' && (method === 'PATCH' || method === 'POST' || method === 'PUT') && 'email' in row) setBase((now) => ({ ...now, coordinators: upsert(now.coordinators, row as unknown as Coordinator).sort(byName) }));
     else if (path === '/api/modules' && (method === 'PATCH' || method === 'POST') && 'slug' in row) setBase((now) => ({ ...now, modules: upsert(now.modules, row as unknown as Module).sort(byName) }));
     else if (path === '/api/settings' && method === 'PUT' && 'brand' in row) {
       setStudioZone((row as unknown as AppSettings).timezone.tz);

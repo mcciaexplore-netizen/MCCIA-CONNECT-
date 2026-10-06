@@ -1,7 +1,7 @@
-import { and, eq, gt, lt, ne } from 'drizzle-orm';
-import { db } from './_lib.js';
-import { bookings, slotConfig } from './_schema.js';
-import type { BookingMode, SlotInfo } from '../src/types/index.js';
+import { and, asc, eq, gt, lt, ne } from 'drizzle-orm';
+import { db, HttpError } from './_lib.js';
+import { bookings, clients, modules, slotConfig, tickets } from './_schema.js';
+import type { Availability, BookingMode, CoordinatorSlot, SlotInfo } from '../src/types/index.js';
 
 // Slot config times are in studio time: the time zone in Settings (app_settings.timezone.tz).
 const MINUTE = 60_000;
@@ -26,6 +26,13 @@ export function studioTime(date: string, time: string, tz: string) {
   const wall = Date.parse(`${date}T${time}:00Z`);
   const first = wall - zoneOffset(tz, wall) * MINUTE;
   return wall - zoneOffset(tz, first) * MINUTE;
+}
+
+/** The open ranges on a date: that date's overrides when there are any (a blocked one means none), else the weekly rules for its weekday. */
+function hoursOn(rules: Availability, date: string) {
+  const overrides = rules.dateOverrides.filter((o) => o.date === date);
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return overrides.length ? (overrides.some((o) => o.closed) ? [] : overrides) : rules.weeklyRules.filter((r) => r.day === weekday);
 }
 
 const addDays = (date: string, days: number) => new Date(new Date(`${date}T00:00:00Z`).getTime() + days * DAY).toISOString().slice(0, 10);
@@ -56,11 +63,8 @@ export function computeSlots(config: Config, taken: Taken[], from: string, days:
 
   for (let i = 0; i < days; i++) {
     const date = addDays(from, i);
-    const overrides = config.dateOverrides.filter((o) => o.date === date);
-    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-    const hours = overrides.length ? (overrides.some((o) => o.closed) ? [] : overrides) : config.weeklyRules.filter((r) => r.day === weekday);
 
-    for (const { start, end } of hours) {
+    for (const { start, end } of hoursOn(config, date)) {
       for (let t = studioTime(date, start, tz); t + length <= studioTime(date, end, tz); t += length) {
         if (t < earliest) continue;
         slots.push({ startsAt: new Date(t).toISOString(), endsAt: new Date(t + length).toISOString(), modes: openModes(config, taken, new Date(t), new Date(t + length)) });
@@ -96,4 +100,119 @@ export async function loadAvailability(moduleId: string, from: string, days: num
   const windowStart = new Date(studioTime(from, '00:00', tz));
   const taken = await takenAround(moduleId, windowStart, new Date(windowStart.getTime() + days * DAY), excludeBookingId);
   return { config, slots: computeSlots(config, taken, from, days, tz) };
+}
+
+// ---------- a coordinator's own hours and calendar ----------
+
+/** Whether [start, end) fits inside one of the coordinator's own ranges that day (studio time). No personal hours set means no limit. */
+export function withinHours(availability: Availability | null, start: Date, end: Date, tz: string) {
+  if (!availability) return true;
+  const date = studioDate(start, tz);
+  return hoursOn(availability, date).some((range) => studioTime(date, range.start, tz) <= start.getTime() && end.getTime() <= studioTime(date, range.end, tz));
+}
+
+/** The coordinator's live (not cancelled) sessions that overlap [start, end): a coordinator is never in two places at once. */
+export async function clashesOf(coordinatorId: string, start: Date, end: Date, excludeBookingId?: string) {
+  return await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(and(eq(bookings.coordinatorId, coordinatorId), ne(bookings.status, 'cancelled'), lt(bookings.startTime, end), gt(bookings.endTime, start), excludeBookingId ? ne(bookings.id, excludeBookingId) : undefined));
+}
+
+/**
+ * Throws 409 unless the coordinator can take a session at [start, end): inside their own hours (when they set any) and with no
+ * other live session overlapping. `forClient` words the message for the person booking on the public page.
+ */
+export async function ensureCoordinatorFree(
+  coordinator: { id: string; name: string; availability: Availability | null },
+  start: Date,
+  end: Date,
+  tz: string,
+  { forClient = false, excludeBookingId }: { forClient?: boolean; excludeBookingId?: string } = {},
+) {
+  const who = forClient ? 'Your coordinator' : coordinator.name;
+  if (!withinHours(coordinator.availability, start, end, tz)) throw new HttpError(409, `${who} is not available at that time. Please pick another.`);
+  if ((await clashesOf(coordinator.id, start, end, excludeBookingId)).length) throw new HttpError(409, `${who} already has a session at that time. Please pick another.`);
+}
+
+/**
+ * A coordinator's calendar over `days` days: their own sessions (booked), and the slots they can still be booked in (available):
+ * a slot of an active service that has room, falls inside their hours and overlaps none of their sessions.
+ */
+export async function coordinatorCalendar(coordinator: { id: string; availability: Availability | null }, from: string, days: number, tz: string): Promise<CoordinatorSlot[]> {
+  const windowStart = new Date(studioTime(from, '00:00', tz));
+  const windowEnd = new Date(windowStart.getTime() + days * DAY);
+  const [services, sessions] = await Promise.all([
+    db.select({ config: slotConfig, name: modules.name }).from(slotConfig).innerJoin(modules, and(eq(slotConfig.moduleId, modules.id), eq(modules.isActive, true))),
+    db
+      .select({ booking: bookings, ticket: tickets, client: clients, module: modules })
+      .from(bookings)
+      .innerJoin(tickets, eq(tickets.bookingId, bookings.id))
+      .innerJoin(clients, eq(bookings.clientId, clients.id))
+      .innerJoin(modules, eq(bookings.moduleId, modules.id))
+      .where(and(eq(bookings.coordinatorId, coordinator.id), ne(bookings.status, 'cancelled'), gt(bookings.endTime, windowStart), lt(bookings.startTime, windowEnd)))
+      .orderBy(asc(bookings.startTime)),
+  ]);
+
+  const booked: CoordinatorSlot[] = sessions.map(({ booking, ticket, client, module }) => ({
+    startsAt: booking.startTime.toISOString(),
+    endsAt: booking.endTime.toISOString(),
+    state: 'booked',
+    services: [],
+    booking: { ticketId: ticket.id, ticketNumber: ticket.ticketNumber, clientName: client.personName, companyName: client.companyName, moduleName: module.name, mode: booking.mode, status: booking.status },
+  }));
+
+  const free = new Map<string, CoordinatorSlot>(); // one row per time, listing every service that can be booked in it
+  await Promise.all(
+    services.map(async ({ config, name }) => {
+      for (const slot of computeSlots(config, await takenAround(config.moduleId, windowStart, windowEnd), from, days, tz)) {
+        const start = new Date(slot.startsAt);
+        const end = new Date(slot.endsAt);
+        if (!slot.modes.length || !withinHours(coordinator.availability, start, end, tz) || sessions.some((s) => s.booking.startTime < end && s.booking.endTime > start)) continue;
+        const row = free.get(slot.startsAt + slot.endsAt) ?? { startsAt: slot.startsAt, endsAt: slot.endsAt, state: 'available' as const, services: [] };
+        row.services.push(name);
+        free.set(slot.startsAt + slot.endsAt, row);
+      }
+    }),
+  );
+  return [...booked, ...free.values()].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+}
+
+// ---------- reading hours from a request ----------
+
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+const time = (value: unknown, label: string) => {
+  if (typeof value !== 'string' || !TIME.test(value)) throw new HttpError(400, `${label} must be a time like 10:00`);
+  return value;
+};
+
+/** A whole number within [min, max]. */
+export const count = (value: unknown, label: string, min: number, max = 100_000) => {
+  if (!Number.isInteger(value) || (value as number) < min || (value as number) > max) throw new HttpError(400, `${label} must be a whole number from ${min} to ${max}`);
+  return value as number;
+};
+
+const list = (value: unknown, label: string) => {
+  if (!Array.isArray(value)) throw new HttpError(400, `${label} must be a list`);
+  return value as Record<string, unknown>[];
+};
+
+/** Weekly ranges and date overrides from a request body, checked. Used for a service's slot config and for a coordinator's own hours. */
+export function parseHours(body: Record<string, unknown>): Availability {
+  const weeklyRules = list(body.weeklyRules, 'Weekly hours').map((r) => {
+    const rule = { day: count(r.day, 'Weekday', 0, 6), start: time(r.start, 'Start'), end: time(r.end, 'End') };
+    if (rule.end <= rule.start) throw new HttpError(400, 'Each weekly range must end after it starts');
+    return rule;
+  });
+  const dateOverrides = list(body.dateOverrides, 'Date overrides').map((o) => {
+    if (typeof o.date !== 'string' || !DATE.test(o.date)) throw new HttpError(400, 'Override dates must look like 2026-10-12');
+    const closed = Boolean(o.closed);
+    if (closed) return { date: o.date, closed, start: '00:00', end: '00:00' };
+    const override = { date: o.date, closed, start: time(o.start, 'Start'), end: time(o.end, 'End') };
+    if (override.end <= override.start) throw new HttpError(400, 'Each override must end after it starts');
+    return override;
+  });
+  return { weeklyRules, dateOverrides };
 }

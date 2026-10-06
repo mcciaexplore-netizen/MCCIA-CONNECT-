@@ -2,13 +2,13 @@ import { useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
+import CoordinatorsView from '../../components/slots/CoordinatorsView';
+import { badDay, DateOverrides, WeeklyHours } from '../../components/slots/HoursEditors';
 import DataState from '../../components/ui/DataState';
 import EmptyState from '../../components/ui/EmptyState';
 import ModuleTabs from '../../components/ui/ModuleTabs';
+import { cn } from '../../lib/utils';
 import type { DateOverride, SlotConfig, WeeklyRule } from '../../types';
-
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const WEEK = [1, 2, 3, 4, 5, 6, 0]; // Monday first
 
 const DEFAULTS = {
   weeklyRules: [] as WeeklyRule[],
@@ -41,24 +41,9 @@ const CAPACITY: NumberField[] = [
   { key: 'offlineCapacity', label: 'Offline capacity', hint: 'Parallel offline bookings (0 turns offline off)' },
 ];
 
-/** The first day whose ranges end before they start or overlap, if any. */
-function badDay(rules: WeeklyRule[]) {
-  for (const day of WEEK) {
-    const ranges = rules.filter((r) => r.day === day).sort((a, b) => a.start.localeCompare(b.start));
-    if (ranges.some((r, i) => r.end <= r.start || (i > 0 && r.start < ranges[i - 1].end))) return DAYS[day];
-  }
-}
-
 function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotConfig }) {
   const { mutate, settings } = useData();
   const [draft, setDraft] = useState({ ...DEFAULTS, ...config });
-
-  const setRule = (index: number, patch: Partial<WeeklyRule>) =>
-    setDraft({ ...draft, weeklyRules: draft.weeklyRules.map((r, i) => (i === index ? { ...r, ...patch } : r)) });
-  const addRange = (day: number, start = '10:00', end = '17:00') => setDraft({ ...draft, weeklyRules: [...draft.weeklyRules, { day, start, end }] });
-  const toggleDay = (day: number, on: boolean) => (on ? addRange(day) : setDraft({ ...draft, weeklyRules: draft.weeklyRules.filter((r) => r.day !== day) }));
-  const setOverride = (index: number, patch: Partial<DateOverride>) =>
-    setDraft({ ...draft, dateOverrides: draft.dateOverrides.map((o, i) => (i === index ? { ...o, ...patch } : o)) });
 
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -84,34 +69,7 @@ function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotCon
       <section className="card">
         <h2 className="mb-1 font-semibold">Weekly availability</h2>
         <p className="mb-4 text-ink-2">Switch a day on and set its hours, in {settings.timezone.label} ({settings.timezone.offset}, set in Settings). Add a second range for a lunch break.</p>
-        <div className="divide-y divide-line">
-          {WEEK.map((day) => {
-            const ranges = draft.weeklyRules.flatMap((rule, index) => (rule.day === day ? [{ rule, index }] : []));
-            return (
-              <div key={day} className="flex flex-wrap items-start gap-4 py-2.5" data-day={DAYS[day]}>
-                <label className="flex w-36 items-center gap-2 py-1.5 font-medium">
-                  <input type="checkbox" checked={ranges.length > 0} onChange={(e) => toggleDay(day, e.target.checked)} />
-                  {DAYS[day]}
-                </label>
-                {ranges.length === 0 ? (
-                  <span className="py-1.5 text-ink-3">Closed</span>
-                ) : (
-                  <div className="space-y-2">
-                    {ranges.map(({ rule, index }) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <input className="input w-32" type="time" required value={rule.start} onChange={(e) => setRule(index, { start: e.target.value })} />
-                        <span className="text-ink-3">to</span>
-                        <input className="input w-32" type="time" required value={rule.end} onChange={(e) => setRule(index, { end: e.target.value })} />
-                        <button type="button" aria-label={`Remove ${DAYS[day]} range`} className="btn btn-danger px-2" onClick={() => setDraft({ ...draft, weeklyRules: draft.weeklyRules.filter((_, i) => i !== index) })}>×</button>
-                      </div>
-                    ))}
-                    <button type="button" className="text-xs font-medium text-primary hover:underline" onClick={() => addRange(day, '14:00')}>+ Add range</button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <WeeklyHours rules={draft.weeklyRules} onChange={(weeklyRules) => setDraft({ ...draft, weeklyRules })} />
       </section>
 
       <section className="card">
@@ -127,26 +85,7 @@ function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotCon
       <section className="card">
         <h2 className="mb-1 font-semibold">Date overrides</h2>
         <p className="mb-4 text-ink-2">Block a date (a holiday), or give it different hours. An override replaces the weekly hours for that date.</p>
-        <div className="space-y-2">
-          {draft.dateOverrides.map((override, index) => (
-            <div key={index} className="flex flex-wrap items-center gap-2">
-              <input className="input w-44" type="date" required value={override.date} onChange={(e) => setOverride(index, { date: e.target.value })} />
-              <label className="flex items-center gap-1.5">
-                <input type="checkbox" checked={override.closed} onChange={(e) => setOverride(index, { closed: e.target.checked })} />
-                Blocked all day
-              </label>
-              {!override.closed && (
-                <>
-                  <input className="input w-32" type="time" required value={override.start} onChange={(e) => setOverride(index, { start: e.target.value })} />
-                  <span className="text-ink-3">to</span>
-                  <input className="input w-32" type="time" required value={override.end} onChange={(e) => setOverride(index, { end: e.target.value })} />
-                </>
-              )}
-              <button type="button" className="btn btn-danger" onClick={() => setDraft({ ...draft, dateOverrides: draft.dateOverrides.filter((_, i) => i !== index) })}>Remove</button>
-            </div>
-          ))}
-        </div>
-        <button type="button" className="btn mt-3" onClick={() => setDraft({ ...draft, dateOverrides: [...draft.dateOverrides, { date: '', closed: true, start: '10:00', end: '17:00' }] })}>+ Block a date</button>
+        <DateOverrides overrides={draft.dateOverrides} onChange={(dateOverrides) => setDraft({ ...draft, dateOverrides })} />
       </section>
 
       <button className="btn btn-primary">Save availability</button>
@@ -158,29 +97,45 @@ export default function SlotManager() {
   const { modules, slotConfigs } = useData();
   const navigate = useNavigate();
   const page = usePageData('slotConfigs');
+  const [view, setView] = useState<'services' | 'coordinators'>('services');
   const [moduleId, setModuleId] = useState('');
 
   const selected = modules.find((m) => m.id === moduleId) ?? modules[0];
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
-  if (!selected) {
-    return (
-      <div className="card">
-        <EmptyState icon="calendar" message="No modules yet" hint="Availability is set per module." action={{ label: 'Add a module in Settings', onClick: () => navigate('/admin/settings') }} />
-      </div>
-    );
-  }
-  const config = slotConfigs.find((c) => c.moduleId === selected.id);
+  const config = selected && slotConfigs.find((c) => c.moduleId === selected.id);
 
   return (
     <div className="max-w-3xl">
       <div className="page-header">
         <div>
           <h1 className="page-title">Slot manager</h1>
-          <p className="page-sub">Slots are generated from these rules, minus what is already booked. {!config && 'This module has no availability yet, so nothing can be booked.'}</p>
+          <p className="page-sub">
+            {view === 'coordinators'
+              ? "Each coordinator's own hours, and which of their slots are free or booked. Bookings from every account show up here."
+              : `Slots are generated from these rules, minus what is already booked. ${selected && !config ? 'This module has no availability yet, so nothing can be booked.' : ''}`}
+          </p>
         </div>
       </div>
-      <ModuleTabs modules={modules} selectedId={selected.id} onSelect={setModuleId} />
-      <ConfigEditor key={`${selected.id}-${config?.id ?? 'new'}`} moduleId={selected.id} config={config} />
+      <div className="mb-4 flex gap-2" role="tablist">
+        {(['services', 'coordinators'] as const).map((tab) => (
+          <button key={tab} role="tab" aria-selected={view === tab} onClick={() => setView(tab)} className={cn('btn', view === tab && 'border-primary bg-primary-light text-primary-dark')}>
+            {tab === 'services' ? 'Services' : 'Coordinators'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'coordinators' ? (
+        <CoordinatorsView />
+      ) : !selected ? (
+        <div className="card">
+          <EmptyState icon="calendar" message="No modules yet" hint="Availability is set per module." action={{ label: 'Add a module in Settings', onClick: () => navigate('/admin/settings') }} />
+        </div>
+      ) : (
+        <>
+          <ModuleTabs modules={modules} selectedId={selected.id} onSelect={setModuleId} />
+          <ConfigEditor key={`${selected.id}-${config?.id ?? 'new'}`} moduleId={selected.id} config={config} />
+        </>
+      )}
     </div>
   );
 }
