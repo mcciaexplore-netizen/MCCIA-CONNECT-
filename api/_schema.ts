@@ -95,8 +95,9 @@ export const bookings = pgTable('bookings', {
 
 export const tickets = pgTable('tickets', {
   id: id(),
-  // Filled by the generate_ticket_number() trigger. Omitted on insert, so the database default (none) lets the trigger set it.
-  ticketNumber: text('ticket_number').notNull().unique().default(sql`''`),
+  // Filled by the generate_ticket_number() trigger: TKT-0001 ..., one number per company (its name without capitals or extra spaces,
+  // kept in company_ticket_numbers). Every session a company books is its own ticket row with the company's number, so it is not unique.
+  ticketNumber: text('ticket_number').notNull().default(sql`''`),
   bookingId: uuid('booking_id').notNull().references(() => bookings.id),
   moduleId: uuid('module_id').notNull().references(() => modules.id),
   clientId: uuid('client_id').notNull().references(() => clients.id),

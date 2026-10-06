@@ -14,6 +14,7 @@ export default function AvailabilityForm({ coordinator }: { coordinator: Coordin
 
   const save = (e: FormEvent) => {
     e.preventDefault();
+    if (limited && !draft.weeklyRules.length) return toast.error('Switch on at least one day, or choose "Whenever a service is open"');
     const bad = limited && badDay(draft.weeklyRules);
     if (bad) return toast.error(`${bad}: each range must end after it starts and ranges cannot overlap`);
     mutate('/api/coordinators', 'PUT', { coordinatorId: coordinator.id, availability: limited ? draft : null }, 'Hours saved');

@@ -17,7 +17,9 @@ async function ensureNoClash(coordinator: { id: string; name: string }, clientId
     db.select({ start: bookings.startTime, end: bookings.endTime }).from(bookings).where(and(eq(bookings.coordinatorId, coordinator.id), ne(bookings.clientId, clientId), live)),
   ]);
   const overlap = (a: { start: Date; end: Date }, b: { start: Date; end: Date }) => a.start < b.end && a.end > b.start;
-  const clash = moving.find((session, i) => theirs.some((t) => overlap(session, t)) || moving.slice(0, i).some((other) => overlap(session, other)));
+  const double = moving.find((session, i) => moving.slice(0, i).some((other) => overlap(session, other)));
+  if (double) throw new HttpError(409, `This client has two sessions at ${formatWhen(double.start, zone)}, and one coordinator cannot take both. Move or cancel one of them first.`);
+  const clash = moving.find((session) => theirs.some((t) => overlap(session, t)));
   if (clash) throw new HttpError(409, `${coordinator.name} already has a session at ${formatWhen(clash.start, zone)}. A coordinator cannot take two sessions at the same time.`);
 }
 
