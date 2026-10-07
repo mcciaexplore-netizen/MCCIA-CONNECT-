@@ -17,12 +17,15 @@ export function dayStats(sessions: Session[], now = new Date()) {
   const at = (s: Session) => new Date(s.booking.startTime);
   const today = live.filter((s) => format(at(s), 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd'));
   const todayWith = (status: string) => today.filter((s) => s.ticket.status === status).length;
+  const tomorrowKey = format(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1), 'yyyy-MM-dd');
   return {
     live,
     today,
+    tomorrow: live.filter((s) => format(at(s), 'yyyy-MM-dd') === tomorrowKey).length,
     pending: live.filter((s) => awaitingNotes(s, now)),
     upcoming: live.filter((s) => at(s) > now && at(s).getTime() - now.getTime() <= WEEK_AHEAD).length,
     completedThisMonth: sessions.filter((s) => s.ticket.status === 'completed' && format(at(s), 'yyyy-MM') === format(now, 'yyyy-MM')).length,
+    completedToday: todayWith('completed'),
     noShowToday: todayWith('no_show'),
     rescheduledToday: todayWith('rescheduled'),
   };

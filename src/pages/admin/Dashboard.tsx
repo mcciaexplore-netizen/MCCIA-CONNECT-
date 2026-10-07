@@ -40,12 +40,11 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const now = new Date();
-  const { live, today, pending, upcoming, completedThisMonth, noShowToday, rescheduledToday } = dayStats(sessions, now);
+  const { live, today, tomorrow, pending, completedThisMonth, completedToday, noShowToday, rescheduledToday } = dayStats(sessions, now);
   const at = (s: Session) => new Date(s.booking.startTime);
   const sameAsNow = (s: Session, pattern: string) => format(at(s), pattern) === format(now, pattern);
 
   const busiestDay = top(live.filter((s) => at(s) <= now && now.getTime() - at(s).getTime() <= 30 * DAY).map((s) => format(at(s), 'EEEE')));
-  const mostBooked = top(live.map((s) => getModule(s.ticket.moduleId)?.name ?? '').filter(Boolean));
   const unassigned = tickets.filter((t) => !t.coordinatorId && isOpen(t.status)).length;
 
   const scheduleColumns: Column<Session>[] = [
@@ -88,15 +87,15 @@ export default function Dashboard() {
 
       <h2 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-ink-2">At a Glance</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard icon="calendar" label="Upcoming 7 days" value={upcoming} />
         <StatCard icon="clock" label="Today's Sessions" value={today.length} />
+        <StatCard icon="calendar" label="Tomorrow's Sessions" value={tomorrow} />
         <StatCard icon="grid" label="Total This Week" value={live.filter((s) => sameAsNow(s, 'RRRR-II')).length} />
         <StatCard icon="calendar" label="Total This Month" value={live.filter((s) => sameAsNow(s, 'yyyy-MM')).length} />
         <StatCard icon="check" label="Completed This Month" value={completedThisMonth} />
         <StatCard icon="refresh" label="Rescheduled Today" value={rescheduledToday} />
+        <StatCard icon="check" label="Completed Today" value={completedToday} />
         <StatCard icon="user-x" label="No Show Today" value={noShowToday} />
         <StatCard icon="bar-chart" label="Busiest Day (Last 30d)" value={busiestDay?.[0] ?? '—'} hint={busiestDay ? `${busiestDay[1]} session${busiestDay[1] === 1 ? '' : 's'}` : undefined} />
-        <StatCard icon="star" label="Most Booked Module" value={mostBooked?.[0] ?? '—'} hint={mostBooked ? `${mostBooked[1]} booking${mostBooked[1] === 1 ? '' : 's'}` : undefined} />
       </div>
 
       <h2 className="mb-2 mt-6 text-[11px] font-semibold uppercase tracking-wide text-ink-2">Modules</h2>
