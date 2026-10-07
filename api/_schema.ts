@@ -108,6 +108,8 @@ export const bookings = pgTable('bookings', {
   reminderSent: boolean('reminder_sent').notNull().default(false), // the "your session is coming up" email has gone out
   meetLinkRequestedAt: timestamp('meet_link_requested_at', { withTimezone: true }), // when the Apps Script was last asked for a Meet link
   meetLinkFailedNotified: boolean('meet_link_failed_notified').notNull().default(false), // the admin was told the link never came
+  recordingLink: text('recording_link'), // the session's Fireflies page (video, audio, transcript), saved once Fireflies has transcribed it
+  recordingCheckedAt: timestamp('recording_checked_at', { withTimezone: true }), // when Fireflies was last asked, so it is not asked again at once
   createdAt: createdAt(),
 });
 
@@ -126,6 +128,8 @@ export const tickets = pgTable('tickets', {
   postConsultationData: jsonb('post_consultation_data').$type<Record<string, string>>().notNull().default({}),
   internalNotes: jsonb('internal_notes').$type<InternalNote[]>().notNull().default([]),
   feedbackData: jsonb('feedback_data').$type<Record<string, string>>().notNull().default({}),
+  // The Fireflies transcript of the session. Long, so the ticket list never carries it: it is read on its own (GET /api/tickets?transcript=).
+  transcript: text('transcript'),
   dueDate: timestamp('due_date', { withTimezone: true }),
   paymentStatus: text('payment_status').$type<PaymentStatus>().notNull().default('unpaid'), // set by an admin
   createdAt: createdAt(),

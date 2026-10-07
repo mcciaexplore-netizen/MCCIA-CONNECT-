@@ -60,6 +60,10 @@ export const FEEDBACK_COMMENTS = 'comments';
 /** Longest feedback comment accepted. */
 export const MAX_FEEDBACK_COMMENTS = 2000;
 
+/** Fireflies recordings: a finished online session is looked for this many days, and Fireflies is not asked about it again within this many minutes. */
+export const RECORDING_WINDOW_DAYS = 7;
+export const RECORDING_RECHECK_MINUTES = 10;
+
 /** One question on a module's booking or post-consultation form. */
 export interface FormField {
   id: string;
@@ -161,7 +165,8 @@ export type PublicSettings = Pick<AppSettings, 'brand' | 'venue' | 'timezone'>;
 type WireValue<V> = V extends Date ? string : V;
 type Wire<T> = { [K in keyof T]: WireValue<T[K]> };
 
-export type Ticket = Wire<InferSelectModel<typeof tickets>>;
+/** The transcript is left out: it is long and has its own request (GET /api/tickets?transcript=<id>). */
+export type Ticket = Omit<Wire<InferSelectModel<typeof tickets>>, 'transcript'>;
 export type Client = Wire<InferSelectModel<typeof clients>>;
 export type Coordinator = Wire<InferSelectModel<typeof coordinators>>;
 export type Booking = Wire<InferSelectModel<typeof bookings>>;

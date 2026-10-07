@@ -20,7 +20,7 @@ type Tab = 'overview' | 'notes' | 'audit';
  */
 export default function TicketDetail() {
   const { ticketId } = useParams();
-  const { tickets, role, base } = useData();
+  const { tickets, role, base, getSession } = useData();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
   const page = usePageData('tickets', 'clients', 'bookings', ...(role === 'super_admin' ? (['companies'] as const) : []));
@@ -38,7 +38,7 @@ export default function TicketDetail() {
 
   const tabs: [Tab, string][] = [
     ['overview', 'Overview'],
-    ['notes', `Internal Notes (${ticket.internalNotes.length})`],
+    ['notes', `Internal Notes (${ticket.internalNotes.length + (getSession(ticket.id)?.booking.recordingLink ? 1 : 0)})`], // the Fireflies transcript counts as one
     ...(role === 'super_admin' ? ([['audit', 'Audit Log']] as [Tab, string][]) : []),
   ];
 

@@ -2,12 +2,13 @@ import { timingSafeEqual } from 'node:crypto';
 import { and, eq, gt, isNull, lt, lte, ne } from 'drizzle-orm';
 import { db, loadSettings, requireUser } from './_lib.js';
 import { sendMail } from './_integrations.js';
+import { saveRecordings } from './_fireflies.js';
 import { clientReminder, formatWhen } from './_mail.js';
 import { loadBooking, mailOf } from './_sessions.js';
 import { adminNotifications, bookings } from './_schema.js';
 import type { AppSettings } from '../src/types/index.js';
 
-/** The jobs Vercel runs once a day (vercel.json "crons"): reminders for coming sessions, and a check for Meet links that never arrived. */
+/** The jobs Vercel runs once a day (vercel.json "crons"): reminders for coming sessions, a check for Meet links that never arrived, and Fireflies recordings. */
 
 const HOUR = 60 * 60_000;
 const MEET_LINK_PATIENCE = 30 * 60_000; // the Apps Script is expected to call back within this long
@@ -85,11 +86,13 @@ async function flagMissingMeetLinks(settings: AppSettings) {
   return flagged;
 }
 
-/** GET /api/tickets?action=send-reminders: both jobs. Returns { sent, meetLinkFailures }. */
+/** GET /api/tickets?action=send-reminders: all three jobs. Returns { sent, meetLinkFailures, recordings }. */
 export async function runScheduled(req: Request, siteUrl: string) {
   await authorize(req);
   const settings = await loadSettings();
   const sent = await sendReminders(settings, siteUrl);
   const meetLinkFailures = await flagMissingMeetLinks(settings);
-  return { sent, meetLinkFailures };
+  // Fireflies recordings of the sessions that ended since (the same check runs when a ticket is opened, so this catches the ones nobody opened).
+  const { found: recordings } = await saveRecordings({ force: true });
+  return { sent, meetLinkFailures, recordings };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, type AuditLog, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
+import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, RECORDING_RECHECK_MINUTES, RECORDING_WINDOW_DAYS, type AuditLog, type Booking, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
 
 const MOBILE = '(max-width: 767px)';
 /** True below 768px: tables turn into card lists and the navigation becomes a menu. */
@@ -21,6 +21,17 @@ export const roleLabel = (role: string) => (role.charAt(0).toUpperCase() + role.
 export const homeFor = (role: Role) => (role === 'super_admin' ? '/admin/dashboard' : '/coordinator/dashboard');
 
 export const isOpen = (status: TicketStatus) => !CLOSED_STATUSES.includes(status);
+
+/**
+ * Whether Fireflies may still have this session's recording and it is not saved yet: an online session that is over (within
+ * RECORDING_WINDOW_DAYS). Mirrors `due()` in api/_fireflies.ts. `quiet` also leaves out one Fireflies was asked about moments ago.
+ */
+export function recordingWanted(booking: Booking, quiet = false) {
+  const now = Date.now();
+  const ended = new Date(booking.endTime).getTime();
+  const askedAt = booking.recordingCheckedAt ? new Date(booking.recordingCheckedAt).getTime() : 0;
+  return booking.mode === 'online' && booking.status !== 'cancelled' && Boolean(booking.meetingLink) && !booking.recordingLink && ended < now && ended > now - RECORDING_WINDOW_DAYS * 86_400_000 && !(quiet && askedAt > now - RECORDING_RECHECK_MINUTES * 60_000);
+}
 
 /** Totals for a client's tickets: all, open, overdue, and the average of their 1-5 star feedback ratings. */
 export function clientStats(tickets: Ticket[]) {

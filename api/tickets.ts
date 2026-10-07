@@ -1,7 +1,8 @@
-import { and, desc, eq, gt, gte, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, gte, inArray, lt } from 'drizzle-orm';
 import { assignClient } from './_assign.js';
 import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
+import { saveRecordings } from './_fireflies.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
 import { cancelSession, inBackground, loadBooking, removeCalendarEvents } from './_sessions.js';
@@ -13,6 +14,8 @@ const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails a
 const NOTHING = 'Nothing to update';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY = 24 * 60 * 60_000;
+// A ticket as the browser gets it: every column but the Fireflies transcript, which is long and is read on its own (?transcript=<id>).
+const { transcript: _transcript, ...TICKET_COLUMNS } = getTableColumns(tickets);
 
 /**
  * Applies status / coordinatorId (+ reason) / dueDate / note / postConsultation to one ticket (checking this user may),
@@ -22,7 +25,7 @@ const DAY = 24 * 60 * 60_000;
  */
 async function updateTicket(user: AuthUser, id: string, body: Record<string, unknown>, siteUrl: string) {
   await returnFollowUps();
-  const [ticket] = UUID.test(id) ? await db.select().from(tickets).where(eq(tickets.id, id)) : [];
+  const [ticket] = UUID.test(id) ? await db.select(TICKET_COLUMNS).from(tickets).where(eq(tickets.id, id)) : [];
   if (!ticket) throw new HttpError(404, 'Ticket not found');
   if (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
 
@@ -137,8 +140,19 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   await audit(user, after.postConsultation ? 'ticket.post_consultation' : 'ticket.updated', 'ticket', id, before, after);
   // Google and the emails follow the answer.
   if (patch.status === 'cancelled') inBackground(`Removing the calendar event and emailing about ${ticket.ticketNumber}`, () => cancelSession(user, ticket.bookingId, siteUrl));
-  const [updated] = await db.select().from(tickets).where(eq(tickets.id, id));
+  const [updated] = await db.select(TICKET_COLUMNS).from(tickets).where(eq(tickets.id, id));
   return updated;
+}
+
+/**
+ * POST { action: 'fetch-recording', ticketId, force? }: asks Fireflies for the ticket's recording and saves it if it is ready (see _fireflies.ts).
+ * Always answers 200 { found, problem? }: opening a ticket asks quietly, and "problem" is only shown when the person pressed the button.
+ */
+async function checkRecording(user: AuthUser, body: Record<string, unknown>) {
+  const id = needString(body.ticketId, 'Ticket');
+  const [ticket] = UUID.test(id) ? await db.select({ bookingId: tickets.bookingId, coordinatorId: tickets.coordinatorId }).from(tickets).where(eq(tickets.id, id)) : [];
+  if (!ticket || (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId)) throw new HttpError(404, 'Ticket not found');
+  return await saveRecordings({ bookingId: ticket.bookingId, force: body.force === true });
 }
 
 // ---------- the client's feedback page (/feedback/:token, no login) ----------
@@ -199,6 +213,13 @@ export default handler({
       return form;
     }
     const user = await requireUser(req);
+    // ?transcript=<ticket>: the Fireflies transcript of one ticket (an admin's, or the coordinator's own).
+    const transcriptOf = url.searchParams.get('transcript');
+    if (transcriptOf) {
+      const [row] = UUID.test(transcriptOf) ? await db.select({ transcript: tickets.transcript }).from(tickets).where(and(eq(tickets.id, transcriptOf), ownedBy(user, tickets.coordinatorId))) : [];
+      if (!row) throw new HttpError(404, 'Ticket not found');
+      return { transcript: row.transcript };
+    }
     await returnFollowUps();
     const from = url.searchParams.get('date_from');
     const to = url.searchParams.get('date_to');
@@ -213,14 +234,17 @@ export default handler({
             .where(and(from ? gte(bookings.startTime, new Date(studioTime(from, '00:00', tz))) : undefined, to ? lt(bookings.startTime, new Date(studioTime(to, '00:00', tz) + DAY)) : undefined)),
         )
       : undefined;
-    return await db.select().from(tickets).where(and(ownedBy(user, tickets.coordinatorId), inRange)).orderBy(desc(tickets.createdAt));
+    return await db.select(TICKET_COLUMNS).from(tickets).where(and(ownedBy(user, tickets.coordinatorId), inRange)).orderBy(desc(tickets.createdAt));
   },
 
-  // The feedback form's submission (public, the token is the permission).
+  // The feedback form's submission (public, the token is the permission), or staff's { action: 'fetch-recording' }.
   POST: async (req, url) => {
     const token = feedbackToken(url);
-    if (!token) throw new HttpError(404, 'Not found');
-    return await saveFeedback(token, await readBody(req));
+    if (token) return await saveFeedback(token, await readBody(req));
+    const user = await requireUser(req);
+    const body = await readBody(req);
+    if (body.action === 'fetch-recording') return await checkRecording(user, body);
+    throw new HttpError(404, 'Not found');
   },
 
   // One ticket: { id, status?, coordinatorId?, reason?, dueDate?, note?, postConsultation? } returns the ticket.

@@ -7,6 +7,7 @@ import ClientStatCards from '../ui/ClientStatCards';
 import FeedbackCard from './FeedbackCard';
 import MeetLink from './MeetLink';
 import PostConsultation from './PostConsultation';
+import RecordingLink from './RecordingLink';
 
 /** The client's stat cards, booking details, the client's booking answers, post-consultation notes and feedback. */
 export default function OverviewTab({ ticket }: { ticket: Ticket }) {
@@ -34,6 +35,14 @@ export default function OverviewTab({ ticket }: { ticket: Ticket }) {
                 <MeetLink booking={booking} />
               </dd>
             </div>
+            {booking.mode === 'online' && (
+              <div>
+                <dt className="text-xs text-ink-3">Recording</dt>
+                <dd>
+                  <RecordingLink ticketId={ticket.id} booking={booking} />
+                </dd>
+              </div>
+            )}
           </dl>
         ) : (
           <p className="text-ink-2">No booking is attached to this ticket.</p>

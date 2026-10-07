@@ -7,7 +7,7 @@ import Avatar from '../../components/ui/Avatar';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import EmptyState from '../../components/ui/EmptyState';
 import Pager, { pageOf } from '../../components/ui/Pager';
-import Icon from '../../components/ui/Icon';
+import Icon, { type IconName } from '../../components/ui/Icon';
 import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -85,7 +85,12 @@ export default function Tickets() {
     clearSelection();
   };
 
-  const link = (t: Ticket) => getSession(t.id)?.booking.meetingLink;
+  const iconLink = (href: string | null | undefined, title: string, icon: IconName) =>
+    href ? (
+      <a href={href} target="_blank" rel="noreferrer" title={title} className="inline-flex text-primary" onClick={(e) => e.stopPropagation()}><Icon name={icon} /></a>
+    ) : (
+      <span className="text-ink-3">—</span>
+    );
   const columns: Column<Ticket>[] = [
     { header: '#', cell: (t) => start + shown.indexOf(t) + 1, className: 'w-10 text-ink-3', desktopOnly: true },
     { header: 'Ticket ID', cell: (t) => t.ticketNumber, isId: true },
@@ -106,15 +111,8 @@ export default function Tickets() {
     { header: 'Email', cell: (t) => getClient(t.clientId)?.email ?? '—' },
     { header: 'Mode', cell: (t) => { const mode = getSession(t.id)?.booking.mode; return mode ? <ModePill mode={mode} /> : '—'; } },
     { header: 'Module', cell: (t) => <ModuleBadge module={getModule(t.moduleId)} /> },
-    {
-      header: 'Meet Link',
-      cell: (t) =>
-        link(t) ? (
-          <a href={link(t)!} target="_blank" rel="noreferrer" title="Open meeting link" className="inline-flex text-primary" onClick={(e) => e.stopPropagation()}><Icon name="link" /></a>
-        ) : (
-          <span className="text-ink-3">—</span>
-        ),
-    },
+    { header: 'Meet Link', cell: (t) => iconLink(getSession(t.id)?.booking.meetingLink, 'Open meeting link', 'link') },
+    { header: 'Recording', cell: (t) => iconLink(getSession(t.id)?.booking.recordingLink, 'Open Fireflies recording', 'video') },
     { header: 'UDYAM', cell: (t) => getClient(t.clientId)?.udyamNo ?? '—' },
     { header: 'Industry', cell: (t) => getClient(t.clientId)?.industry ?? '—' },
   ];
