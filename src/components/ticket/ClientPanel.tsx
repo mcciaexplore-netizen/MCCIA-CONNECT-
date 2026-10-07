@@ -9,12 +9,13 @@ import Icon from '../ui/Icon';
 
 /** Left column: the client's contact panel and (for admins) their coordinator history. */
 export default function ClientPanel({ ticket }: { ticket: Ticket }) {
-  const { role, tickets, getClient, getCoordinator } = useData();
+  const { role, tickets, clients, getClient, getCoordinator } = useData();
   const [historyOpen, setHistoryOpen] = useState(true);
   const client = getClient(ticket.clientId);
   const ownTickets = tickets.filter((t) => t.clientId === ticket.clientId);
   const auditLogs = useEntityLogs([ticket.clientId, ...ownTickets.map((t) => t.id)], role === 'super_admin' && historyOpen, tickets);
   if (!client) return null;
+  const companyTickets = tickets.filter((t) => clients.find((c) => c.id === t.clientId)?.companyId === client.companyId).length; // the company's whole history is on its page
 
   const fields: [string, string][] = [
     ['Contact Owner', getCoordinator(client.assignedCoordinatorId)?.name ?? '—'],
@@ -37,6 +38,11 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
         <h2 className="mt-3 text-lg font-bold">{client.personName}</h2>
         <p className="text-sm text-ink-2">{client.companyName}</p>
       </div>
+      {role === 'super_admin' && client.companyId && (
+        <Link className="mt-2 block text-center text-sm text-primary hover:underline" to={`/admin/companies/${client.companyId}`}>
+          {companyTickets} ticket{companyTickets === 1 ? '' : 's'} from this company →
+        </Link>
+      )}
       <hr className="my-4 border-line" />
 
       <div className="mb-3 flex items-center justify-between">

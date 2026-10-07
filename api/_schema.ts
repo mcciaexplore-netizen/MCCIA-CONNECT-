@@ -122,8 +122,9 @@ export const bookings = pgTable('bookings', {
 
 export const tickets = pgTable('tickets', {
   id: id(),
-  // Filled by the generate_ticket_number() trigger: TKT-0001 ..., one number per company (its name without capitals or extra spaces,
-  // kept in company_ticket_numbers). Every session a company books is its own ticket row with the company's number, so it is not unique.
+  // Filled by the generate_ticket_number() trigger from ticket_number_seq: TKT-0001 ..., one number per ticket (unique), counting up for the
+  // whole studio. A company's tickets are tied together by the company (its normalized name), not by the number; company_ticket_numbers is
+  // what the numbers used to be keyed by (until 7 Oct 2026) and is no longer used.
   ticketNumber: text('ticket_number').notNull().default(sql`''`),
   bookingId: uuid('booking_id').notNull().references(() => bookings.id),
   moduleId: uuid('module_id').notNull().references(() => modules.id),

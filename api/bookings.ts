@@ -319,7 +319,7 @@ export default handler({
     // Nothing in the database stops two requests from taking the last place at once, so check again
     // now that ours is saved. If another booking now overlaps beyond capacity we back out, which in a
     // true tie means both back out and can simply retry. Backing out cancels instead of deleting, so the
-    // booking stays on record (and a new company's ticket number is not given out twice or left with a gap).
+    // booking stays on record (and its ticket number is not given out twice).
     const crowded = !openModes(config, await takenAround(module.id, start, end, bookingId), start, end).includes(mode);
     if (crowded || (coordinatorId && (await clashesOf(coordinatorId, start, end, bookingId)).length)) {
       await db.batch([
