@@ -3,9 +3,9 @@ import { useParams } from 'react-router';
 import PublicShell from '../../components/layout/PublicShell';
 import EmptyState from '../../components/ui/EmptyState';
 import { api, ApiError, cn, errorMessage, formatDate, setStudioZone } from '../../lib/utils';
-import { FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, type FeedbackForm } from '../../types';
+import { FEEDBACK_COMMENTS_HINT, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, type FeedbackForm } from '../../types';
 
-/** /feedback/:token (public, no login): the client rates their session in four 1-5 star questions and adds comments. The link works once. */
+/** /feedback/:token (public, no login): the client rates their session in four 1-5 star questions and may add Additional Suggestions. The link works once. */
 export default function FeedbackPage() {
   const { token } = useParams();
   const [form, setForm] = useState<FeedbackForm | null>(null);
@@ -85,8 +85,8 @@ export default function FeedbackPage() {
             </fieldset>
           ))}
           <div>
-            <label className="label">Anything else you would like to tell us?</label>
-            <textarea className="input" rows={4} maxLength={MAX_FEEDBACK_COMMENTS} value={comments} onChange={(e) => setComments(e.target.value)} />
+            <label className="label" htmlFor="additional-suggestions">{FEEDBACK_COMMENTS_LABEL}</label>
+            <textarea id="additional-suggestions" className="input" rows={4} maxLength={MAX_FEEDBACK_COMMENTS} placeholder={FEEDBACK_COMMENTS_HINT} value={comments} onChange={(e) => setComments(e.target.value)} />
           </div>
           {error && <p role="alert" className="rounded-md bg-danger-light px-3 py-2 text-sm text-danger-dark">{error}</p>}
           <button className="btn btn-primary h-11 w-full" disabled={!complete || sending}>{sending ? 'Sending…' : 'Send feedback'}</button>

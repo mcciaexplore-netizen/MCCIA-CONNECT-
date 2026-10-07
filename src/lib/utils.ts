@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, RECORDING_RECHECK_MINUTES, RECORDING_WINDOW_DAYS, type AuditLog, type Booking, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
+import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, PAYMENT_LABELS, RECORDING_RECHECK_MINUTES, RECORDING_WINDOW_DAYS, STATUS_LABELS, type AuditLog, type Booking, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
 
 const MOBILE = '(max-width: 767px)';
 /** True below 768px: tables turn into card lists and the navigation becomes a menu. */
@@ -86,6 +86,24 @@ export const toClientInput = (client: Client): ClientInput => ({
   acquisitionFrom: client.acquisitionFrom ?? '',
   isMember: client.isMember,
   membershipId: client.membershipId ?? '',
+  district: client.district ?? '',
+  gender: client.gender ?? '',
+  womenEntrepreneur: client.womenEntrepreneur ?? '',
+  category: client.category ?? '',
+  subSector: client.subSector ?? '',
+  employmentRange: client.employmentRange == null ? '' : String(client.employmentRange),
+  onlinePresence: client.onlinePresence ?? '',
+});
+
+/**
+ * The consultant form's answers as it shows them: the saved ones, plus what lives on the ticket itself (its status and payment) and the
+ * Fireflies link of the session until someone writes a link of their own.
+ */
+export const postValues = (ticket: Ticket, booking?: Booking): Record<string, string> => ({
+  ...(booking?.recordingLink ? { recording_link: booking.recordingLink } : {}),
+  ...ticket.postConsultationData,
+  consultation_status: STATUS_LABELS[ticket.status],
+  payment_status: PAYMENT_LABELS[ticket.paymentStatus],
 });
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;

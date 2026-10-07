@@ -10,7 +10,7 @@ import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
 import { addNote, announceLink, createCalendarEvent, errorText, HTTPS_LINK, inBackground, LINK_WAITING, loadBooking, mailOf, sendAll, waitingForLink, type BookingRow } from './_sessions.js';
 import { bookings, clients, companies, coordinatorAssignments, coordinators, modules, tickets } from './_schema.js';
-import { BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type AppSettings, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
+import { answerProblem, BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type AppSettings, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
 const MAX_REASON = 500;
 
@@ -201,9 +201,15 @@ export default handler({
     if (!BOOKING_MODES.includes(mode)) throw new HttpError(400, 'Choose online or offline');
     const start = new Date(needString(body.startsAt, 'Time'));
     if (Number.isNaN(start.getTime())) throw new HttpError(400, 'Invalid time');
-    // Same rules as the booking form: required details, a valid email, a 10-digit phone number.
+    // Same rules as the booking form: required details, a valid email, a 10-digit phone number. A client already on file (matched by email)
+    // is only held to the basic contact details: their record may predate some of the 18 fields and is left as it is (see `missing` below).
     const submitted = { ...BLANK_CLIENT, ...((body.client ?? {}) as Partial<ClientInput>) };
-    const problem = Object.values(validateClient(submitted))[0];
+    const basic = Object.values(validateClient(submitted, false))[0];
+    if (basic) throw new HttpError(400, basic);
+    const errors = validateClient(submitted);
+    // Returning clients are matched by email.
+    const [existing] = await db.select().from(clients).where(sql`lower(${clients.email}) = ${submitted.email.trim().toLowerCase()}`).orderBy(clients.createdAt).limit(1);
+    const problem = existing ? undefined : Object.values(errors)[0];
     if (problem) throw new HttpError(400, problem);
     const clientInput = parseClient({ ...submitted, phone: normalizePhone(submitted.phone) });
 
@@ -225,13 +231,13 @@ export default handler({
     for (const question of (await loadBookingQuestions()).get(module.id) ?? []) {
       const value = optString(given[question.id]);
       if (question.required && !value) throw new HttpError(400, `"${question.label}" is required`);
-      // A list question only accepts one of its own options, whatever the browser sent.
-      if (value && (question.type === 'select' || question.type === 'radio') && !question.options.includes(value)) throw new HttpError(400, `Invalid answer for ${question.label}`);
+      // A list question only accepts its own options and a link question a web address, whatever the browser sent.
+      if (value && answerProblem(question, value)) throw new HttpError(400, `Invalid answer for ${question.label}`);
       if (value) answers[question.id] = value;
     }
 
-    // Returning clients are matched by email; their record is left as it is.
-    const [existing] = await db.select().from(clients).where(sql`lower(${clients.email}) = ${clientInput.email}`).orderBy(clients.createdAt).limit(1);
+    // A returning client's record is left as it is, except for details it does not have yet (and only valid ones are taken).
+    const missing = existing ? Object.fromEntries(Object.entries(clientInput).filter(([key, value]) => key !== 'isMember' && key !== 'membershipId' && value != null && value !== '' && !errors[key as keyof ClientInput] && (existing as Record<string, unknown>)[key] == null)) : {};
 
     // The company decides the coordinator: every client of a company shares it, however the company's name is written (see _companies.ts).
     const company = existing?.companyId ? (await db.select().from(companies).where(eq(companies.id, existing.companyId)))[0] : await findCompany(clientInput.companyName);
@@ -295,6 +301,7 @@ export default handler({
         // A new client starts with the company's coordinator, when it has one.
         ...(existing ? [] : [db.insert(clients).values({ id: clientId, ...clientInput, companyId: companyIdOf, assignedCoordinatorId: permanent?.id ?? null })]),
         ...(!existing && permanent ? [db.insert(coordinatorAssignments).values({ clientId, coordinatorId: permanent.id })] : []),
+        ...(existing && Object.keys(missing).length ? [db.update(clients).set(missing).where(eq(clients.id, existing.id))] : []),
         ...(existing && !existing.companyId ? [db.update(clients).set({ companyId: companyIdOf }).where(eq(clients.id, existing.id))] : []),
         ...(existing && permanent && existing.assignedCoordinatorId !== permanent.id ? [db.update(clients).set({ assignedCoordinatorId: permanent.id }).where(eq(clients.id, existing.id))] : []),
         // The client had a coordinator but their company did not (older data): the company takes it, so the whole company shares it.

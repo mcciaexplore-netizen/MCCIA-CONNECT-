@@ -26,10 +26,23 @@ export default function QuestionFields({ questions, values, onChange, errors = {
             ) : question.type === 'select' ? (
               <select {...shared} onChange={(e) => set(e.target.value)}>
                 <option value="">Select…</option>
-                {question.options.map((option) => (
+                {/* An answer saved earlier stays selectable even when it is no longer one of the options. */}
+                {(shared.value && !question.options.includes(shared.value) ? [...question.options, shared.value] : question.options).map((option) => (
                   <option key={option}>{option}</option>
                 ))}
               </select>
+            ) : question.type === 'checkbox' ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {question.options.map((option) => {
+                  const chosen = shared.value.split(', ').filter(Boolean);
+                  return (
+                    <label key={option} className="flex items-center gap-1.5">
+                      <input type="checkbox" checked={chosen.includes(option)} onChange={(e) => set(question.options.filter((o) => (o === option ? e.target.checked : chosen.includes(o))).join(', '))} />
+                      {option}
+                    </label>
+                  );
+                })}
+              </div>
             ) : question.type === 'radio' ? (
               <div className="flex flex-wrap gap-4">
                 {question.options.map((option) => (
@@ -40,7 +53,7 @@ export default function QuestionFields({ questions, values, onChange, errors = {
                 ))}
               </div>
             ) : (
-              <input {...shared} type={question.type === 'number' ? 'number' : 'text'} step="any" onChange={(e) => set(e.target.value)} />
+              <input {...shared} type={question.type === 'number' ? 'number' : question.type === 'url' ? 'url' : 'text'} step="any" placeholder={question.type === 'url' ? 'https://' : undefined} onChange={(e) => set(e.target.value)} />
             )}
             {errors[question.id] && <p className="mt-1 text-xs text-danger">{errors[question.id]}</p>}
           </div>

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { format } from 'date-fns';
 import { formatTime } from '../../lib/utils';
-import { normalizePhone, type BookingMode, type ClientInput, type PublicModule } from '../../types';
+import { CLIENT_FIELDS, clientText, normalizePhone, type BookingMode, type ClientInput, type PublicModule } from '../../types';
 
 interface Props {
   module: PublicModule;
@@ -39,16 +39,9 @@ export default function ReviewStep({ module, client, answers, mode, startsAt, co
   return (
     <div className="space-y-4">
       <Section title={titles[0]} onEdit={() => onEdit(1)}>
-        <Row label="Company Name" value={client.companyName} />
-        <Row label="Person Name" value={client.personName} />
-        <Row label="Email" value={client.email} />
-        <Row label="Phone" value={normalizePhone(client.phone) ?? client.phone} />
-        <Row label="Scale" value={client.scale} />
-        <Row label="Industry" value={client.industry} />
-        <Row label="UDYAM No." value={client.udyamNo} />
-        <Row label="Job Title" value={client.jobTitle} />
-        <Row label="Member / Non-Member" value={client.isMember ? `Member${client.membershipId ? ` (${client.membershipId})` : ''}` : 'Non-Member'} />
-        <Row label="Acquisition From" value={client.acquisitionFrom} />
+        {CLIENT_FIELDS.filter((field) => field.key !== 'membershipId' || client.isMember).map(({ key, label }) => (
+          <Row key={key} label={label} value={key === 'phone' ? (normalizePhone(client.phone) ?? client.phone) : clientText(client, key)} />
+        ))}
         {module.questions.map((question) => (
           <Row key={question.id} label={question.label} value={answers[question.id]} />
         ))}

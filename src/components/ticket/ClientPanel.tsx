@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useData } from '../../context/DataContext';
 import { useEntityLogs } from '../../lib/useEntityLogs';
 import { formatDate } from '../../lib/utils';
-import type { Ticket } from '../../types';
+import { CLIENT_FIELDS, clientText, type Ticket } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
 
@@ -18,14 +18,7 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
 
   const fields: [string, string][] = [
     ['Contact Owner', getCoordinator(client.assignedCoordinatorId)?.name ?? '—'],
-    ['Email', client.email],
-    ['Phone', client.phone],
-    ['Company', client.companyName],
-    ['Industry', client.industry ?? '—'],
-    ['Scale', client.scale ?? '—'],
-    ['UDYAM', client.udyamNo ?? '—'],
-    ['Member status', client.isMember ? `Member${client.membershipId ? ` · ${client.membershipId}` : ''}` : 'Not a member'],
-    ['Acquisition', client.acquisitionFrom ?? '—'],
+    ...CLIENT_FIELDS.filter((field) => field.key !== 'membershipId' || client.isMember).map(({ key, label }): [string, string] => [label, clientText(client, key) || '—']),
     ['Created', formatDate(client.createdAt)],
   ];
   // Every coordinator change for this client is in the audit log (newest first): the client's own assignments

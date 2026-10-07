@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useData } from '../../context/DataContext';
+import { postValues } from '../../lib/utils';
 import type { Ticket } from '../../types';
 import PostConsultationModal from './PostConsultationModal';
 
 /** "Post-Consultation Notes" card with its Fill Form / Edit button. */
 export default function PostConsultation({ ticket }: { ticket: Ticket }) {
-  const { getModule } = useData();
+  const { getModule, getSession } = useData();
   const [open, setOpen] = useState(false);
   const questions = getModule(ticket.moduleId)?.postQuestions ?? [];
-  const data = ticket.postConsultationData;
-  const filled = Object.keys(data).length > 0;
+  const data = postValues(ticket, getSession(ticket.id)?.booking); // the ticket's own status and payment are part of the form
+  const filled = Object.keys(ticket.postConsultationData).length > 0;
 
   return (
     <section className="card">

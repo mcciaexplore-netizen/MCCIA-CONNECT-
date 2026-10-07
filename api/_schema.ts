@@ -85,6 +85,13 @@ export const clients = pgTable('clients', {
   isMember: boolean('is_member').notNull().default(false),
   membershipId: text('membership_id'),
   acquisitionFrom: text('acquisition_from'),
+  district: text('district'),
+  gender: text('gender'),
+  womenEntrepreneur: text('women_entrepreneur'), // Yes | No
+  category: text('category'),
+  subSector: text('sub_sector'),
+  employmentRange: integer('employment_range'),
+  onlinePresence: text('online_presence'),
   assignedCoordinatorId: uuid('assigned_coordinator_id').references(() => coordinators.id),
   companyId: uuid('company_id').references(() => companies.id),
   createdAt: createdAt(),

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import ClientFields from '../ui/ClientFields';
 import QuestionFields from '../ui/QuestionFields';
-import { validateClient, type ClientInput, type FormField } from '../../types';
+import { answerProblem, validateClient, type ClientInput, type FormField } from '../../types';
 
 interface Props {
   questions: FormField[];
@@ -14,15 +14,21 @@ interface Props {
   onNext: () => void;
 }
 
-/** The 10 client details and the module's questions. Next only goes on when everything required is filled in. */
+/** The 18 client details and the module's questions. Next only goes on when everything required is filled in. */
 export default function DetailsStep({ questions, client, onClient, answers, onAnswers, lockClient, onBack, onNext }: Props) {
   const [clientErrors, setClientErrors] = useState<Partial<Record<keyof ClientInput, string>>>({});
   const [answerErrors, setAnswerErrors] = useState<Record<string, string>>({});
 
   const next = (e: FormEvent) => {
     e.preventDefault();
-    const problems = validateClient(client);
-    const missing = Object.fromEntries(questions.filter((q) => q.required && !answers[q.id]?.trim()).map((q) => [q.id, `${q.label} is required`]));
+    const problems = validateClient(client, !lockClient);
+    const missing = Object.fromEntries(
+      questions.flatMap((q) => {
+        const value = answers[q.id]?.trim() ?? '';
+        const problem = value ? answerProblem(q, value) : undefined;
+        return q.required && !value ? [[q.id, `${q.label} is required`]] : problem ? [[q.id, problem === 'url' ? `${q.label} must be a web address starting with http:// or https://` : `Choose a valid ${q.label}`]] : [];
+      }),
+    );
     setClientErrors(problems);
     setAnswerErrors(missing);
     if (!Object.keys(problems).length && !Object.keys(missing).length) onNext();

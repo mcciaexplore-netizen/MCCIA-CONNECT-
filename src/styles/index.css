@@ -47,6 +47,8 @@
   --status-new-text: var(--primary-dark);
   --status-pending-bg: var(--gold-light);
   --status-pending-text: #8a6d1c;
+  --status-follow_up-bg: #e0f2fe;
+  --status-follow_up-text: #075985;
   --status-in_progress-bg: #dcf4ef;
   --status-in_progress-text: #0b6b5f;
   --status-completed-bg: #e6f6ec;

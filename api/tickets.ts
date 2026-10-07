@@ -7,7 +7,7 @@ import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needStr
 import { runScheduled } from './_scheduled.js';
 import { cancelSession, inBackground, loadBooking, removeCalendarEvents } from './_sessions.js';
 import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
-import { FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_STATUSES, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
+import { answerProblem, FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_FIELDS, TICKET_STATUSES, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
 const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails afterwards, so a big batch could outlast the function
@@ -116,9 +116,12 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
     const given = (body.postConsultation ?? {}) as Record<string, unknown>;
     const answers: Record<string, string> = {};
     for (const q of (await loadPostQuestions())(ticket.moduleId)) {
+      if (q.id in TICKET_FIELDS) continue; // status and payment are the ticket's own: the form sends them as `status` / `paymentStatus`, with their own rules
       const value = optString(given[q.id]);
       if (q.required && !value) throw new HttpError(400, `"${q.label}" is required`);
-      if (value && (q.type === 'select' || q.type === 'radio') && !q.options.includes(value)) throw new HttpError(400, `"${q.label}": choose one of the listed options`);
+      const problem = value ? answerProblem(q, value) : undefined;
+      if (problem === 'option') throw new HttpError(400, `"${q.label}": choose ${q.type === 'checkbox' ? 'from' : 'one of'} the listed options`);
+      if (problem === 'url') throw new HttpError(400, `"${q.label}" must be a web address starting with http:// or https://`);
       if (value && q.type === 'number' && Number.isNaN(Number(value))) throw new HttpError(400, `"${q.label}" must be a number`);
       if (value) answers[q.id] = value;
     }

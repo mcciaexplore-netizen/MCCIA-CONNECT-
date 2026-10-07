@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { audit, cached, db, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser } from './_lib.js';
 import { formQuestions, modules } from './_schema.js';
-import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type DisabledModule, type FieldType, type FormField } from '../src/types/index.js';
+import { BOOKING_FORM, CHOICE_TYPES, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type DisabledModule, type FieldType, type FormField } from '../src/types/index.js';
 
 const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
@@ -12,7 +12,9 @@ function cleanQuestions(raw: unknown): FormField[] {
     const f = (item ?? {}) as Record<string, unknown>;
     if (!FIELD_TYPES.includes(f.type as FieldType)) throw new HttpError(400, 'Invalid question type');
     const options = Array.isArray(f.options) ? f.options.map((o) => String(o).trim()).filter(Boolean) : [];
-    if ((f.type === 'select' || f.type === 'radio') && !options.length) throw new HttpError(400, `"${optString(f.label)}" needs at least one option`);
+    if (CHOICE_TYPES.includes(f.type as FieldType) && !options.length) throw new HttpError(400, `"${optString(f.label)}" needs at least one option`);
+    // A checkbox answer is saved as "A, B", so an option may not contain a comma.
+    if (f.type === 'checkbox' && options.some((o) => o.includes(','))) throw new HttpError(400, `"${optString(f.label)}": checkbox options cannot contain commas`);
     return { id: needString(f.id, 'Question id'), label: needString(f.label, 'Question'), type: f.type as FieldType, required: Boolean(f.required), options };
   });
 }

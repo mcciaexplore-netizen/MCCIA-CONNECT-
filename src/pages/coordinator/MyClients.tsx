@@ -37,7 +37,7 @@ export default function MyClients() {
     { header: 'Company', cell: (c) => c.companyName },
     { header: 'Person', cell: (c) => <span className="inline-flex items-center gap-2"><Avatar name={c.personName} size="sm" />{c.personName}</span> },
     { header: 'Phone', cell: (c) => c.phone },
-    { header: 'Industry', cell: (c) => c.industry ?? '—' },
+    { header: 'Sector', cell: (c) => c.industry ?? '—' },
     { header: 'Member', cell: (c) => (c.isMember ? 'Yes' : 'No') },
     { header: 'Total Tickets', cell: (c) => ticketCounts.get(c.id) ?? 0 },
     { header: 'Last Session', cell: (c) => (lastSession.has(c.id) ? formatDate(lastSession.get(c.id)!) : '—') },
@@ -53,7 +53,7 @@ export default function MyClients() {
           <p className="page-sub">Clients assigned to you.</p>
         </div>
       </div>
-      <input className="input mb-3 max-w-xs" placeholder="Search company, person, phone, industry…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
+      <input className="input mb-3 max-w-xs" placeholder="Search company, person, phone, sector…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
       <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/coordinator/clients/${c.id}`)} empty={query ? 'No clients match your search.' : 'No clients assigned to you yet.'} emptyIcon="users" emptyAction={query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
       <Pager total={rows.length} page={pageNo} onPage={setPageNo} />
     </div>

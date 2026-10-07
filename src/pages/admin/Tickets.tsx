@@ -114,7 +114,7 @@ export default function Tickets() {
     { header: 'Meet Link', cell: (t) => iconLink(getSession(t.id)?.booking.meetingLink, 'Open meeting link', 'link') },
     { header: 'Recording', cell: (t) => iconLink(getSession(t.id)?.booking.recordingLink, 'Open Fireflies recording', 'video') },
     { header: 'UDYAM', cell: (t) => getClient(t.clientId)?.udyamNo ?? '—' },
-    { header: 'Industry', cell: (t) => getClient(t.clientId)?.industry ?? '—' },
+    { header: 'Sector', cell: (t) => getClient(t.clientId)?.industry ?? '—' },
   ];
 
   if (load.loading || load.error) return <DataState {...load}>{null}</DataState>;

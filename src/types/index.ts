@@ -6,18 +6,21 @@ import type { adminNotifications, auditLogs, bookings, clients, companies, coord
 export const ROLES = ['super_admin', 'coordinator'] as const;
 export type Role = (typeof ROLES)[number];
 
-export const TICKET_STATUSES = ['new', 'pending', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show'] as const;
+export const TICKET_STATUSES = ['new', 'pending', 'follow_up', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
+/** `new` reads "Scheduled": every ticket is a booked session. These are also the choices of the consultant form's Consultation Status. */
 export const STATUS_LABELS: Record<TicketStatus, string> = {
-  new: 'New',
+  new: 'Scheduled',
   pending: 'Pending',
+  follow_up: 'Follow Up',
   in_progress: 'In progress',
   completed: 'Completed',
   cancelled: 'Cancelled',
   rescheduled: 'Rescheduled',
-  no_show: 'No show',
+  no_show: 'No Show',
 };
+export const statusOf = (label: string) => TICKET_STATUSES.find((status) => STATUS_LABELS[status] === label);
 
 /** Shortest reason (characters) accepted when a ticket's coordinator is replaced by another. */
 export const MIN_REASON_LENGTH = 20;
@@ -35,8 +38,11 @@ export const PAYMENT_LABELS: Record<PaymentStatus, string> = { paid: 'Paid', unp
 export const BOOKING_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
-export const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'radio'] as const;
+/** checkbox = several choices (saved as "A, B"), url = a web address. */
+export const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'radio', 'checkbox', 'url'] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
+/** The field types that offer a list of options. */
+export const CHOICE_TYPES: readonly FieldType[] = ['select', 'radio', 'checkbox'];
 
 /** form_questions.form_type of the form clients fill in when booking. */
 export const BOOKING_FORM = 'booking';
@@ -55,8 +61,10 @@ export const FEEDBACK_FIELDS = [
   { key: 'response_time', label: 'Response time rate', question: 'Rate the response time' },
   { key: 'value_addition', label: 'Rating of value addition', question: 'Rate the value addition' },
 ] as const;
-/** feedback_data key of the client's free-text comments (shown on the ticket, not an Excel column). */
+/** feedback_data key of the client's "Additional Suggestions" (the fifth feedback field, free text, optional). */
 export const FEEDBACK_COMMENTS = 'comments';
+export const FEEDBACK_COMMENTS_LABEL = 'Additional Suggestions';
+export const FEEDBACK_COMMENTS_HINT = 'Any suggestions or comments about your consultation experience?';
 /** Longest feedback comment accepted. */
 export const MAX_FEEDBACK_COMMENTS = 2000;
 
@@ -75,20 +83,63 @@ export interface FormField {
 
 const question = (id: string, label: string, type: FieldType, required = false, options: string[] = []): FormField => ({ id, label, type, required, options });
 
-/** Used for any module that has no post_consultation row in form_questions yet. Admins can edit them in the Form builder. */
+/**
+ * Why an answer does not fit its question, if it does not: a list question (select, radio, checkbox) only takes its own options and a
+ * url question a web address. The booking form, the consultant form and the API share this.
+ */
+export function answerProblem(question: FormField, value: string): 'option' | 'url' | undefined {
+  if ((question.type === 'select' || question.type === 'radio') && !question.options.includes(value)) return 'option';
+  if (question.type === 'checkbox' && !value.split(', ').every((option) => question.options.includes(option))) return 'option';
+  if (question.type === 'url' && !/^https?:\/\/\S+$/i.test(value)) return 'url';
+  return undefined;
+}
+
+/**
+ * Two of the consultant form's fields are not stored with its answers but on the ticket itself: the form shows and saves them from there
+ * (the ticket's status and payment follow their own rules). Answer id -> the ticket field that PATCH /api/tickets takes.
+ */
+export const TICKET_FIELDS = { consultation_status: 'status', payment_status: 'paymentStatus' } as const;
+/** Fields only an admin may change (payment is recorded by hand by an admin); coordinators do not see them on the form. */
+export const ADMIN_ONLY_FIELDS: readonly string[] = ['payment_status'];
+
+/**
+ * The consultant form (post-consultation notes): one form, one Save button, saved in tickets.post_consultation_data. Used for any module
+ * that has no post_consultation row in form_questions yet; admins can change it per module in the Form builder. Excel columns read these by id.
+ * (Additional Suggestions is not here: the client gives it on the feedback form.)
+ */
 export const DEFAULT_POST_CONSULTATION_QUESTIONS: FormField[] = [
-  question('meeting_query', 'Meeting Query', 'textarea', true),
-  question('meeting_solution', 'Meeting Solution', 'textarea', true),
+  question('primary_goal', 'Primary Goal', 'select', false, ['Exploring AI implementation for the first time', 'AI strategy and roadmap planning', 'Need help with a specific AI project/problem', 'Scaling existing AI solutions']),
+  question('ai_use_area', 'AI Use Area', 'checkbox', false, ['Workflow Automation', 'Data Management', 'Content Creation', 'Lead Generation', 'Finance & Accounting', 'R&D', 'Customer Support', 'HR & Recruitment', 'Other']),
+  question('ai_urgency', 'AI Urgency', 'select', false, ['1-3 Months', '3-6 Months', 'Flexible/still exploring', 'Not Yet Determined']),
+  question('ai_budget', 'Estimated Budget for AI', 'select', false, ['0-10,000', '10,000-50,000', '50,000-2,00,000', '2,00,000+', 'Not Yet Determined']),
+  question('data_storage', 'Primary Data Storage', 'select', false, ['Paper registers/notebooks', 'Mix paper + Unorganised files', 'Unorganised Excel', 'Excel/Sheets (Organized)', 'Cloud storage (Drive/OneDrive)', 'ERP/CRM System']),
+  question('business_communication', 'Business Communication', 'select', false, ['Phone/in-person only', 'Whatsapp groups', 'Whatsapp + email', 'Google Workspace/Office 365']),
+  question('order_tracking', 'Customer/Order Tracking', 'select', false, ['Paper diary/order book', 'Excel contact/order list', 'CRM Software', 'ERP System']),
+  question('accounting_gst', 'Accounting & GST', 'select', false, ['Manual books/Excel', 'Tally (offline)', 'Tally (online/cloud)', 'Cloud accounting software', 'ERP integrated accounting']),
+  question('project_management', 'Project/Work Management', 'select', false, ['To-do lists/Excel trackers', 'Email threads/verbal', 'Google Workspace/Office 365', 'Project management software']),
+  question('inventory_tracking', 'Production/Inventory Tracking', 'select', false, ['NA', 'Manual logs/physical count', 'Excel trackers updated daily', 'Inventory management software', 'ERP integrated']),
+  question('data_decisions', 'Data Usage in Decisions', 'select', false, ['Pure gut feeling/experience', 'Past records/intuition', 'Basic Excel reports', 'Dashboard/BI tools', 'Predictive analytics']),
+  question('ai_tool_usage', 'Current AI Tool Usage', 'select', false, ['Never used AI tools', 'Aware of ChatGPT but not used', 'Tried ChatGPT/basic AI tools', 'Regular AI usage (content/analysis)', 'Advanced AI integration in workflow']),
+  question('system_integration', 'System Integration', 'select', false, ['All systems isolated', 'Manual data transfer', 'Some API connections', 'Fully integrated systems']),
+  question('process_automation', 'Process Automation', 'select', false, ['No automation anywhere', '1-2 tasks automated', 'Partial automation', 'Most processes automated']),
+  question('attendance_payroll', 'Attendance & Payroll Management', 'select', false, ['NA(Solo Entrepreneur)', 'Manual registers & calculation', 'Excel-based attendance & payroll', 'Biometric + payroll software', 'Integrated HR system']),
+  question('tech_adoption', 'New Tech Adoption Rate', 'select', false, ['Very slow/resistant', 'Open to new tools', 'Actively adopting new tools', 'Early adopter/tech-forward']),
+  question('dashboard_tools', 'Dashboard Tools', 'select', false, ['No Dashboards', 'Excel Charts', 'Power BI/Tableau', 'Custom Dashboards']),
+  question('meeting_query', 'Meeting Query', 'textarea'),
+  question('meeting_solution', 'Meeting Solution', 'textarea'),
   question('ramp_type', 'RAMP / Non-RAMP', 'radio', false, ['RAMP', 'Non-RAMP']),
-  question('interaction_status', 'Interaction Status', 'select', true, ['Resolved', 'Follow-up required', 'Referred onward', 'No outcome']),
+  question('interaction_status', 'Interaction Status', 'select', false, ['1st Interaction', 'Follow Up Interaction', 'Closed']),
   question('value_addition', 'Value Addition', 'textarea'),
-  question('additional_suggestions', 'Additional Suggestions', 'textarea'),
-  question('ai_level', 'AI Implementation Level', 'select', false, ['Not started', 'Exploring', 'Pilot', 'Partially implemented', 'Fully implemented']),
-  question('ai_use_description', 'AI Use Description', 'textarea'),
+  question('ai_level', 'AI Implementation Level', 'select', false, ['None', 'A : Basic AI Use', 'B : Complex AI Use', 'D : Application Deployed and Using', 'E : Application Under Development', 'Need to Confirm']),
+  question('ai_use_description', 'Application / AI Use Description', 'textarea'),
   question('active_user', 'Active User', 'radio', false, ['Yes', 'No']),
   question('time_cost_hours', 'Time Cost (hours)', 'number'),
   question('money_cost_inr', 'Money Cost (INR)', 'number'),
-  question('testimonial_link', 'Testimonial Link', 'text'),
+  question('time_span_minutes', 'Time Span (minutes)', 'number'),
+  question('payment_status', 'Payment Status', 'select', false, ['Paid', 'Unpaid', 'Waived']),
+  question('recording_link', 'Recording Link', 'url'),
+  question('testimonial_link', 'Testimonial Link', 'url'),
+  question('consultation_status', 'Consultation Status', 'select', false, ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Pending', 'Follow Up']),
 ];
 
 /** slot_config.weekly_rules item: open hours on a weekday (0 = Sunday), times as "HH:mm" studio time. */
@@ -195,11 +246,18 @@ export interface ClientInput {
   phone: string;
   jobTitle: string;
   scale: string;
-  industry: string;
+  industry: string; // the form calls it "Sector" (the column kept its first name)
   udyamNo: string;
   acquisitionFrom: string;
   isMember: boolean;
   membershipId: string;
+  district: string;
+  gender: string;
+  womenEntrepreneur: string; // Yes | No
+  category: string;
+  subSector: string;
+  employmentRange: string; // a whole number
+  onlinePresence: string;
 }
 
 export const BLANK_CLIENT: ClientInput = {
@@ -214,6 +272,13 @@ export const BLANK_CLIENT: ClientInput = {
   acquisitionFrom: '',
   isMember: false,
   membershipId: '',
+  district: '',
+  gender: '',
+  womenEntrepreneur: '',
+  category: '',
+  subSector: '',
+  employmentRange: '',
+  onlinePresence: '',
 };
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -222,9 +287,63 @@ export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const MIN_PASSWORD_LENGTH = 8;
 
 // The choices on the booking form (stored as the label).
-export const SCALE_OPTIONS = ['Micro', 'Small', 'Medium', 'Large', 'Enterprise'] as const;
-export const INDUSTRY_OPTIONS = ['Manufacturing', 'IT', 'Healthcare', 'Education', 'Agriculture', 'Retail', 'Finance', 'Other'] as const;
-export const ACQUISITION_OPTIONS = ['Walk-in', 'Online', 'Referral', 'Event', 'Social Media', 'Other'] as const;
+export const ACQUISITION_OPTIONS = ['Whatsapp Group', 'Email Marketing', 'Word of Mouth', 'Helpline Reference', 'Cold Call', 'Walk-in', 'Referral', 'Social Media', 'Event', 'Other'] as const;
+export const GENDER_OPTIONS = ['Male', 'Female', 'Other'] as const;
+export const YES_NO_OPTIONS = ['Yes', 'No'] as const;
+export const CATEGORY_OPTIONS = ['General', 'OBC', 'SC', 'ST'] as const;
+export const SCALE_OPTIONS = ['Micro (Turnover less than INR 10Cr)', 'Small (Turnover less than INR 100 Cr)', 'Medium (Turnover less than INR 500 Cr)', 'Large (Turnover more than INR 500 Cr)'] as const;
+export const SECTOR_OPTIONS = ['Manufacturing', 'Services', 'Agriculture', 'Others'] as const;
+export const ONLINE_PRESENCE_OPTIONS = [
+  'No website/social media/Google Business',
+  'Google Business/Whatsapp Business',
+  'Basic Website/ 2+ social platforms',
+  'Professional website + social media',
+  'E-commerce enabled website',
+] as const;
+
+export type ClientFieldType = 'text' | 'email' | 'tel' | 'number' | 'select' | 'radio' | 'member';
+export interface ClientField {
+  key: keyof ClientInput;
+  label: string;
+  type: ClientFieldType;
+  required: boolean;
+  options?: readonly string[];
+  placeholder?: string;
+}
+
+/**
+ * The 18 fixed booking-form fields, in the order clients see them and the Excel lists them. The admin cannot remove or change them
+ * (the Form builder only adds questions below). `member` is the Member / Non-Member choice (clients.is_member); the Membership ID after it
+ * is only asked of members. Everything that shows or exports client details reads this list.
+ */
+export const CLIENT_FIELDS: ClientField[] = [
+  { key: 'companyName', label: 'Company Name', type: 'text', required: true },
+  { key: 'udyamNo', label: 'UDYAM No', type: 'text', required: false },
+  { key: 'personName', label: 'Person Name', type: 'text', required: true },
+  { key: 'phone', label: 'Contact / Phone', type: 'tel', required: true, placeholder: '10-digit mobile number' },
+  { key: 'email', label: 'Email ID', type: 'email', required: true },
+  { key: 'isMember', label: 'Member / Non-Member', type: 'member', required: true },
+  { key: 'membershipId', label: 'Membership ID', type: 'text', required: false },
+  { key: 'acquisitionFrom', label: 'Acquisition From', type: 'select', required: true, options: ACQUISITION_OPTIONS },
+  { key: 'district', label: 'District', type: 'text', required: true },
+  { key: 'gender', label: 'Gender', type: 'select', required: true, options: GENDER_OPTIONS },
+  { key: 'womenEntrepreneur', label: 'Women Entrepreneur', type: 'radio', required: true, options: YES_NO_OPTIONS },
+  { key: 'category', label: 'Category', type: 'select', required: true, options: CATEGORY_OPTIONS },
+  { key: 'scale', label: 'Scale', type: 'select', required: true, options: SCALE_OPTIONS },
+  { key: 'industry', label: 'Sector', type: 'select', required: true, options: SECTOR_OPTIONS },
+  { key: 'subSector', label: 'Sub-Sector', type: 'text', required: true },
+  { key: 'jobTitle', label: 'Job Title', type: 'text', required: true },
+  { key: 'employmentRange', label: 'Employment Range', type: 'number', required: true },
+  { key: 'onlinePresence', label: 'Online Presence', type: 'select', required: true, options: ONLINE_PRESENCE_OPTIONS },
+];
+
+/** A client detail as text (a client row or the form's values): "Member" / "Non-Member" for the member flag, empty when not given. */
+type ClientLike = { [K in keyof ClientInput]?: ClientInput[K] | number | null };
+export function clientText(client: ClientLike, key: keyof ClientInput) {
+  const value = client[key];
+  if (key === 'isMember') return value ? 'Member' : 'Non-Member';
+  return value == null ? '' : String(value);
+}
 
 /** A 10-digit phone number from what was typed (spaces, dashes, +91 / 91 / 0 prefixes allowed), or null. */
 export function normalizePhone(value: string): string | null {
@@ -234,16 +353,32 @@ export function normalizePhone(value: string): string | null {
   return /^\d{10}$/.test(digits) ? digits : null;
 }
 
-/** What is wrong with the client details on a booking (empty when fine). The browser and the API share this. */
-export function validateClient(client: ClientInput) {
+/**
+ * What is wrong with the client details on a booking (empty when fine). The browser and the API share this. `complete` (the default) asks for
+ * every required field of CLIENT_FIELDS; a client already on file (their details are locked, or may predate the newer fields) is only held
+ * to the basic contact details.
+ */
+export function validateClient(client: ClientInput, complete = true) {
   const errors: Partial<Record<keyof ClientInput, string>> = {};
-  if (!client.companyName.trim()) errors.companyName = 'Company name is required';
-  if (!client.personName.trim()) errors.personName = 'Person name is required';
-  if (!client.email.trim()) errors.email = 'Email is required';
-  else if (!EMAIL_PATTERN.test(client.email.trim())) errors.email = 'Enter a valid email address';
-  if (!client.phone.trim()) errors.phone = 'Phone is required';
-  else if (!normalizePhone(client.phone)) errors.phone = 'Enter a 10-digit phone number';
-  if (!client.jobTitle.trim()) errors.jobTitle = 'Job title is required';
+  // The API passes whatever JSON it was sent: anything that is not text counts as empty.
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+  if (!text(client.companyName)) errors.companyName = 'Company name is required';
+  if (!text(client.personName)) errors.personName = 'Person name is required';
+  if (!text(client.email)) errors.email = 'Email is required';
+  else if (!EMAIL_PATTERN.test(text(client.email))) errors.email = 'Enter a valid email address';
+  if (!text(client.phone)) errors.phone = 'Phone is required';
+  else if (!normalizePhone(text(client.phone))) errors.phone = 'Enter a 10-digit phone number';
+  if (!text(client.jobTitle)) errors.jobTitle = 'Job title is required';
+  if (!complete) return errors;
+
+  for (const { key, label, type, required, options } of CLIENT_FIELDS) {
+    if (errors[key] || type === 'member') continue;
+    const value = type === 'number' && typeof client[key] === 'number' ? String(client[key]) : text(client[key]); // a number field may arrive as a JSON number
+    if (!value) {
+      if (required) errors[key] = `${label} is required`;
+    } else if (options && !options.includes(value)) errors[key] = `Choose a valid ${label}`;
+    else if (key === 'employmentRange' && !/^\d{1,7}$/.test(value)) errors[key] = 'Enter a whole number';
+  }
   return errors;
 }
 

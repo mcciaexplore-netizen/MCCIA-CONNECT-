@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, HttpError } from './_lib.js';
 import { auditLogs, bookings, clients, coordinators, modules, tickets } from './_schema.js';
-import { FEEDBACK_FIELDS, PAYMENT_LABELS, STATUS_LABELS, type AppSettings, type StudioZone } from '../src/types/index.js';
+import { CLIENT_FIELDS, DEFAULT_POST_CONSULTATION_QUESTIONS, FEEDBACK_COMMENTS, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, PAYMENT_LABELS, STATUS_LABELS, clientText, type AppSettings, type StudioZone } from '../src/types/index.js';
 
 /**
  * The Excel file is never stored. Neon is the source of truth and every download is generated fresh from it, so
@@ -16,6 +16,7 @@ export const nextRowNumber = (moduleId: string) =>
 
 interface Row {
   srNo: number;
+  domain: string; // the module (its tab)
   ticket: typeof tickets.$inferSelect;
   booking: typeof bookings.$inferSelect;
   client: typeof clients.$inferSelect;
@@ -29,54 +30,53 @@ const dateText = (zone: StudioZone, date: Date) => {
   return `${day}/${month}/${year}`; // DD/MM/YYYY
 };
 const monthText = (zone: StudioZone, date: Date) => zoned(zone, { month: 'short', year: 'numeric' })(date);
+const yearMonthText = (zone: StudioZone, date: Date) => dateText(zone, date).split('/').reverse().slice(0, 2).join('-'); // 2026-10
 const timeText = (zone: StudioZone, date: Date) => zoned(zone, { hour: 'numeric', minute: '2-digit', hour12: true })(date);
 
-const post = (r: Row, key: string) => r.ticket.postConsultationData[key] ?? '';
 /** A number when the answer is numeric (so Excel can total it), otherwise the text. */
 const numeric = (value: string) => (value !== '' && !Number.isNaN(Number(value)) ? Number(value) : value);
-const rating = (r: Row, key: string) => numeric(r.ticket.feedbackData[key] ?? '');
-const feedback = (index: number) => (r: Row) => rating(r, FEEDBACK_FIELDS[index].key);
 
-// The 38 columns, A to AL, in this order.
-const COLUMNS: { header: string; width: number; value: (r: Row, zone: StudioZone) => string | number }[] = [
-  { header: 'Sr. No', width: 6, value: (r) => r.srNo },
-  { header: 'Ticket ID', width: 16, value: (r) => r.ticket.ticketNumber },
-  { header: 'Company Name', width: 22, value: (r) => r.client.companyName },
-  { header: 'UDYAM No', width: 18, value: (r) => r.client.udyamNo ?? '' },
-  { header: 'Person Name', width: 18, value: (r) => r.client.personName },
-  { header: 'Contact (Phone)', width: 14, value: (r) => r.client.phone },
-  { header: 'Email', width: 24, value: (r) => r.client.email },
-  { header: 'Payment', width: 10, value: (r) => PAYMENT_LABELS[r.ticket.paymentStatus] ?? '' }, // set by an admin on the ticket
-  { header: 'Mode of Consultation', width: 12, value: (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline') },
-  { header: 'Date (DD/MM/YYYY)', width: 12, value: (r, z) => dateText(z, r.booking.startTime) },
-  { header: 'Month/Year', width: 10, value: (r, z) => monthText(z, r.booking.startTime) },
-  { header: 'Time Slot', width: 10, value: (r, z) => timeText(z, r.booking.startTime) },
-  { header: 'Consultation Status', width: 14, value: (r) => STATUS_LABELS[r.ticket.status] ?? r.ticket.status },
-  { header: 'Coordinator Assigned', width: 18, value: (r) => r.coordinator ?? 'Unassigned' },
-  { header: 'RAMP or Non-RAMP', width: 10, value: (r) => post(r, 'ramp_type') },
-  { header: 'Member/Non-Member', width: 12, value: (r) => (r.client.isMember ? 'Member' : 'Non-Member') },
-  { header: 'Acquisition From', width: 14, value: (r) => r.client.acquisitionFrom ?? '' },
-  { header: 'Meeting Query', width: 30, value: (r) => post(r, 'meeting_query') },
-  { header: 'Meeting Solution', width: 30, value: (r) => post(r, 'meeting_solution') },
-  { header: 'Time Span', width: 10, value: (r) => `${Math.round((r.booking.endTime.getTime() - r.booking.startTime.getTime()) / 60000)} min` },
-  { header: FEEDBACK_FIELDS[0].label, width: 10, value: feedback(0) },
-  { header: FEEDBACK_FIELDS[1].label, width: 10, value: feedback(1) },
-  { header: FEEDBACK_FIELDS[2].label, width: 10, value: feedback(2) },
-  { header: FEEDBACK_FIELDS[3].label, width: 10, value: feedback(3) },
-  { header: 'Value addition notes', width: 30, value: (r) => post(r, 'value_addition') },
-  { header: 'Additional Suggestions', width: 30, value: (r) => post(r, 'additional_suggestions') },
-  { header: 'Industry/Sector', width: 18, value: (r) => r.client.industry ?? '' },
-  { header: 'Scale', width: 10, value: (r) => r.client.scale ?? '' },
-  { header: 'Job Title', width: 16, value: (r) => r.client.jobTitle ?? '' },
-  { header: 'Google Meet Link', width: 20, value: (r) => r.booking.meetingLink ?? '' },
-  { header: 'Testimonial Link', width: 20, value: (r) => post(r, 'testimonial_link') },
-  { header: 'Interaction Status', width: 14, value: (r) => post(r, 'interaction_status') },
-  { header: 'Active User', width: 10, value: (r) => post(r, 'active_user') },
-  { header: 'Time Cost (hours)', width: 10, value: (r) => numeric(post(r, 'time_cost_hours')) },
-  { header: 'Money Cost (INR)', width: 12, value: (r) => numeric(post(r, 'money_cost_inr')) },
-  { header: 'Membership ID', width: 14, value: (r) => r.client.membershipId ?? '' },
-  { header: 'AI Implementation Level', width: 16, value: (r) => post(r, 'ai_level') },
-  { header: 'AI Use Description', width: 30, value: (r) => post(r, 'ai_use_description') },
+/** Who fills a column decides its header colour: the system and the client's booking form (blue), the consultant (green), the client's feedback (amber). */
+type Section = 'auto' | 'booking' | 'consultant' | 'feedback';
+const SECTION_FILL: Record<Section, string> = { auto: 'FF0157B3', booking: 'FF0157B3', consultant: 'FF0F7B5F', feedback: 'FF633806' };
+
+interface Column {
+  header: string;
+  width: number;
+  fill: string;
+  value: (r: Row, zone: StudioZone) => string | number;
+}
+const column = (section: Section, header: string, width: number, value: Column['value']): Column => ({ header, width, fill: SECTION_FILL[section], value });
+
+const post = (r: Row, key: string) => r.ticket.postConsultationData[key] ?? '';
+const minutesBooked = (r: Row) => Math.round((r.booking.endTime.getTime() - r.booking.startTime.getTime()) / 60000);
+
+/** What a consultant-form column holds: most are the saved answer; four live elsewhere (see TICKET_FIELDS and the Fireflies link). */
+const CONSULTANT_VALUES: Record<string, (r: Row) => string | number> = {
+  consultation_status: (r) => STATUS_LABELS[r.ticket.status] ?? r.ticket.status,
+  payment_status: (r) => PAYMENT_LABELS[r.ticket.paymentStatus] ?? '',
+  time_span_minutes: (r) => (post(r, 'time_span_minutes') === '' ? minutesBooked(r) : numeric(post(r, 'time_span_minutes'))), // what the consultant wrote (0 too), else the booked length
+  recording_link: (r) => post(r, 'recording_link') || r.booking.recordingLink || '',
+};
+
+// Every field has its own column: 9 filled by the system (the 8 auto-generated ones and the Ticket ID), the 18 booking-form fields,
+// the 32 consultant-form fields and the 5 feedback fields.
+const COLUMNS: Column[] = [
+  column('auto', 'Sr. No', 6, (r) => r.srNo),
+  column('auto', 'Ticket ID', 16, (r) => r.ticket.ticketNumber),
+  column('auto', 'Domain', 20, (r) => r.domain),
+  column('auto', 'Mode of Consultation', 12, (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline')),
+  column('auto', 'Date', 12, (r, z) => dateText(z, r.booking.startTime)),
+  column('auto', 'Month/Year', 10, (r, z) => monthText(z, r.booking.startTime)),
+  column('auto', 'Time Slot', 10, (r, z) => timeText(z, r.booking.startTime)),
+  column('auto', 'Coordinator Assigned', 18, (r) => r.coordinator ?? 'Unassigned'),
+  column('auto', 'Year-Month', 10, (r, z) => yearMonthText(z, r.booking.startTime)),
+  ...CLIENT_FIELDS.map(({ key, label, type }) => column('booking', label, 18, (r) => (key === 'employmentRange' ? numeric(clientText(r.client, key)) : type === 'tel' ? r.client.phone : clientText(r.client, key)))),
+  ...DEFAULT_POST_CONSULTATION_QUESTIONS.map(({ id, label, type }) =>
+    column('consultant', label, type === 'textarea' ? 30 : type === 'select' || type === 'checkbox' ? 22 : 14, CONSULTANT_VALUES[id] ?? ((r) => (type === 'number' ? numeric(post(r, id)) : post(r, id)))),
+  ),
+  ...FEEDBACK_FIELDS.map(({ key, label }) => column('feedback', label, 10, (r) => numeric(r.ticket.feedbackData[key] ?? ''))),
+  column('feedback', FEEDBACK_COMMENTS_LABEL, 30, (r) => r.ticket.feedbackData[FEEDBACK_COMMENTS] ?? ''),
 ];
 
 const HEADER = 'FF0157B3'; // the brand blue
@@ -85,15 +85,15 @@ const BORDER = { style: 'thin', color: { argb: 'FFE5E7EB' } } as const;
 const PREFERRED_ORDER = ['ai-consultation', 'applet-setup', 'cluster-development'];
 
 /** One styled tab: a blue header (frozen, filterable), then one row per entry. */
-function addSheet(workbook: ExcelJS.Workbook, name: string, columns: { header: string; width: number }[], rows: (string | number)[][]) {
+function addSheet(workbook: ExcelJS.Workbook, name: string, columns: { header: string; width: number; fill?: string }[], rows: (string | number)[][]) {
   const sheet = workbook.addWorksheet(name.replace(/[\\/?*:[\]]/g, '-').slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
   sheet.columns = columns.map(({ header, width }) => ({ header, width }));
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
 
   const header = sheet.getRow(1);
   header.height = 20;
-  header.eachCell((cell) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER } };
+  header.eachCell((cell, index) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: columns[index - 1].fill ?? HEADER } };
     cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
     cell.alignment = { vertical: 'middle' };
     cell.border = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
@@ -144,7 +144,7 @@ export async function exportFilteredExcel(settings: AppSettings, { modules: slug
     const inModule = found.filter((f) => f.ticket.moduleId === module.id);
     // Bookings made before row numbers existed get the next free numbers, in booking order (not saved).
     let next = Math.max(0, ...inModule.map((f) => f.booking.excelRowNumber ?? 0));
-    const tabRows = inModule.map((f) => ({ ...f, srNo: f.booking.excelRowNumber ?? ++next }));
+    const tabRows = inModule.map((f) => ({ ...f, domain: module.name, srNo: f.booking.excelRowNumber ?? ++next }));
     total += tabRows.length;
     addSheet(workbook, module.name, COLUMNS, tabRows.map((row) => COLUMNS.map((column) => column.value(row, settings.timezone))));
   }

@@ -89,7 +89,16 @@ export function isUniqueViolation(e: unknown): boolean {
 export function parseClient(raw: unknown) {
   const c = (raw ?? {}) as Record<string, unknown>;
   const isMember = Boolean(c.isMember);
+  const employment = String(c.employmentRange ?? '').trim();
+  if (employment && !/^\d{1,7}$/.test(employment)) throw new HttpError(400, 'Employment range must be a whole number');
   return {
+    district: optString(c.district) || null,
+    gender: optString(c.gender) || null,
+    womenEntrepreneur: optString(c.womenEntrepreneur) || null,
+    category: optString(c.category) || null,
+    subSector: optString(c.subSector) || null,
+    employmentRange: employment ? Number(employment) : null,
+    onlinePresence: optString(c.onlinePresence) || null,
     companyName: needString(c.companyName, 'Company name'),
     personName: needString(c.personName, 'Contact name'),
     email: needEmail(c.email),

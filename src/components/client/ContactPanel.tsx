@@ -2,24 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useData } from '../../context/DataContext';
 import { companyNote, formatDate, toClientInput, useIsMobile } from '../../lib/utils';
-import { ACQUISITION_OPTIONS, INDUSTRY_OPTIONS, SCALE_OPTIONS, type Client, type ClientInput, type CoordinatorHistoryEntry } from '../../types';
+import { CLIENT_FIELDS, type Client, type ClientInput, type CoordinatorHistoryEntry } from '../../types';
 import Icon from '../ui/Icon';
 import ReassignModal from '../ui/ReassignModal';
 
 type TextKey = Exclude<keyof ClientInput, 'isMember' | 'membershipId'>;
 type Editing = TextKey | 'member' | 'all' | null;
-
-const FIELDS: { key: TextKey; label: string; type?: string; options?: readonly string[] }[] = [
-  { key: 'companyName', label: 'Company' },
-  { key: 'personName', label: 'Name' },
-  { key: 'email', label: 'Email', type: 'email' },
-  { key: 'phone', label: 'Phone', type: 'tel' },
-  { key: 'jobTitle', label: 'Job title' },
-  { key: 'industry', label: 'Industry', options: INDUSTRY_OPTIONS },
-  { key: 'scale', label: 'Scale', options: SCALE_OPTIONS },
-  { key: 'udyamNo', label: 'UDYAM' },
-  { key: 'acquisitionFrom', label: 'Acquisition', options: ACQUISITION_OPTIONS },
-];
 
 /** The client's coordinator changes (assignments and reassignments) and the Assign / Reassign button. Admin only. */
 function CoordinatorHistory({ client }: { client: Client }) {
@@ -135,38 +123,43 @@ export default function ContactPanel({ client, readOnly = false }: { client: Cli
       </div>
 
       <dl className="space-y-3">
-        {FIELDS.map(({ key, label, type, options }) => (
-          <div key={key}>
-            <dt className="text-xs text-ink-3">{label}</dt>
-            <dd>
-              {open(key) && options ? (
-                <select className="input" autoFocus={editing === key} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}>
-                  <option value="">—</option>
-                  {(draft[key] && !options.includes(draft[key]) ? [...options, draft[key]] : options).map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              ) : open(key) ? (
-                <input className="input" type={type ?? 'text'} autoFocus={editing === key} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
-              ) : (
-                valueButton(key, draft[key] || '—')
-              )}
-            </dd>
-          </div>
-        ))}
-        <div>
-          <dt className="text-xs text-ink-3">Member status</dt>
-          <dd>
-            {open('member') ? (
-              <div className="space-y-2">
-                <label className="flex items-center gap-2"><input type="checkbox" checked={draft.isMember} onChange={(e) => setDraft({ ...draft, isMember: e.target.checked })} />{brand} member</label>
-                {draft.isMember && <input className="input" placeholder="Membership ID" value={draft.membershipId} onChange={(e) => setDraft({ ...draft, membershipId: e.target.value })} />}
-              </div>
-            ) : (
-              valueButton('member', draft.isMember ? `Member${draft.membershipId ? ` · ${draft.membershipId}` : ''}` : 'Not a member')
-            )}
-          </dd>
-        </div>
+        {CLIENT_FIELDS.filter((field) => field.key !== 'membershipId').map((field) => {
+          const key = field.key as TextKey;
+          const { label, type, options } = field;
+          return field.type === 'member' ? (
+            <div key="member">
+              <dt className="text-xs text-ink-3">Member status</dt>
+              <dd>
+                {open('member') ? (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2"><input type="checkbox" checked={draft.isMember} onChange={(e) => setDraft({ ...draft, isMember: e.target.checked })} />{brand} member</label>
+                    {draft.isMember && <input className="input" placeholder="Membership ID" value={draft.membershipId} onChange={(e) => setDraft({ ...draft, membershipId: e.target.value })} />}
+                  </div>
+                ) : (
+                  valueButton('member', draft.isMember ? `Member${draft.membershipId ? ` · ${draft.membershipId}` : ''}` : 'Not a member')
+                )}
+              </dd>
+            </div>
+          ) : (
+            <div key={key}>
+              <dt className="text-xs text-ink-3">{label}</dt>
+              <dd>
+                {open(key) && options ? (
+                  <select className="input" autoFocus={editing === key} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}>
+                    <option value="">—</option>
+                    {(draft[key] && !options.includes(draft[key]) ? [...options, draft[key]] : options).map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                ) : open(key) ? (
+                  <input className="input" type={type} autoFocus={editing === key} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
+                ) : (
+                  valueButton(key, draft[key] || '—')
+                )}
+              </dd>
+            </div>
+          );
+        })}
         {!readOnly && client.companyId && (
           <div>
             <dt className="text-xs text-ink-3">Company record</dt>

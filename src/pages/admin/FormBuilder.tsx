@@ -6,7 +6,7 @@ import DataState from '../../components/ui/DataState';
 import EmptyState from '../../components/ui/EmptyState';
 import ModuleTabs from '../../components/ui/ModuleTabs';
 import { cn } from '../../lib/utils';
-import { BLANK_CLIENT, FEEDBACK_FIELDS, FIELD_TYPES, type FieldType, type FormField, type Module } from '../../types';
+import { BLANK_CLIENT, CHOICE_TYPES, FEEDBACK_COMMENTS_HINT, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, FIELD_TYPES, type FieldType, type FormField, type Module } from '../../types';
 
 const TABS = [
   { key: 'post', label: 'Post-Consultation' },
@@ -45,12 +45,13 @@ function QuestionEditor({ questions, onChange }: { questions: FormField[]; onCha
               <button type="button" aria-label="Move down" title="Move down" className="btn px-2" disabled={index === questions.length - 1} onClick={() => move(index, 1)}>↓</button>
             </div>
             <button type="button" className="btn btn-danger" onClick={() => onChange(questions.filter((q) => q.id !== question.id))}>Delete</button>
-            {(question.type === 'select' || question.type === 'radio') && (
-              <input
+            {CHOICE_TYPES.includes(question.type) && (
+              <textarea
                 className="input sm:col-span-5"
-                placeholder="Options, separated by commas"
-                value={question.options.join(', ')}
-                onChange={(e) => set(question.id, { options: e.target.value.split(',').map((o) => o.trim()) })}
+                rows={Math.min(8, Math.max(2, question.options.length + 1))}
+                placeholder="One option per line"
+                value={question.options.join('\n')}
+                onChange={(e) => set(question.id, { options: e.target.value.split('\n') })}
               />
             )}
           </div>
@@ -83,10 +84,10 @@ function FormEditor({ module, form }: { module: Module; form: 'booking' | 'post'
               <ClientFields value={BLANK_CLIENT} onChange={() => {}} disabled />
             </div>
           </details>
-          <p className="text-ink-2">Asked after those details on this module's booking page.</p>
+          <p className="text-ink-2">The Membership ID is asked only of members. Questions you add here appear after those details on this module's booking page.</p>
         </>
       ) : (
-        <p className="text-ink-2">Filled in by the coordinator after the session (the "Fill Form" button on a ticket). Deleting a default question leaves its Excel column blank.</p>
+        <p className="text-ink-2">Filled in by the coordinator during and after the session (the "Fill Form" button on a ticket), with one Save. Consultation Status and Payment Status are the ticket's own status and payment (payment is the admin's). Deleting a default question leaves its Excel column blank.</p>
       )}
       <QuestionEditor questions={questions} onChange={setQuestions} />
       <button className="btn btn-primary">Save form</button>
@@ -132,7 +133,7 @@ export default function FormBuilder() {
 
             {tab === 'feedback' ? (
               <div className="space-y-3">
-                <p className="text-ink-2">After a session the client rates these, 1 to 5 stars. They are fixed because they fill columns U–X of the Excel file, so they cannot be edited.</p>
+                <p className="text-ink-2">Emailed to the client after the session (page /feedback/…, no login). The four ratings are 1 to 5 stars and required, then an optional text box. They are fixed because they fill fixed columns of the Excel file, so they cannot be edited.</p>
                 <ul className="space-y-2">
                   {FEEDBACK_FIELDS.map(({ key, label }) => (
                     <li key={key} className="flex items-center justify-between rounded-md border border-line px-3 py-2">
@@ -140,6 +141,10 @@ export default function FormBuilder() {
                       <span className="text-gold">★★★★★</span>
                     </li>
                   ))}
+                  <li className="flex items-center justify-between gap-4 rounded-md border border-line px-3 py-2">
+                    {FEEDBACK_COMMENTS_LABEL}
+                    <span className="text-right text-ink-3">Text box, optional: “{FEEDBACK_COMMENTS_HINT}”</span>
+                  </li>
                 </ul>
               </div>
             ) : (
