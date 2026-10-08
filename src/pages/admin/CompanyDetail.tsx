@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
+import CompanyCard from '../../components/client/CompanyCard';
 import Avatar from '../../components/ui/Avatar';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -73,6 +74,8 @@ export default function CompanyDetail() {
           <p className="page-sub">{company.clientCount} clients · {company.bookingCount} bookings{company.lastBooking ? ` · last ${formatDate(company.lastBooking)}` : ''}</p>
         </div>
       </div>
+
+      <CompanyCard company={company} members={members} />
 
       <section className="card mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>

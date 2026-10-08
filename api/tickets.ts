@@ -1,13 +1,14 @@
-import { and, desc, eq, getTableColumns, gt, gte, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, gte, inArray, lt, sql } from 'drizzle-orm';
 import { assignClient } from './_assign.js';
 import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { saveRecordings } from './_fireflies.js';
+import { ticketRows } from './_excel.js';
 import { clearSheetRows, updateSheet } from './_live_excel.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
-import { awaitLink, cancelSession, inBackground, loadBooking, removeCalendarEvents, syncCalendar } from './_sessions.js';
-import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
+import { awaitLink, cancelSession, inBackground, removeCalendarEvents, syncCalendar } from './_sessions.js';
+import { auditLogs, bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
 import { answerProblem, BOOKING_MODES, FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_FIELDS, TICKET_STATUSES, type BookingMode, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
@@ -173,6 +174,34 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   return updated;
 }
 
+/** Removes these tickets with their bookings and feedback links, logs each, takes their rows out of the Excel sheet and their events out of Google Calendar. Returns the ones that existed. */
+async function deleteTickets(user: AuthUser, ids: string[]) {
+  const found = await ticketRows(inArray(tickets.id, ids));
+  if (!found.length) return found;
+  const ticketIds = found.map((f) => f.ticket.id);
+  await db.batch([
+    db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, ticketIds)),
+    db.delete(tickets).where(inArray(tickets.id, ticketIds)),
+    db.delete(bookings).where(inArray(bookings.id, found.map((f) => f.booking.id))),
+  ]);
+  await db.insert(auditLogs).values(
+    found.map((f) => ({
+      entityType: 'ticket',
+      entityId: f.ticket.id,
+      action: 'ticket.deleted',
+      oldValue: { ticket: f.ticket.ticketNumber, status: f.ticket.status, client: f.client.personName, company: f.client.companyName, module: f.module.name, coordinator: f.coordinator ?? 'Unassigned', startsAt: f.booking.startTime.toISOString(), mode: f.booking.mode },
+      doneByName: user.name,
+      role: user.role,
+    })),
+  );
+  clearSheetRows(found.map((f) => ({ ticketNumber: f.ticket.ticketNumber, moduleSlug: f.module.slug }))); // their rows leave the Excel sheet
+  const eventIds = found.flatMap((f) => (f.booking.googleEventId ? [f.booking.googleEventId] : []));
+  if (eventIds.length) inBackground(found.length === 1 ? `Removing the Google Calendar event of the deleted ticket ${found[0].ticket.ticketNumber}` : `Removing the Google Calendar events of ${found.length} deleted tickets`, () => removeCalendarEvents(eventIds));
+  // With nothing left the numbering begins again (the first ticket after this is TKT-0001).
+  await db.execute(sql`select setval('public.ticket_number_seq', 1, false) where not exists (select 1 from tickets)`);
+  return found;
+}
+
 /**
  * POST { action: 'fetch-recording', ticketId, force? }: asks Fireflies for the ticket's recording and saves it if it is ready (see _fireflies.ts).
  * Always answers 200 { found, problem? }: opening a ticket asks quietly, and "problem" is only shown when the person pressed the button.
@@ -309,33 +338,18 @@ export default handler({
     return { updated, failed };
   },
 
-  // ?id=<ticket> (admins only): removes the ticket for good together with its booking and feedback link, and its Calendar event.
-  // The client is not emailed (cancelling is what tells them); the audit log keeps a record of what was deleted.
+  // ?id=<ticket> or { ids: [...] } up to MAX_BULK (admins only): removes the tickets for good together with their bookings and feedback links,
+  // their Calendar events and their rows in the Excel sheet. The clients are not emailed (cancelling is what tells them); the audit log keeps a
+  // record of each ticket deleted. When no ticket is left at all, the numbering starts again at TKT-0001.
   DELETE: async (req, url) => {
     const user = await requireUser(req, 'super_admin');
-    const id = url.searchParams.get('id') ?? '';
-    const [ticket] = UUID.test(id) ? await db.select().from(tickets).where(eq(tickets.id, id)) : [];
-    const row = ticket && (await loadBooking(ticket.bookingId));
-    if (!row) throw new HttpError(404, 'Ticket not found');
-
-    await db.batch([
-      db.delete(feedbackTokens).where(eq(feedbackTokens.ticketId, id)),
-      db.delete(tickets).where(eq(tickets.id, id)),
-      db.delete(bookings).where(eq(bookings.id, row.booking.id)),
-    ]);
-    await audit(user, 'ticket.deleted', 'ticket', id, {
-      ticket: row.ticket.ticketNumber,
-      status: row.ticket.status,
-      client: row.client.personName,
-      company: row.client.companyName,
-      module: row.module.name,
-      coordinator: row.coordinator?.name ?? 'Unassigned',
-      startsAt: row.booking.startTime.toISOString(),
-      mode: row.booking.mode,
-    });
-    clearSheetRows([{ ticketNumber: row.ticket.ticketNumber, moduleSlug: row.module.slug }]); // and its row leaves the Excel sheet
-    const eventId = row.booking.googleEventId;
-    if (eventId) inBackground(`Removing the Google Calendar event of the deleted ticket ${row.ticket.ticketNumber}`, () => removeCalendarEvents([eventId]));
-    return { id, bookingId: row.booking.id };
+    const single = url.searchParams.get('id');
+    const body = single === null ? await readBody(req).catch(() => undefined) : undefined;
+    if (single === null && !body) throw new HttpError(404, 'Ticket not found'); // neither an id nor a list
+    const ids = single !== null ? [single] : ((body!.ids ?? []) as unknown[]).map(String);
+    if (!ids.length || ids.length > MAX_BULK || !ids.every((id) => UUID.test(id))) throw new HttpError(single !== null ? 404 : 400, single !== null ? 'Ticket not found' : `Choose between 1 and ${MAX_BULK} tickets`);
+    const gone = await deleteTickets(user, ids);
+    if (!gone.length) throw new HttpError(404, 'Ticket not found');
+    return single !== null ? { id: gone[0].ticket.id, bookingId: gone[0].booking.id } : { deleted: gone.length, ticketIds: gone.map((g) => g.ticket.id), bookingIds: gone.map((g) => g.booking.id) };
   },
 });

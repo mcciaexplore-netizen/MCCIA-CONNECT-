@@ -1,5 +1,5 @@
-import { and, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
-import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID } from './_lib.js';
+import { and, desc, eq, getTableColumns, inArray, ne, or, sql } from 'drizzle-orm';
+import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID, type AuthUser } from './_lib.js';
 import { assignClient } from './_assign.js';
 import { companyOf, returnFollowUps } from './_companies.js';
 import { clearSheetRows, updateSheet } from './_live_excel.js';
@@ -40,6 +40,50 @@ async function coordinatorHistory(clientId: string): Promise<CoordinatorHistoryE
     at: e.at.toISOString(),
     reason: e.reason,
   }));
+}
+
+// What belongs to the company rather than to one person; an edit sets it on every contact of the company.
+const COMPANY_TEXT = ['udyamNo', 'scale', 'industry', 'subSector', 'district', 'onlinePresence'] as const;
+
+/**
+ * PATCH { companyId, company: { companyName?, udyamNo?, isMember?, membershipId?, scale?, industry?, subSector?, district?, employmentRange?, onlinePresence? } }:
+ * renames the company (its name and every contact's company name; another company that reads the same is refused) and sets the details that
+ * were sent on all its contacts. Only what is sent changes. The contacts' rows in the Excel sheet follow.
+ */
+async function updateCompany(user: AuthUser, body: Record<string, unknown>) {
+  const id = needString(body.companyId, 'Company');
+  const [company] = UUID.test(id) ? await db.select().from(companies).where(eq(companies.id, id)) : [];
+  if (!company) throw new HttpError(404, 'Company not found');
+  const given = (body.company ?? {}) as Record<string, unknown>;
+
+  const values: Partial<typeof clients.$inferInsert> = {};
+  for (const key of COMPANY_TEXT) if (given[key] !== undefined) values[key] = optString(given[key]) || null;
+  if (given.employmentRange !== undefined) {
+    const employment = String(given.employmentRange ?? '').trim();
+    if (employment && !/^\d{1,7}$/.test(employment)) throw new HttpError(400, 'Employment range must be a whole number');
+    values.employmentRange = employment ? Number(employment) : null;
+  }
+  if (given.isMember !== undefined) values.isMember = Boolean(given.isMember);
+  if (given.membershipId !== undefined) values.membershipId = optString(given.membershipId) || null;
+  if (values.isMember === false) values.membershipId = null; // only members have a membership id
+
+  const name = given.companyName === undefined ? undefined : needString(given.companyName, 'Company name');
+  if (name && name !== company.name) {
+    const [clash] = await db.select({ id: companies.id }).from(companies).where(and(eq(companies.nameNormalized, sql`normalize_company_name(${name})`), ne(companies.id, id)));
+    if (clash) throw new HttpError(409, 'Another company already has this name (or one that reads the same). Open that company instead.');
+  }
+  const renamed = name !== undefined && name !== company.name;
+  if (!renamed && !Object.keys(values).length) throw new HttpError(400, 'Nothing to update');
+
+  const writes = [
+    ...(renamed ? [db.update(companies).set({ name, nameNormalized: sql`normalize_company_name(${name})` }).where(eq(companies.id, id))] : []),
+    db.update(clients).set({ ...(renamed && { companyName: name }), ...values }).where(eq(clients.companyId, id)),
+  ];
+  await db.batch(writes as unknown as [(typeof writes)[0], ...(typeof writes)[number][]]);
+  const members = await db.select({ id: clients.id }).from(clients).where(eq(clients.companyId, id));
+  await audit(user, 'company.updated', 'company', id, renamed ? { name: company.name } : undefined, { ...(renamed && { name }), ...values, contacts: members.length });
+  updateSheet((await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.clientId, members.map((m) => m.id)))).map((t) => t.id)); // their rows in the Excel sheet
+  return { id, name: name ?? company.name, contacts: members.length };
 }
 
 export default handler({
@@ -95,6 +139,7 @@ export default handler({
   PATCH: async (req) => {
     const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
+    if (body.companyId !== undefined) return await updateCompany(user, body);
     const id = needString(body.id, 'Client');
     const [before] = await db.select().from(clients).where(eq(clients.id, id));
     if (!before) throw new HttpError(404, 'Client not found');

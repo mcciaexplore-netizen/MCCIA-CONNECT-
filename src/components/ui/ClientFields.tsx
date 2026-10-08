@@ -7,10 +7,12 @@ interface Props {
   onChange: (next: ClientInput) => void;
   errors?: Partial<Record<keyof ClientInput, string>>; // shown under the fields (see validateClient)
   disabled?: boolean; // read-only, e.g. an existing client's details
+  keys?: (keyof ClientInput)[]; // only these fields (editing a company's own details)
+  relaxed?: boolean; // only the company name is required (old records may have gaps)
 }
 
 /** The 17 client details of CLIENT_FIELDS, in booking-form order. Shared by the public booking wizard, Create booking, Add client and the Form builder. */
-export default function ClientFields({ value, onChange, errors = {}, disabled }: Props) {
+export default function ClientFields({ value, onChange, errors = {}, disabled, keys, relaxed }: Props) {
   const set = (patch: Partial<ClientInput>) => onChange({ ...value, ...patch });
 
   const radios = (name: string, options: readonly string[], selected: string, pick: (option: string) => void) => (
@@ -56,7 +58,8 @@ export default function ClientFields({ value, onChange, errors = {}, disabled }:
 
   return (
     <fieldset disabled={disabled} className="grid min-w-0 gap-4 sm:grid-cols-2">
-      {CLIENT_FIELDS.filter((field) => field.key !== 'membershipId' || value.isMember).map((field) => {
+      {CLIENT_FIELDS.filter((field) => (!keys || keys.includes(field.key)) && (field.key !== 'membershipId' || value.isMember)).map((shown) => {
+        const field = { ...shown, required: relaxed ? shown.key === 'companyName' : shown.required };
         const radio = field.type === 'member';
         return (
           <div key={field.key} className={field.type === 'member' ? 'sm:col-span-2' : undefined}>
