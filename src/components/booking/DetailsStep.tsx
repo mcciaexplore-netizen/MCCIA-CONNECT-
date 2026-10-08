@@ -14,7 +14,7 @@ interface Props {
   onNext: () => void;
 }
 
-/** The 18 client details and the module's questions. Next only goes on when everything required is filled in. */
+/** The 17 client details and the module's questions. Next only goes on when everything required is filled in. */
 export default function DetailsStep({ questions, client, onClient, answers, onAnswers, lockClient, onBack, onNext }: Props) {
   const [clientErrors, setClientErrors] = useState<Partial<Record<keyof ClientInput, string>>>({});
   const [answerErrors, setAnswerErrors] = useState<Record<string, string>>({});

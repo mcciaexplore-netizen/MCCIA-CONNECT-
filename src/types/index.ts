@@ -58,7 +58,6 @@ export const POST_CONSULTATION_FORM = 'post_consultation';
 export const FEEDBACK_FIELDS = [
   { key: 'understanding', label: 'Rate understanding level', question: 'Rate the understanding level of the consultant' },
   { key: 'solution', label: 'Rate solution/recommendation', question: 'Rate the solution / recommendation' },
-  { key: 'response_time', label: 'Response time rate', question: 'Rate the response time' },
   { key: 'value_addition', label: 'Rating of value addition', question: 'Rate the value addition' },
 ] as const;
 /** feedback_data key of the client's "Additional Suggestions" (the fifth feedback field, free text, optional). */
@@ -127,12 +126,7 @@ export const DEFAULT_POST_CONSULTATION_QUESTIONS: FormField[] = [
   question('dashboard_tools', 'Dashboard Tools', 'select', false, ['No Dashboards', 'Excel Charts', 'Power BI/Tableau', 'Custom Dashboards']),
   question('meeting_query', 'Meeting Query', 'textarea'),
   question('meeting_solution', 'Meeting Solution', 'textarea'),
-  question('ramp_type', 'RAMP / Non-RAMP', 'radio', false, ['RAMP', 'Non-RAMP']),
-  question('interaction_status', 'Interaction Status', 'select', false, ['1st Interaction', 'Follow Up Interaction', 'Closed']),
-  question('value_addition', 'Value Addition', 'textarea'),
   question('ai_level', 'AI Implementation Level', 'select', false, ['None', 'A : Basic AI Use', 'B : Complex AI Use', 'D : Application Deployed and Using', 'E : Application Under Development', 'Need to Confirm']),
-  question('ai_use_description', 'Application / AI Use Description', 'textarea'),
-  question('active_user', 'Active User', 'radio', false, ['Yes', 'No']),
   question('time_cost_hours', 'Time Cost (hours)', 'number'),
   question('money_cost_inr', 'Money Cost (INR)', 'number'),
   question('time_span_minutes', 'Time Span (minutes)', 'number'),
@@ -253,7 +247,6 @@ export interface ClientInput {
   membershipId: string;
   district: string;
   gender: string;
-  womenEntrepreneur: string; // Yes | No
   category: string;
   subSector: string;
   employmentRange: string; // a whole number
@@ -274,7 +267,6 @@ export const BLANK_CLIENT: ClientInput = {
   membershipId: '',
   district: '',
   gender: '',
-  womenEntrepreneur: '',
   category: '',
   subSector: '',
   employmentRange: '',
@@ -289,7 +281,6 @@ export const MIN_PASSWORD_LENGTH = 8;
 // The choices on the booking form (stored as the label).
 export const ACQUISITION_OPTIONS = ['Whatsapp Group', 'Email Marketing', 'Word of Mouth', 'Helpline Reference', 'Cold Call', 'Walk-in', 'Referral', 'Social Media', 'Event', 'Other'] as const;
 export const GENDER_OPTIONS = ['Male', 'Female', 'Other'] as const;
-export const YES_NO_OPTIONS = ['Yes', 'No'] as const;
 export const CATEGORY_OPTIONS = ['General', 'OBC', 'SC', 'ST'] as const;
 export const SCALE_OPTIONS = ['Micro (Turnover less than INR 10Cr)', 'Small (Turnover less than INR 100 Cr)', 'Medium (Turnover less than INR 500 Cr)', 'Large (Turnover more than INR 500 Cr)'] as const;
 export const SECTOR_OPTIONS = ['Manufacturing', 'Services', 'Agriculture', 'Others'] as const;
@@ -301,7 +292,7 @@ export const ONLINE_PRESENCE_OPTIONS = [
   'E-commerce enabled website',
 ] as const;
 
-export type ClientFieldType = 'text' | 'email' | 'tel' | 'number' | 'select' | 'radio' | 'member';
+export type ClientFieldType = 'text' | 'email' | 'tel' | 'number' | 'select' | 'member';
 export interface ClientField {
   key: keyof ClientInput;
   label: string;
@@ -312,7 +303,7 @@ export interface ClientField {
 }
 
 /**
- * The 18 fixed booking-form fields, in the order clients see them and the Excel lists them. The admin cannot remove or change them
+ * The 17 fixed booking-form fields, in the order clients see them and the Excel lists them. The admin cannot remove or change them
  * (the Form builder only adds questions below). `member` is the Member / Non-Member choice (clients.is_member); the Membership ID after it
  * is only asked of members. Everything that shows or exports client details reads this list.
  */
@@ -327,7 +318,6 @@ export const CLIENT_FIELDS: ClientField[] = [
   { key: 'acquisitionFrom', label: 'Acquisition From', type: 'select', required: true, options: ACQUISITION_OPTIONS },
   { key: 'district', label: 'District', type: 'text', required: true },
   { key: 'gender', label: 'Gender', type: 'select', required: true, options: GENDER_OPTIONS },
-  { key: 'womenEntrepreneur', label: 'Women Entrepreneur', type: 'radio', required: true, options: YES_NO_OPTIONS },
   { key: 'category', label: 'Category', type: 'select', required: true, options: CATEGORY_OPTIONS },
   { key: 'scale', label: 'Scale', type: 'select', required: true, options: SCALE_OPTIONS },
   { key: 'industry', label: 'Sector', type: 'select', required: true, options: SECTOR_OPTIONS },

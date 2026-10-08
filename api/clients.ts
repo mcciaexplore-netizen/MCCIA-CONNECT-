@@ -2,8 +2,9 @@ import { and, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID } from './_lib.js';
 import { assignClient } from './_assign.js';
 import { companyOf, returnFollowUps } from './_companies.js';
+import { clearSheetRows, updateSheet } from './_live_excel.js';
 import { inBackground, removeCalendarEvents } from './_sessions.js';
-import { adminNotifications, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, tickets, users } from './_schema.js';
+import { adminNotifications, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, modules, tickets, users } from './_schema.js';
 import type { CoordinatorHistoryEntry } from '../src/types/index.js';
 
 /**
@@ -112,6 +113,7 @@ export default handler({
 
     const changed = (Object.keys(values) as (keyof typeof values)[]).filter((key) => values[key] !== before[key]);
     await audit(user, 'client.updated', 'client', id, Object.fromEntries(changed.map((k) => [k, before[k]])), Object.fromEntries(changed.map((k) => [k, values[k]])));
+    updateSheet((await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.clientId, id))).map((t) => t.id)); // the client's rows in the Excel sheet
     return client;
   },
 
@@ -131,7 +133,7 @@ export default handler({
     const id = url.searchParams.get('id') ?? '';
     const [client] = UUID.test(id) ? await db.select().from(clients).where(eq(clients.id, id)) : [];
     if (!client) throw new HttpError(404, 'Client not found');
-    const sessions = await db.select({ bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).where(eq(bookings.clientId, id));
+    const sessions = await db.select({ bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId, moduleSlug: modules.slug }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).innerJoin(modules, eq(bookings.moduleId, modules.id)).where(eq(bookings.clientId, id));
     const ticketIds = sessions.map((s) => s.ticketId);
 
     // One transaction: everything of the client, then the company if nobody is left in it.
@@ -157,6 +159,7 @@ export default handler({
       email: client.email,
       tickets: sessions.map((s) => s.ticketNumber),
     });
+    clearSheetRows(sessions); // their rows leave the Excel sheet
     const eventIds = sessions.flatMap((s) => (s.eventId ? [s.eventId] : []));
     if (eventIds.length) inBackground(`Removing the Google Calendar events of the deleted client ${client.personName} (${client.companyName})`, () => removeCalendarEvents(eventIds));
     return { id, ticketIds, bookingIds: sessions.map((s) => s.bookingId) };

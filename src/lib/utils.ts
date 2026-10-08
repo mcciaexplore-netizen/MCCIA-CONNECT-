@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_COMMENTS, PAYMENT_LABELS, RECORDING_RECHECK_MINUTES, RECORDING_WINDOW_DAYS, STATUS_LABELS, type AuditLog, type Booking, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
+import { CLOSED_STATUSES, DEFAULT_SETTINGS, FEEDBACK_FIELDS, PAYMENT_LABELS, RECORDING_RECHECK_MINUTES, RECORDING_WINDOW_DAYS, STATUS_LABELS, type AuditLog, type Booking, type Client, type ClientInput, type CompanyRow, type PublicSettings, type Role, type Ticket, type TicketStatus } from '../types';
 
 const MOBILE = '(max-width: 767px)';
 /** True below 768px: tables turn into card lists and the navigation becomes a menu. */
@@ -36,7 +36,7 @@ export function recordingWanted(booking: Booking, quiet = false) {
 /** Totals for a client's tickets: all, open, overdue, and the average of their 1-5 star feedback ratings. */
 export function clientStats(tickets: Ticket[]) {
   const now = new Date();
-  const ratings = tickets.flatMap((t) => Object.entries(t.feedbackData).filter(([key]) => key !== FEEDBACK_COMMENTS).map(([, value]) => Number(value))).filter((n) => Number.isInteger(n) && n >= 1 && n <= 5);
+  const ratings = tickets.flatMap((t) => FEEDBACK_FIELDS.map((f) => Number(t.feedbackData[f.key]))).filter((n) => Number.isInteger(n) && n >= 1 && n <= 5);
   return {
     total: tickets.length,
     open: tickets.filter((t) => isOpen(t.status)).length,
@@ -88,7 +88,6 @@ export const toClientInput = (client: Client): ClientInput => ({
   membershipId: client.membershipId ?? '',
   district: client.district ?? '',
   gender: client.gender ?? '',
-  womenEntrepreneur: client.womenEntrepreneur ?? '',
   category: client.category ?? '',
   subSector: client.subSector ?? '',
   employmentRange: client.employmentRange == null ? '' : String(client.employmentRange),

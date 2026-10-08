@@ -1,4 +1,5 @@
 import { audit, cached, db, handler, HttpError, loadSettings, readBody, requireUser } from './_lib.js';
+import { syncEverything } from './_live_excel.js';
 import { appSettings } from './_schema.js';
 import { DEFAULT_SETTINGS, TIMEZONES, type AppSettings, type PublicSettings } from '../src/types/index.js';
 
@@ -16,6 +17,14 @@ export default handler({
     if (user.role === 'super_admin') return settings;
     const { brand, venue, timezone } = settings;
     return { brand, venue, timezone } satisfies PublicSettings;
+  },
+
+  // { action: 'sync-excel' }: writes every ticket of the connected modules to the Excel workbook again (see _live_excel.ts). Answers how many at once;
+  // the work goes on in the background and the dashboard says when it is done (or why it failed).
+  POST: async (req) => {
+    await requireUser(req, 'super_admin');
+    if ((await readBody(req)).action !== 'sync-excel') throw new HttpError(404, 'Not found');
+    return { tickets: await syncEverything() };
   },
 
   // Body: any of the setting keys, e.g. { venue: { address: "..." } }. Unknown fields are dropped.

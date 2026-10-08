@@ -87,7 +87,6 @@ export const clients = pgTable('clients', {
   acquisitionFrom: text('acquisition_from'),
   district: text('district'),
   gender: text('gender'),
-  womenEntrepreneur: text('women_entrepreneur'), // Yes | No
   category: text('category'),
   subSector: text('sub_sector'),
   employmentRange: integer('employment_range'),

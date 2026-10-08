@@ -4,6 +4,7 @@ import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQ
 import { clashesOf, ensureCoordinatorFree, freeCoordinators, leastLoaded, loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
 import { assignClient } from './_assign.js';
 import { findCompany } from './_companies.js';
+import { updateSheet } from './_live_excel.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
@@ -136,6 +137,7 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
     throw new HttpError(409, 'Sorry, that time was just taken. Please pick another.');
   }
   await audit(user, 'booking.rescheduled', 'ticket', row.ticket.id, { startsAt: previous.start.toISOString(), status: row.ticket.status }, { startsAt: start.toISOString(), status: 'rescheduled', reason });
+  updateSheet([row.ticket.id]); // its row in the Excel sheet (the new date)
 
   // The new event (and Meet link) and the emails follow the answer.
   inBackground(`The calendar event and emails for ${row.ticket.ticketNumber}`, async () => {
@@ -202,7 +204,7 @@ export default handler({
     const start = new Date(needString(body.startsAt, 'Time'));
     if (Number.isNaN(start.getTime())) throw new HttpError(400, 'Invalid time');
     // Same rules as the booking form: required details, a valid email, a 10-digit phone number. A client already on file (matched by email)
-    // is only held to the basic contact details: their record may predate some of the 18 fields and is left as it is (see `missing` below).
+    // is only held to the basic contact details: their record may predate some of the 17 fields and is left as it is (see `missing` below).
     const submitted = { ...BLANK_CLIENT, ...((body.client ?? {}) as Partial<ClientInput>) };
     const basic = Object.values(validateClient(submitted, false))[0];
     if (basic) throw new HttpError(400, basic);
@@ -349,6 +351,7 @@ export default handler({
         console.error('Assigning the company failed:', e); // the booking stands; the company is given a coordinator on its next booking
       }
     }
+    updateSheet([ticketId]); // its row in the Excel sheet
 
     // The booking is saved: the client gets their answer now, and Google and the emails follow. Their failures never undo the booking.
     inBackground(`The calendar event and emails for ${ticketNumber}`, async () => {

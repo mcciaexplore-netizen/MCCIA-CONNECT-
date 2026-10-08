@@ -96,6 +96,7 @@ export default function Settings() {
       )}
 
       {tab === 'google' && (
+        <>
         <Panel key={fresh('apps_script_url')} name="apps_script_url">
           {(form, set) => (
             <>
@@ -108,6 +109,12 @@ export default function Settings() {
             </>
           )}
         </Panel>
+        <section className="card mt-4 space-y-3">
+          <h2 className="font-semibold">Excel sheet on SharePoint</h2>
+          <p className="text-xs text-ink-3">Every booking and every change is written to its row in the studio's Excel workbook as it happens. If rows are missing (Microsoft was unreachable, or the sheet was edited by hand), this writes them all again. The dashboard tells you when it is done, or why it failed.</p>
+          <TestButton label="Sync everything to Excel" busy="Starting…" path="/api/settings" body={{ action: 'sync-excel' }} success="Excel sync started" />
+        </section>
+        </>
       )}
 
       {tab === 'venue' && (

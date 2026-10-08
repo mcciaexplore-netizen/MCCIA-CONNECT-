@@ -1,5 +1,6 @@
 import { and, eq, gt, inArray, isNotNull, isNull, lt, ne, or } from 'drizzle-orm';
 import { audit, db } from './_lib.js';
+import { updateSheet } from './_live_excel.js';
 import { errorText } from './_sessions.js';
 import { bookings, tickets } from './_schema.js';
 import { RECORDING_RECHECK_MINUTES, RECORDING_WINDOW_DAYS } from '../src/types/index.js';
@@ -109,6 +110,7 @@ export async function saveRecordings({ bookingId, force }: { bookingId?: string;
         db.update(tickets).set({ transcript: formatTranscript(sentences) }).where(eq(tickets.id, row.ticketId)),
       ]);
       await audit({ name: 'Fireflies', role: 'integration' }, 'booking.recording_saved', 'ticket', row.ticketId, undefined, { recordingLink: listed.transcript_url, words: sentences.reduce((n, s) => n + s.text.split(/\s+/).length, 0) });
+      updateSheet([row.ticketId]); // the recording link goes to its row in the Excel sheet
       found++;
     }
   } catch (e) {

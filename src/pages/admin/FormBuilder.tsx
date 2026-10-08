@@ -133,7 +133,7 @@ export default function FormBuilder() {
 
             {tab === 'feedback' ? (
               <div className="space-y-3">
-                <p className="text-ink-2">Emailed to the client after the session (page /feedback/…, no login). The four ratings are 1 to 5 stars and required, then an optional text box. They are fixed because they fill fixed columns of the Excel file, so they cannot be edited.</p>
+                <p className="text-ink-2">Emailed to the client after the session (page /feedback/…, no login). The ratings are 1 to 5 stars and required, then an optional text box. They are fixed because they fill fixed columns of the Excel file, so they cannot be edited.</p>
                 <ul className="space-y-2">
                   {FEEDBACK_FIELDS.map(({ key, label }) => (
                     <li key={key} className="flex items-center justify-between rounded-md border border-line px-3 py-2">

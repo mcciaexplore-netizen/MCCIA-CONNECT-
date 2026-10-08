@@ -94,7 +94,6 @@ export function parseClient(raw: unknown) {
   return {
     district: optString(c.district) || null,
     gender: optString(c.gender) || null,
-    womenEntrepreneur: optString(c.womenEntrepreneur) || null,
     category: optString(c.category) || null,
     subSector: optString(c.subSector) || null,
     employmentRange: employment ? Number(employment) : null,

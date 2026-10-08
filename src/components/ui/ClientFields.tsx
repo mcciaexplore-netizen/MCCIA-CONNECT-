@@ -9,15 +9,15 @@ interface Props {
   disabled?: boolean; // read-only, e.g. an existing client's details
 }
 
-/** The 18 client details of CLIENT_FIELDS, in booking-form order. Shared by the public booking wizard, Create booking, Add client and the Form builder. */
+/** The 17 client details of CLIENT_FIELDS, in booking-form order. Shared by the public booking wizard, Create booking, Add client and the Form builder. */
 export default function ClientFields({ value, onChange, errors = {}, disabled }: Props) {
   const set = (patch: Partial<ClientInput>) => onChange({ ...value, ...patch });
 
-  const radios = (name: string, options: readonly string[], selected: string, pick: (option: string) => void, required = false) => (
+  const radios = (name: string, options: readonly string[], selected: string, pick: (option: string) => void) => (
     <div className="flex flex-wrap items-center gap-6">
       {options.map((option) => (
         <label key={option} className="flex items-center gap-2">
-          <input type="radio" name={name} required={required} checked={selected === option} onChange={() => pick(option)} />
+          <input type="radio" name={name} checked={selected === option} onChange={() => pick(option)} />
           {option}
         </label>
       ))}
@@ -27,7 +27,6 @@ export default function ClientFields({ value, onChange, errors = {}, disabled }:
   const control = ({ key, type, required, options, placeholder }: ClientField): ReactNode => {
     const text = String(value[key]);
     if (type === 'member') return radios('member', ['Member', 'Non-Member'], value.isMember ? 'Member' : 'Non-Member', (option) => set({ isMember: option === 'Member' }));
-    if (type === 'radio') return radios(key, options ?? [], text, (option) => set({ [key]: option }), required);
     if (type === 'select') {
       // A value saved earlier (free text) stays selectable even when it is not one of the listed choices.
       const list = options ?? [];
@@ -58,7 +57,7 @@ export default function ClientFields({ value, onChange, errors = {}, disabled }:
   return (
     <fieldset disabled={disabled} className="grid min-w-0 gap-4 sm:grid-cols-2">
       {CLIENT_FIELDS.filter((field) => field.key !== 'membershipId' || value.isMember).map((field) => {
-        const radio = field.type === 'member' || field.type === 'radio';
+        const radio = field.type === 'member';
         return (
           <div key={field.key} className={field.type === 'member' ? 'sm:col-span-2' : undefined}>
             {radio ? <p className="label">{field.label}{field.required && ' *'}</p> : <label className="label" htmlFor={`client-${field.key}`}>{field.label}{field.required && ' *'}</label>}

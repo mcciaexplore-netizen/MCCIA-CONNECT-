@@ -1,20 +1,20 @@
 import ExcelJS from 'exceljs';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { db, HttpError } from './_lib.js';
 import { auditLogs, bookings, clients, coordinators, modules, tickets } from './_schema.js';
 import { CLIENT_FIELDS, DEFAULT_POST_CONSULTATION_QUESTIONS, FEEDBACK_COMMENTS, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, PAYMENT_LABELS, STATUS_LABELS, clientText, type AppSettings, type StudioZone } from '../src/types/index.js';
 
 /**
- * The Excel file is never stored. Neon is the source of truth and every download is generated fresh from it, so
- * post-consultation notes, status changes, feedback and meeting links are always current. The only thing kept is
- * bookings.excel_row_number: the booking's Sr. No in its module's tab (sheet row = Sr. No + 1), assigned when it is booked.
+ * The download: an Excel file generated fresh from Neon every time, so notes, statuses, feedback and links are always current (the
+ * studio's own live workbook on SharePoint is kept up to date separately, see _live_excel.ts). The only thing kept is
+ * bookings.excel_row_number: the booking's Sr. No in its module's tab, assigned when it is booked.
  */
 
 /** SQL for the next Sr. No in a module's tab; used as the excel_row_number when a booking is inserted. */
 export const nextRowNumber = (moduleId: string) =>
   sql<number>`(select coalesce(max(${bookings.excelRowNumber}), 0) + 1 from ${bookings} where ${bookings.moduleId} = ${moduleId})`;
 
-interface Row {
+export interface Row {
   srNo: number;
   domain: string; // the module (its tab)
   ticket: typeof tickets.$inferSelect;
@@ -59,9 +59,9 @@ const CONSULTANT_VALUES: Record<string, (r: Row) => string | number> = {
   recording_link: (r) => post(r, 'recording_link') || r.booking.recordingLink || '',
 };
 
-// Every field has its own column: 9 filled by the system (the 8 auto-generated ones and the Ticket ID), the 18 booking-form fields,
-// the 32 consultant-form fields and the 5 feedback fields.
-const COLUMNS: Column[] = [
+// Every field has its own column: 9 filled by the system (the 8 auto-generated ones and the Ticket ID), the 17 booking-form fields,
+// the 27 consultant-form fields and the 3 ratings plus Additional Suggestions of the feedback form.
+export const COLUMNS: Column[] = [
   column('auto', 'Sr. No', 6, (r) => r.srNo),
   column('auto', 'Ticket ID', 16, (r) => r.ticket.ticketNumber),
   column('auto', 'Domain', 20, (r) => r.domain),
@@ -116,6 +116,19 @@ export interface ExcelFilters {
   ids?: string[]; // ticket ids; leave out for every ticket
 }
 
+/** Tickets with what their rows need (booking, client, the coordinator's name, module), in Sr. No order. `condition` picks the tickets. */
+export async function ticketRows(condition: SQL | undefined) {
+  return await db
+    .select({ ticket: tickets, booking: bookings, client: clients, coordinator: coordinators.name, module: modules })
+    .from(tickets)
+    .innerJoin(bookings, eq(tickets.bookingId, bookings.id))
+    .innerJoin(clients, eq(tickets.clientId, clients.id))
+    .innerJoin(modules, eq(tickets.moduleId, modules.id))
+    .leftJoin(coordinators, eq(tickets.coordinatorId, coordinators.id))
+    .where(condition)
+    .orderBy(asc(bookings.excelRowNumber), asc(bookings.createdAt));
+}
+
 /** The workbook for the chosen modules (one tab each, even when empty), built fresh from Neon. */
 export async function exportFilteredExcel(settings: AppSettings, { modules: slugs, ids }: ExcelFilters = {}) {
   const allModules = await db.select().from(modules).orderBy(asc(modules.name));
@@ -126,16 +139,7 @@ export async function exportFilteredExcel(settings: AppSettings, { modules: slug
     .filter((m) => !slugs || slugs.includes(m.slug))
     .sort((a, b) => (PREFERRED_ORDER.indexOf(a.slug) + 1 || 99) - (PREFERRED_ORDER.indexOf(b.slug) + 1 || 99));
 
-  const found = chosen.length
-    ? await db
-        .select({ ticket: tickets, booking: bookings, client: clients, coordinator: coordinators.name })
-        .from(tickets)
-        .innerJoin(bookings, eq(tickets.bookingId, bookings.id))
-        .innerJoin(clients, eq(tickets.clientId, clients.id))
-        .leftJoin(coordinators, eq(tickets.coordinatorId, coordinators.id))
-        .where(and(inArray(tickets.moduleId, chosen.map((m) => m.id)), ids ? inArray(tickets.id, ids) : undefined))
-        .orderBy(asc(bookings.excelRowNumber), asc(bookings.createdAt))
-    : [];
+  const found = chosen.length ? await ticketRows(and(inArray(tickets.moduleId, chosen.map((m) => m.id)), ids ? inArray(tickets.id, ids) : undefined)) : [];
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = settings.brand.name;

@@ -1,6 +1,7 @@
 import { and, count, eq, gt, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { audit, db, HttpError, loadSettings, type Actor } from './_lib.js';
 import { companyOf } from './_companies.js';
+import { updateSheet } from './_live_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientAssigned, clientAutoAssigned, clientReassignedAway, formatWhen, type AssignmentMail } from './_mail.js';
 import { inBackground, sendAll } from './_sessions.js';
@@ -98,6 +99,7 @@ export async function assignClient(
       : []),
   ]);
 
+  updateSheet((await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.clientId, memberIds))).map((t) => t.id)); // the company's rows in the Excel sheet (their coordinator)
   const [from] = previous ? await db.select().from(coordinators).where(eq(coordinators.id, previous)) : [];
   if (auto) {
     await audit(actor, 'client.auto_assigned', 'client', clientId, undefined, {

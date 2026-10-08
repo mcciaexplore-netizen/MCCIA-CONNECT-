@@ -3,6 +3,7 @@ import { assignClient } from './_assign.js';
 import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { saveRecordings } from './_fireflies.js';
+import { clearSheetRows, updateSheet } from './_live_excel.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
 import { cancelSession, inBackground, loadBooking, removeCalendarEvents } from './_sessions.js';
@@ -144,6 +145,7 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   // Google and the emails follow the answer.
   if (patch.status === 'cancelled') inBackground(`Removing the calendar event and emailing about ${ticket.ticketNumber}`, () => cancelSession(user, ticket.bookingId, siteUrl));
   const [updated] = await db.select(TICKET_COLUMNS).from(tickets).where(eq(tickets.id, id));
+  updateSheet([id]); // its row in the Excel sheet
   return updated;
 }
 
@@ -196,6 +198,7 @@ async function saveFeedback(token: string, body: Record<string, unknown>) {
   const [claimed] = await db.update(feedbackTokens).set({ used: true }).where(and(eq(feedbackTokens.id, row.link.id), eq(feedbackTokens.used, false), gt(feedbackTokens.expiresAt, new Date()))).returning();
   if (!claimed) throw new HttpError(410, 'Thank you, your feedback has already been received');
   await db.update(tickets).set({ feedbackData: feedback }).where(eq(tickets.id, row.ticket.id));
+  updateSheet([row.ticket.id]); // the ratings go to its row in the Excel sheet
   await audit({ name: `${row.client.personName} (feedback form)`, role: 'client' }, 'feedback.received', 'ticket', row.ticket.id, undefined, feedback);
   return { ok: true };
 }
@@ -306,6 +309,7 @@ export default handler({
       startsAt: row.booking.startTime.toISOString(),
       mode: row.booking.mode,
     });
+    clearSheetRows([{ ticketNumber: row.ticket.ticketNumber, moduleSlug: row.module.slug }]); // and its row leaves the Excel sheet
     const eventId = row.booking.googleEventId;
     if (eventId) inBackground(`Removing the Google Calendar event of the deleted ticket ${row.ticket.ticketNumber}`, () => removeCalendarEvents([eventId]));
     return { id, bookingId: row.booking.id };

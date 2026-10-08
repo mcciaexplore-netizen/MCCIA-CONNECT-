@@ -5,7 +5,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import { api, ApiError, cn, errorMessage, formatDate, setStudioZone } from '../../lib/utils';
 import { FEEDBACK_COMMENTS_HINT, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, type FeedbackForm } from '../../types';
 
-/** /feedback/:token (public, no login): the client rates their session in four 1-5 star questions and may add Additional Suggestions. The link works once. */
+/** /feedback/:token (public, no login): the client rates their session in three 1-5 star questions and may add Additional Suggestions. The link works once. */
 export default function FeedbackPage() {
   const { token } = useParams();
   const [form, setForm] = useState<FeedbackForm | null>(null);
