@@ -1,6 +1,6 @@
 import { audit, handler, HttpError, loadSettings, requireUser, UUID } from '../_lib.js';
 import { studioDate } from '../_availability.js';
-import { exportAuditExcel, exportFilteredExcel } from '../_excel.js';
+import { exportAuditExcel, exportFilteredExcel } from '../_excel_file.js';
 
 const MAX_IDS = 100;
 

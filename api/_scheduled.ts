@@ -3,12 +3,14 @@ import { and, eq, gt, isNull, lt, lte, ne } from 'drizzle-orm';
 import { db, loadSettings, requireUser } from './_lib.js';
 import { sendMail } from './_integrations.js';
 import { saveRecordings } from './_fireflies.js';
+import { excelConfigured } from './_graph.js';
+import { reconcileSheets } from './_live_excel.js';
 import { clientReminder, formatWhen } from './_mail.js';
-import { loadBooking, mailOf } from './_sessions.js';
+import { errorText, loadBooking, mailOf } from './_sessions.js';
 import { adminNotifications, bookings } from './_schema.js';
 import type { AppSettings } from '../src/types/index.js';
 
-/** The jobs Vercel runs once a day (vercel.json "crons"): reminders for coming sessions, a check for Meet links that never arrived, and Fireflies recordings. */
+/** The jobs Vercel runs once a day (vercel.json "crons"): reminders for coming sessions, a check for Meet links that never arrived, Fireflies recordings and the Excel sheet. */
 
 const HOUR = 60 * 60_000;
 const MEET_LINK_PATIENCE = 30 * 60_000; // the Apps Script is expected to call back within this long
@@ -86,7 +88,26 @@ async function flagMissingMeetLinks(settings: AppSettings) {
   return flagged;
 }
 
-/** GET /api/tickets?action=send-reminders: all three jobs. Returns { sent, meetLinkFailures, recordings }. */
+/**
+ * Compares the Excel sheet with the database and puts right what an update missed (Microsoft unreachable, a restart, a hand edit). Quiet when
+ * nothing differed; tells the admin on the dashboard when it had to fix something or could not run.
+ */
+async function checkSheet() {
+  if (!excelConfigured()) return undefined;
+  try {
+    const done = await reconcileSheets();
+    const fixed = done.added + done.updated + done.removed + done.duplicates;
+    if (fixed || done.skippedOrphans) {
+      await db.insert(adminNotifications).values({ message: `The daily Excel check put the sheet right: ${done.added} added, ${done.updated} corrected, ${done.removed + done.duplicates} removed.${done.skippedOrphans ? ` ${done.skippedOrphans} rows of tickets that no longer exist were left (check the sheet).` : ''}` });
+    }
+    return done;
+  } catch (e) {
+    await db.insert(adminNotifications).values({ message: `The daily Excel check failed: ${errorText(e)}` });
+    return { error: errorText(e) };
+  }
+}
+
+/** GET /api/tickets?action=send-reminders: all the daily jobs. Returns { sent, meetLinkFailures, recordings, sheet }. */
 export async function runScheduled(req: Request, siteUrl: string) {
   await authorize(req);
   const settings = await loadSettings();
@@ -94,5 +115,5 @@ export async function runScheduled(req: Request, siteUrl: string) {
   const meetLinkFailures = await flagMissingMeetLinks(settings);
   // Fireflies recordings of the sessions that ended since (the same check runs when a ticket is opened, so this catches the ones nobody opened).
   const { found: recordings } = await saveRecordings({ force: true });
-  return { sent, meetLinkFailures, recordings };
+  return { sent, meetLinkFailures, recordings, sheet: await checkSheet() };
 }

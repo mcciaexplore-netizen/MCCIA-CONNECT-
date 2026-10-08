@@ -14,6 +14,9 @@ export const excelConfigured = () => Boolean(process.env.MS_TENANT_ID && process
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Something wrong with the workbook itself (no table, no ticket column): trying again will not help, the studio has to fix the sheet. */
+class SheetProblem extends Error {}
+
 let token: { value: string; expires: number } | undefined;
 async function accessToken() {
   if (token && token.expires > Date.now() + 60_000) return token.value;
@@ -71,6 +74,11 @@ function workbookPath() {
   return workbook;
 }
 
+/** Signs in and finds the file ahead of time (a cold server instance needs both): called while the database is still being read. */
+export function warmUp() {
+  if (excelConfigured()) void Promise.all([accessToken(), workbookPath()]).catch(() => undefined);
+}
+
 const tables = new Map<string, string>(); // sheet name -> its table's id
 const sheetName = (name: string) => encodeURIComponent(name.replace(/'/g, "''"));
 
@@ -102,7 +110,7 @@ async function sheetInfo(sheet: string): Promise<SheetInfo> {
   let id = tables.get(sheet);
   if (!id) {
     id = (await graph<{ value: { id: string }[] }>('GET', `${book}/worksheets('${sheetName(sheet)}')/tables?$select=id`)).value[0]?.id;
-    if (!id) throw new Error(`Excel: the "${sheet}" sheet has no table (select its headers and rows and use Insert > Table)`);
+    if (!id) throw new SheetProblem(`Excel: the "${sheet}" sheet has no table (select its headers and rows and use Insert > Table)`);
     tables.set(sheet, id);
   }
   const table = `${book}/tables/${encodeURIComponent(id)}`;
@@ -151,34 +159,56 @@ async function inSession<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The operation in a session; a failure that is not the sheet's fault gets one more try (after forgetting what was learned: the file may have moved). */
+async function attempt<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await inSession(work);
+  } catch (e) {
+    if (e instanceof SheetProblem) throw e;
+    forgetWorkbook();
+    await sleep(1000);
+    return await inSession(work);
+  }
+}
+
 // Operations on the workbook run one after another, so two changes made at once cannot both add the same row.
 let tail: Promise<unknown> = Promise.resolve();
 const queued = <T>(work: () => Promise<T>): Promise<T> => {
-  const run = tail.then(() => inSession(work), () => inSession(work));
+  const run = tail.then(() => attempt(work), () => attempt(work));
   tail = run.catch(() => undefined);
   return run;
 };
 
 const formatted = new Set<string>();
+type Format = { header: (header: string) => boolean; code: string };
+
+/** Sets a number format on a whole column, once per server instance (rows added later carry the column's format on). */
+async function applyFormats(info: SheetInfo, rowCount: number, formats: Format[]) {
+  for (const { header, code } of formats) {
+    const index = info.headers.findIndex(header);
+    if (index < 0 || formatted.has(`${info.sheet}|${index}|${code}`) || !rowCount) continue;
+    await graph('PATCH', `${info.table}/columns/itemAt(index=${index})/dataBodyRange`, { numberFormat: Array.from({ length: rowCount }, () => [code]) });
+    formatted.add(`${info.sheet}|${index}|${code}`);
+  }
+}
+
+/** Empties a whole row of the table (a table keeps at least one row). */
+const clearRow = (info: SheetInfo, at: number) =>
+  graph('PATCH', `${info.book}/worksheets('${sheetName(info.sheet)}')/range(address='${cellRange(info, info.headerRow + 1 + at, 0, info.headers.length - 1)}')`, { values: [info.headers.map(() => '')] });
 
 /**
  * Puts each row into the sheet's table: the row whose id column (the header `isIdHeader` picks) holds its id is updated, otherwise
  * it is added (into the table's empty first row if that is all there is, else at the end). `formats` set a number format on a column once (e.g. dates).
  */
-export function upsertRows(sheet: string, isIdHeader: (header: string) => boolean, rows: SheetRow[], formats: { header: (header: string) => boolean; code: string }[] = []) {
+export function upsertRows(sheet: string, isIdHeader: (header: string) => boolean, rows: SheetRow[], formats: Format[] = []) {
   if (!rows.length) return Promise.resolve();
   return queued(async () => {
     const info = await sheetInfo(sheet);
     const idIndex = info.headers.findIndex(isIdHeader);
-    if (idIndex < 0) throw new Error(`Excel: the "${sheet}" sheet has no ticket id column`);
+    if (idIndex < 0) throw new SheetProblem(`Excel: the "${sheet}" sheet has no ticket id column`);
     const ids = await columnValues(info, idIndex);
 
-    for (const { header, code } of formats) {
-      const index = info.headers.findIndex(header);
-      if (index < 0 || formatted.has(`${sheet}|${index}|${code}`) || !ids.length) continue;
-      await graph('PATCH', `${info.table}/columns/itemAt(index=${index})/dataBodyRange`, { numberFormat: ids.map(() => [code]) });
-      formatted.add(`${sheet}|${index}|${code}`);
-    }
+    await applyFormats(info, ids.length, formats);
 
     const added: Cell[][] = [];
     for (const row of rows) {
@@ -205,15 +235,98 @@ export function removeRows(sheet: string, isIdHeader: (header: string) => boolea
   return queued(async () => {
     const info = await sheetInfo(sheet);
     const idIndex = info.headers.findIndex(isIdHeader);
-    if (idIndex < 0) throw new Error(`Excel: the "${sheet}" sheet has no ticket id column`);
+    if (idIndex < 0) throw new SheetProblem(`Excel: the "${sheet}" sheet has no ticket id column`);
     const ids = await columnValues(info, idIndex);
     // From the bottom up, so the positions still to be removed do not move.
     const found = rowIds.map((id) => ids.indexOf(id)).filter((at) => at >= 0).sort((a, b) => b - a);
     let remaining = ids.length;
     for (const at of found) {
-      if (remaining === 1) await graph('PATCH', `${info.book}/worksheets('${sheetName(info.sheet)}')/range(address='${cellRange(info, info.headerRow + 1 + at, 0, info.headers.length - 1)}')`, { values: [info.headers.map(() => '')] });
+      if (remaining === 1) await clearRow(info, at);
       else await graph('DELETE', `${info.table}/rows/itemAt(index=${at})`);
       remaining--;
     }
+  });
+}
+
+// ---------- keeping the whole sheet right ----------
+
+export interface SyncResult {
+  added: number;
+  updated: number;
+  removed: number;
+  duplicates: number; // rows with a ticket that was already in the sheet above them: taken out
+  skippedOrphans: number; // ticket rows of tickets that no longer exist, left alone because there are suspiciously many
+}
+
+/** Whether a cell already holds what we would write (numbers compare as numbers, so "0123" and 123 do not keep being rewritten). */
+function holds(wanted: Cell, found: unknown) {
+  if (wanted === null) return true; // not ours
+  const text = String(found ?? '').trim();
+  const asNumbers = (a: string, b: string) => a !== '' && b !== '' && Number.isFinite(Number(a)) && Number.isFinite(Number(b));
+  return asNumbers(String(wanted), text) ? Number(wanted) === Number(text) : text === String(wanted).trim();
+}
+
+/**
+ * Makes the sheet's table match the database in one session: tickets missing from it are added, rows that differ are rewritten (only the columns that
+ * are ours), a ticket that appears twice keeps its first row, and the row of a ticket that no longer exists (`owns` says which ids are ticket
+ * numbers: rows of the studio's own, without one, are never touched) is removed. Rows already right cost no write at all.
+ */
+export function syncSheet(sheet: string, isIdHeader: (header: string) => boolean, owns: (id: string) => boolean, wanted: SheetRow[], formats: Format[] = []) {
+  return queued(async (): Promise<SyncResult> => {
+    const info = await sheetInfo(sheet);
+    const idIndex = info.headers.findIndex(isIdHeader);
+    if (idIndex < 0) throw new SheetProblem(`Excel: the "${sheet}" sheet has no ticket id column`);
+    const { values } = await graph<{ values: unknown[][] }>('GET', `${info.table}/dataBodyRange?$select=values`);
+    const ids = values.map((row) => String(row[idIndex] ?? '').trim());
+    await applyFormats(info, ids.length, formats);
+
+    const result: SyncResult = { added: 0, updated: 0, removed: 0, duplicates: 0, skippedOrphans: 0 };
+    const byId = new Map(wanted.map((row) => [row.id, row]));
+    const present = new Set<string>();
+    const drop: number[] = [];
+    for (let at = 0; at < ids.length; at++) {
+      const row = byId.get(ids[at]);
+      if (!row) continue; // the studio's own row, or the row of a ticket that is gone (below)
+      if (present.has(ids[at])) {
+        drop.push(at);
+        result.duplicates++;
+        continue;
+      }
+      present.add(ids[at]);
+      const cells = row.cells(info.headers);
+      if (cells.some((cell, i) => !holds(cell, values[at][i]))) {
+        await writeRow(info, at, cells);
+        result.updated++;
+      }
+    }
+
+    const gone = ids.flatMap((id, at) => (id && !byId.has(id) && owns(id) ? [at] : []));
+    if (gone.length > 5 && gone.length > ids.length / 2) result.skippedOrphans = gone.length; // not what a normal day looks like: leave it to a person
+    else {
+      drop.push(...gone);
+      result.removed = gone.length;
+    }
+
+    const added = wanted.filter((row) => !present.has(row.id)).map((row) => row.cells(info.headers));
+    // A new table has one empty row: the first ticket goes into it.
+    let reused = false;
+    if (added.length && ids.length === 1 && ids[0] === '' && values[0].every((value, i) => value === '' || added[0][i] === null)) {
+      await writeRow(info, 0, added.shift()!);
+      result.added++;
+      reused = true;
+    }
+    if (added.length) {
+      await graph('POST', `${info.table}/rows/add`, { index: null, values: added.map((cells) => cells.map((cell) => cell ?? '')) });
+      result.added += added.length;
+    }
+
+    // Removals last and from the bottom up (the rows added went to the end): the positions still to remove do not move.
+    let remaining = ids.length + result.added - (reused ? 1 : 0);
+    for (const at of [...new Set(drop)].sort((a, b) => b - a)) {
+      if (remaining === 1) await clearRow(info, at);
+      else await graph('DELETE', `${info.table}/rows/itemAt(index=${at})`);
+      remaining--;
+    }
+    return result;
   });
 }

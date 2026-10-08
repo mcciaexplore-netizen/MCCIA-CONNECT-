@@ -1,8 +1,8 @@
-import { inArray, type SQL } from 'drizzle-orm';
+import { eq, inArray, type SQL } from 'drizzle-orm';
 import { db, loadSettings } from './_lib.js';
 import { studioDate } from './_availability.js';
 import { COLUMNS, ticketRows, type Row } from './_excel.js';
-import { excelConfigured, forgetWorkbook, removeRows, upsertRows, type Cell, type SheetRow } from './_graph.js';
+import { excelConfigured, forgetWorkbook, removeRows, syncSheet, upsertRows, warmUp, type Cell, type SheetRow, type SyncResult } from './_graph.js';
 import { inBackground } from './_sessions.js';
 import { adminNotifications, modules, tickets } from './_schema.js';
 import { FEEDBACK_FIELDS, type StudioZone } from '../src/types/index.js';
@@ -12,7 +12,9 @@ import { FEEDBACK_FIELDS, type StudioZone } from '../src/types/index.js';
  * module's sheet and every later change (status, coordinator, forms, feedback, recording ...) updates that same row. The row of a ticket is found
  * by the ticket's number in the sheet's TICKET column. Only columns whose header is known are written: a column of the studio's own
  * (notes, say) is never touched, and the order and spelling of the headers is the studio's to choose.
- * Neon stays the source of truth: "Sync everything" (Settings > Google) writes every row again.
+ * Neon stays the source of truth. Three things keep the sheet right even when an update was missed (Microsoft unreachable, a server restart, a hand
+ * edit): a change that failed is tried again with the next one, the daily job and "Sync everything" (Settings > Google) compare the whole sheet with the
+ * database and put right what differs.
  */
 
 /** Module slug -> its sheet in the workbook. (The other sheets are not connected yet.) */
@@ -86,45 +88,67 @@ let lastReport = 0;
 async function guarded(work: () => Promise<unknown>) {
   try {
     await work();
+    return true;
   } catch (e) {
     forgetWorkbook(); // the file or its table may have been replaced: look again next time
-    if (Date.now() - lastReport < REPORT_EVERY) return void console.error('Excel sync failed:', e);
+    if (Date.now() - lastReport < REPORT_EVERY) {
+      console.error('Excel sync failed:', e);
+      return false;
+    }
     lastReport = Date.now();
     throw e;
   }
 }
 
+export type Found = Awaited<ReturnType<typeof ticketRows>>[number];
+const toSheetRow = (found: Found, zone: StudioZone) => sheetRow({ ...found, domain: found.module.name, srNo: found.booking.excelRowNumber ?? 0 }, zone);
+
+/** Writes these tickets' rows (found by the condition) into their sheets: updated where they are, added where they are not. */
 export async function writeTickets(where: SQL) {
+  warmUp(); // signing in and finding the file overlap with reading the database
   const settings = await loadSettings();
   const bySheet = new Map<string, Map<string, SheetRow>>();
   for (const found of await ticketRows(where)) {
     const sheet = SHEETS[found.module.slug];
     if (!sheet) continue;
-    const row = sheetRow({ ...found, domain: found.module.name, srNo: found.booking.excelRowNumber ?? 0 }, settings.timezone);
+    const row = toSheetRow(found, settings.timezone);
     bySheet.set(sheet, (bySheet.get(sheet) ?? new Map()).set(row.id, row));
   }
   for (const [sheet, rows] of bySheet) await upsertRows(sheet, isTicketHeader, [...rows.values()], [DATE_FORMAT]);
   return [...bySheet.values()].reduce((n, rows) => n + rows.size, 0);
 }
 
-// Changes that come close together (a bulk status change, a booking and its first edit) are written in one go.
-const PAUSE_MS = 1500;
+// The first change is written at once; changes that come while that is being written (a bulk edit, a booking and its first edit) are written together
+// right after, in the next run. A change that could not be written stays in the list for the next run, so it is retried with the next change.
+const SETTLE_MS = 150; // the other changes of the same request arrive within this
 const waiting = new Set<string>();
-let flush: Promise<unknown> | undefined;
+let running = false;
 
-/** After anything changed on these tickets: their rows in the workbook are written (or added) a moment later, after the answer has gone out. */
+/** After anything changed on these tickets: their rows in the workbook are written (or added), after the answer has gone out. */
 export function updateSheet(ticketIds: string[]) {
   if (!excelConfigured() || !ticketIds.length) return;
   for (const id of ticketIds) waiting.add(id);
-  if (flush) return; // the pending write will take these too
-  flush = new Promise((resolve) => setTimeout(resolve, PAUSE_MS)).then(() => {
-    const ids = [...waiting];
-    waiting.clear();
-    flush = undefined;
-    return guarded(() => writeTickets(inArray(tickets.id, ids)));
+  if (running) return; // the run in progress takes these when it has finished its own
+  running = true;
+  inBackground('Updating the Excel sheet', async () => {
+    try {
+      warmUp();
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+      while (waiting.size) {
+        const ids = [...waiting];
+        waiting.clear();
+        let written = false;
+        try {
+          written = await guarded(() => writeTickets(inArray(tickets.id, ids)));
+        } finally {
+          if (!written) for (const id of ids) waiting.add(id);
+        }
+        if (!written) break;
+      }
+    } finally {
+      running = false;
+    }
   });
-  const pending = flush;
-  inBackground('Updating the Excel sheet', () => pending);
 }
 
 /** After tickets were deleted: their rows leave the workbook. */
@@ -140,14 +164,33 @@ export function clearSheetRows(removed: { ticketNumber: string; moduleSlug: stri
   );
 }
 
-/** Settings > Google > "Sync everything": every ticket of the connected modules is written again. Says how many on the dashboard when done. */
+/** Every connected sheet is made to match the database (see syncSheet): what is missing is added, what differs is put right, what is gone is removed. */
+export async function reconcileSheets(): Promise<SyncResult> {
+  warmUp();
+  const settings = await loadSettings();
+  const total: SyncResult = { added: 0, updated: 0, removed: 0, duplicates: 0, skippedOrphans: 0 };
+  for (const [slug, sheet] of Object.entries(SHEETS)) {
+    const [module] = await db.select({ id: modules.id }).from(modules).where(eq(modules.slug, slug));
+    if (!module) continue;
+    const rows = (await ticketRows(eq(tickets.moduleId, module.id))).map((found) => toSheetRow(found, settings.timezone));
+    const done = await syncSheet(sheet, isTicketHeader, (id) => /^TKT-\d+$/.test(id), rows, [DATE_FORMAT]);
+    for (const key of Object.keys(total) as (keyof SyncResult)[]) total[key] += done[key];
+  }
+  return total;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** Settings > Google > "Sync everything": the sheet is made to match the database. Says what it did on the dashboard when done. */
 export async function syncEverything() {
   if (!excelConfigured()) return 0;
   const connected = await db.select({ id: modules.id }).from(modules).where(inArray(modules.slug, Object.keys(SHEETS)));
   const count = (await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.moduleId, connected.map((m) => m.id)))).length;
   inBackground('Syncing everything to the Excel sheet', async () => {
-    await writeTickets(inArray(tickets.moduleId, connected.map((m) => m.id)));
-    await db.insert(adminNotifications).values({ message: `Excel sheet synced: ${count} ticket${count === 1 ? '' : 's'} written.` });
+    const done = await reconcileSheets();
+    const notes = [`${done.added} added`, `${done.updated} put right`, `${done.removed} removed`, ...(done.duplicates ? [`${plural(done.duplicates, 'duplicate')} taken out`] : [])];
+    const warning = done.skippedOrphans ? ` ${plural(done.skippedOrphans, 'row')} of tickets that no longer exist were left in the sheet (that is a lot at once: check it).` : '';
+    await db.insert(adminNotifications).values({ message: `Excel sheet synced (${plural(count, 'ticket')}): ${notes.join(', ')}.${warning}` });
   });
   return count;
 }
