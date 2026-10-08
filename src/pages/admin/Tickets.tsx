@@ -9,10 +9,12 @@ import EmptyState from '../../components/ui/EmptyState';
 import Pager, { pageOf } from '../../components/ui/Pager';
 import Icon, { type IconName } from '../../components/ui/Icon';
 import ImportModal from '../../components/ticket/ImportModal';
+import SelectionBar from '../../components/ui/SelectionBar';
 import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
+import { useBulk } from '../../lib/useBulk';
 import { confirmCancel, confirmDeleteTickets, formatDate, isOpen, studioDay, ticketSerial } from '../../lib/utils';
 import { BOOKING_MODES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
@@ -31,16 +33,7 @@ export default function Tickets() {
   const [filters, setFilters] = useState({ ...NO_FILTERS, coordinatorId: params.get('coordinator') ?? '', notes: params.get('notes') ?? '', dateFrom: params.get('date_from') ?? '', dateTo: params.get('date_to') ?? '' });
   const [showFilters, setShowFilters] = useState(true);
   const [page, setPage] = useState(1);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [tableKey, setTableKey] = useState(0); // remounting the table clears its checkboxes
   const [importing, setImporting] = useState(false);
-  const [allMatching, setAllMatching] = useState(false); // every ticket the filters show (all pages) is selected, not just this page's
-
-  const clearSelection = () => {
-    setSelectedIds([]);
-    setAllMatching(false);
-    setTableKey((key) => key + 1);
-  };
   const filter = (patch: Partial<typeof NO_FILTERS>) => {
     setFilters({ ...filters, ...patch });
     if ('dateFrom' in patch || 'dateTo' in patch) {
@@ -80,19 +73,10 @@ export default function Tickets() {
   }).sort((a, b) => startOf(b).localeCompare(startOf(a)) || ticketSerial(b.ticketNumber) - ticketSerial(a.ticketNumber)); // latest session on top; the same time: the higher ticket number first
 
   const { rows: shown, start } = pageOf(rows, page);
+  const bulkSel = useBulk(rows, shown, BULK_SIZE);
+  const clearSelection = bulkSel.clear;
 
-  // The tickets the bar acts on; the server takes at most BULK_SIZE at a time, so a bigger selection goes in several requests.
-  const ids = allMatching ? rows.map((t) => t.id) : selectedIds;
-  const eachChunk = async <T,>(send: (chunk: string[]) => Promise<T | null>) => {
-    const results: T[] = [];
-    for (let i = 0; i < ids.length; i += BULK_SIZE) {
-      const result = await send(ids.slice(i, i + BULK_SIZE));
-      if (!result) break; // the reason was shown; what was done so far stays
-      results.push(result);
-    }
-    return results;
-  };
-
+  const { ids, eachChunk } = bulkSel;
   const bulk = async (patch: { status?: TicketStatus; coordinatorId?: string }) => {
     const results = await eachChunk((chunk) => mutate<{ updated: number; failed: { error: string }[] }>('/api/tickets', 'PATCH', { ids: chunk, ...patch }));
     const updated = results.reduce((n, r) => n + r.updated, 0);
@@ -210,11 +194,7 @@ export default function Tickets() {
           )}
 
           {ids.length > 0 && (
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-primary bg-primary-light px-3 py-2">
-              <span className="mr-2 font-medium text-primary-dark">{allMatching ? `All ${ids.length} tickets selected` : `${ids.length} selected`}</span>
-              {admin && !allMatching && selectedIds.length === shown.length && rows.length > shown.length && (
-                <button className="mr-2 text-primary underline" onClick={() => setAllMatching(true)}>Select all {rows.length} tickets</button>
-              )}
+            <SelectionBar count={ids.length} noun="tickets" allMatching={bulkSel.allMatching} total={rows.length} canSelectAll={admin && bulkSel.canSelectAll} onSelectAll={bulkSel.selectAll}>
               <select className="input w-auto" value="" onChange={(e) => e.target.value && (e.target.value !== 'cancelled' || confirmCancel(ids.length)) && bulk({ status: e.target.value as TicketStatus })}>
                 <option value="">Change Status</option>
                 {TICKET_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
@@ -229,17 +209,17 @@ export default function Tickets() {
                   <button className="btn btn-danger" onClick={deleteSelected}>Delete</button>
                 </>
               )}
-            </div>
+            </SelectionBar>
           )}
 
           <DataTable
-            key={tableKey}
+            key={bulkSel.tableKey}
             columns={columns}
             data={shown}
             rowKey={(t) => t.id}
             onRowClick={(t) => navigate(`${base}/tickets/${t.id}`)}
             selectable
-            onSelectionChange={(selected) => setSelectedIds(selected.map((t) => t.id))}
+            onSelectionChange={bulkSel.onSelectionChange}
             empty="No tickets match these filters." emptyIcon="filter" emptyAction={active ? { label: 'Clear filters', onClick: () => filter({ ...NO_FILTERS }) } : undefined}
           />
 

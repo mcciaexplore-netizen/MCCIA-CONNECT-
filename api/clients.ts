@@ -1,10 +1,10 @@
 import { and, desc, eq, getTableColumns, inArray, ne, or, sql } from 'drizzle-orm';
-import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, UUID, type AuthUser } from './_lib.js';
+import { audit, db, handler, HttpError, needString, optString, parseClient, readBody, requireUser, restartTicketNumbersIfNone, UUID, type AuthUser } from './_lib.js';
 import { assignClient } from './_assign.js';
 import { companyOf, returnFollowUps } from './_companies.js';
 import { clearSheetRows, updateSheet } from './_live_excel.js';
 import { inBackground, removeCalendarEvents } from './_sessions.js';
-import { adminNotifications, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, modules, tickets, users } from './_schema.js';
+import { adminNotifications, auditLogs, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, modules, tickets, users } from './_schema.js';
 import type { CoordinatorHistoryEntry } from '../src/types/index.js';
 
 /**
@@ -84,6 +84,66 @@ async function updateCompany(user: AuthUser, body: Record<string, unknown>) {
   await audit(user, 'company.updated', 'company', id, renamed ? { name: company.name } : undefined, { ...(renamed && { name }), ...values, contacts: members.length });
   updateSheet((await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.clientId, members.map((m) => m.id)))).map((t) => t.id)); // their rows in the Excel sheet
   return { id, name: name ?? company.name, contacts: members.length };
+}
+
+const MAX_BULK_DELETE = 50; // each deletion also calls Google and Microsoft afterwards
+
+/**
+ * Removes clients for good with all their tickets, sessions, feedback links and coordinator history, their Calendar events and their rows in the
+ * Excel sheet. `companyIds` removes those companies too, with every client in them; a company left with nobody goes as well. Nobody is emailed; the
+ * audit log keeps a record of each client and company deleted. With no ticket left at all the numbering starts again at TKT-0001.
+ * Returns what went, or undefined when none of it existed.
+ */
+async function deleteClients(user: AuthUser, clientIds: string[], companyIds: string[]) {
+  const inCompanies = companyIds.length ? await db.select().from(clients).where(inArray(clients.companyId, companyIds)) : [];
+  const wanted = [...new Set([...clientIds, ...inCompanies.map((c) => c.id)])];
+  const found = wanted.length ? await db.select().from(clients).where(inArray(clients.id, wanted)) : [];
+  const asked = companyIds.length ? await db.select().from(companies).where(inArray(companies.id, companyIds)) : [];
+  if (!found.length && !asked.length) return undefined;
+  const memberIds = found.map((c) => c.id);
+  const sessions = memberIds.length
+    ? await db.select({ clientId: bookings.clientId, bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId, moduleSlug: modules.slug }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).innerJoin(modules, eq(bookings.moduleId, modules.id)).where(inArray(bookings.clientId, memberIds))
+    : [];
+  const ticketIds = sessions.map((s) => s.ticketId);
+
+  // The companies that end up with nobody: the ones asked for, and any whose last client is going.
+  const touched = [...new Set([...found.flatMap((c) => (c.companyId ? [c.companyId] : [])), ...asked.map((c) => c.id)])];
+  const staying = touched.length ? (await db.select({ id: clients.id, companyId: clients.companyId }).from(clients).where(inArray(clients.companyId, touched))).filter((c) => !memberIds.includes(c.id)) : [];
+  const goneCompanies = touched.filter((id) => !staying.some((c) => c.companyId === id));
+
+  // One transaction: everything of the clients, then the companies that are empty.
+  const writes = [
+    ...(ticketIds.length ? [db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, ticketIds))] : []),
+    ...(memberIds.length
+      ? [
+          db.delete(tickets).where(inArray(tickets.clientId, memberIds)),
+          db.delete(bookings).where(inArray(bookings.clientId, memberIds)),
+          db.delete(coordinatorAssignments).where(inArray(coordinatorAssignments.clientId, memberIds)),
+          db.delete(coordinatorReassignments).where(inArray(coordinatorReassignments.clientId, memberIds)),
+          db.delete(clients).where(inArray(clients.id, memberIds)),
+        ]
+      : []),
+    ...(goneCompanies.length
+      ? [
+          db.delete(adminNotifications).where(inArray(adminNotifications.companyId, goneCompanies)),
+          db.delete(coordinatorReassignments).where(inArray(coordinatorReassignments.companyId, goneCompanies)),
+          db.delete(companies).where(inArray(companies.id, goneCompanies)),
+        ]
+      : []),
+  ];
+  await db.batch(writes as unknown as [(typeof writes)[0], ...(typeof writes)[number][]]);
+
+  const names = new Map([...asked.map((c) => [c.id, c.name] as const), ...found.flatMap((c) => (c.companyId ? [[c.companyId, c.companyName] as const] : []))]);
+  const numbersOf = (own: string[]) => sessions.filter((s) => own.includes(s.clientId)).map((s) => s.ticketNumber);
+  await db.insert(auditLogs).values([
+    ...found.map((c) => ({ entityType: 'client', entityId: c.id, action: 'client.deleted', oldValue: { company: c.companyName, contact: c.personName, email: c.email, tickets: numbersOf([c.id]) }, doneByName: user.name, role: user.role })),
+    ...goneCompanies.map((id) => ({ entityType: 'company', entityId: id, action: 'company.deleted', oldValue: { company: names.get(id) ?? '', contacts: found.filter((c) => c.companyId === id).length, tickets: numbersOf(found.filter((c) => c.companyId === id).map((c) => c.id)) }, doneByName: user.name, role: user.role })),
+  ]);
+  clearSheetRows(sessions); // their rows leave the Excel sheet
+  const eventIds = sessions.flatMap((s) => (s.eventId ? [s.eventId] : []));
+  if (eventIds.length) inBackground(found.length === 1 ? `Removing the Google Calendar events of the deleted client ${found[0].personName} (${found[0].companyName})` : `Removing the Google Calendar events of ${found.length} deleted clients`, () => removeCalendarEvents(eventIds));
+  await restartTicketNumbersIfNone();
+  return { clientIds: memberIds, companyIds: goneCompanies, ticketIds, bookingIds: sessions.map((s) => s.bookingId) };
 }
 
 export default handler({
@@ -171,42 +231,23 @@ export default handler({
     return { ok: true };
   },
 
-  // ?id=<client> (admins only): removes the client for good with all their tickets, sessions, feedback links and coordinator history, and
-  // their Calendar events. The company goes too when this was its last client. Nobody is emailed; the audit log keeps a record.
+  // ?id=<client>, ?company=<company>, or { clientIds } / { companyIds } up to MAX_BULK_DELETE (admins only): see deleteClients. A single client
+  // answers { id, ticketIds, bookingIds }; the others { deleted, clientIds, companyIds, ticketIds, bookingIds }.
   DELETE: async (req, url) => {
     const user = await requireUser(req, 'super_admin');
-    const id = url.searchParams.get('id') ?? '';
-    const [client] = UUID.test(id) ? await db.select().from(clients).where(eq(clients.id, id)) : [];
-    if (!client) throw new HttpError(404, 'Client not found');
-    const sessions = await db.select({ bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId, moduleSlug: modules.slug }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).innerJoin(modules, eq(bookings.moduleId, modules.id)).where(eq(bookings.clientId, id));
-    const ticketIds = sessions.map((s) => s.ticketId);
-
-    // One transaction: everything of the client, then the company if nobody is left in it.
-    const lastOfCompany = client.companyId ? sql`not exists (select 1 from ${clients} where ${clients.companyId} = ${client.companyId})` : sql`false`;
-    await db.batch([
-      db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, db.select({ id: tickets.id }).from(tickets).where(eq(tickets.clientId, id)))),
-      db.delete(tickets).where(eq(tickets.clientId, id)),
-      db.delete(bookings).where(eq(bookings.clientId, id)),
-      db.delete(coordinatorAssignments).where(eq(coordinatorAssignments.clientId, id)),
-      db.delete(coordinatorReassignments).where(eq(coordinatorReassignments.clientId, id)),
-      db.delete(clients).where(eq(clients.id, id)),
-      ...(client.companyId
-        ? [
-            db.delete(adminNotifications).where(and(eq(adminNotifications.companyId, client.companyId), lastOfCompany)),
-            db.delete(coordinatorReassignments).where(and(eq(coordinatorReassignments.companyId, client.companyId), lastOfCompany)),
-            db.delete(companies).where(and(eq(companies.id, client.companyId), lastOfCompany)),
-          ]
-        : []),
-    ]);
-    await audit(user, 'client.deleted', 'client', id, {
-      company: client.companyName,
-      contact: client.personName,
-      email: client.email,
-      tickets: sessions.map((s) => s.ticketNumber),
-    });
-    clearSheetRows(sessions); // their rows leave the Excel sheet
-    const eventIds = sessions.flatMap((s) => (s.eventId ? [s.eventId] : []));
-    if (eventIds.length) inBackground(`Removing the Google Calendar events of the deleted client ${client.personName} (${client.companyName})`, () => removeCalendarEvents(eventIds));
-    return { id, ticketIds, bookingIds: sessions.map((s) => s.bookingId) };
+    const clientParam = url.searchParams.get('id');
+    const companyParam = url.searchParams.get('company');
+    const body = clientParam === null && companyParam === null ? await readBody(req).catch(() => undefined) : undefined;
+    const list = (value: unknown) => (Array.isArray(value) ? value.map(String) : undefined);
+    const clientIds = clientParam !== null ? [clientParam] : list(body?.clientIds);
+    const companyIds = companyParam !== null ? [companyParam] : list(body?.companyIds);
+    const noun = companyParam !== null || (!clientIds && companyIds) ? 'Company' : 'Client';
+    if (!clientIds && !companyIds) throw new HttpError(404, 'Client not found');
+    const all = [...(clientIds ?? []), ...(companyIds ?? [])];
+    const single = clientParam !== null || companyParam !== null;
+    if (!all.length || all.length > MAX_BULK_DELETE || !all.every((id) => UUID.test(id))) throw new HttpError(single ? 404 : 400, single ? `${noun} not found` : `Choose between 1 and ${MAX_BULK_DELETE}`);
+    const done = await deleteClients(user, clientIds ?? [], companyIds ?? []);
+    if (!done) throw new HttpError(404, `${noun} not found`);
+    return clientParam !== null ? { id: clientParam, ticketIds: done.ticketIds, bookingIds: done.bookingIds } : { deleted: done.clientIds.length, ...done };
   },
 });

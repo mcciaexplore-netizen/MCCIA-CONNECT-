@@ -11,7 +11,7 @@ import ModuleBadge from '../../components/ui/ModuleBadge';
 import Pager, { pageOf } from '../../components/ui/Pager';
 import ReassignModal from '../../components/ui/ReassignModal';
 import StatusBadge from '../../components/ui/StatusBadge';
-import { formatDate, formatDateTime } from '../../lib/utils';
+import { confirmDeleteCompanies, formatDate, formatDateTime } from '../../lib/utils';
 import type { Client, Ticket } from '../../types';
 
 /**
@@ -37,6 +37,9 @@ export default function CompanyDetail() {
   }
 
   const members = clients.filter((c) => c.companyId === company.id);
+  const remove = async () => {
+    if (confirmDeleteCompanies(1, company.clientCount, company.bookingCount) && (await mutate(`/api/clients?company=${company.id}`, 'DELETE', undefined, 'Company deleted'))) navigate('/admin/companies');
+  };
   const coordinator = getCoordinator(company.assignedCoordinatorId);
   // The company's tickets, the latest session first.
   const history = tickets
@@ -73,6 +76,7 @@ export default function CompanyDetail() {
           <h1 className="page-title">{company.name}</h1>
           <p className="page-sub">{company.clientCount} clients · {company.bookingCount} bookings{company.lastBooking ? ` · last ${formatDate(company.lastBooking)}` : ''}</p>
         </div>
+        <button className="btn btn-danger" onClick={remove}>Delete company</button>
       </div>
 
       <CompanyCard company={company} members={members} />

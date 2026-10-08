@@ -1,12 +1,15 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
+import toast from 'react-hot-toast';
 import { usePageData, useData } from '../../context/DataContext';
 import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
 import ClientFields from '../../components/ui/ClientFields';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import Pager, { pageOf } from '../../components/ui/Pager';
-import { confirmDeleteClient, formatDate } from '../../lib/utils';
+import SelectionBar from '../../components/ui/SelectionBar';
+import { useBulk } from '../../lib/useBulk';
+import { confirmDeleteClient, confirmDeleteClients, formatDate } from '../../lib/utils';
 import { BLANK_CLIENT, type Client } from '../../types';
 
 export default function Clients() {
@@ -27,6 +30,7 @@ export default function Clients() {
   const rows = clients.filter((c) => !query || `${c.companyName} ${c.personName} ${c.email} ${c.phone}`.toLowerCase().includes(query));
 
   const { rows: shown } = pageOf(rows, pageNo);
+  const bulk = useBulk(rows, shown, 50);
 
   const columns: Column<Client>[] = [
     {
@@ -57,6 +61,13 @@ export default function Clients() {
     { header: 'Added', cell: (c) => formatDate(c.createdAt) },
   ];
 
+  const removeSelected = async () => {
+    if (!confirmDeleteClients(bulk.ids.length, bulk.ids.reduce((n, id) => n + (ticketCounts.get(id) ?? 0), 0))) return;
+    const results = await bulk.eachChunk((chunk) => mutate<{ deleted: number }>('/api/clients', 'DELETE', { clientIds: chunk }));
+    const deleted = results.reduce((n, r) => n + r.deleted, 0);
+    if (deleted) toast.success(`${deleted} client${deleted === 1 ? '' : 's'} deleted`);
+    bulk.clear();
+  };
   const remove = (c: Client) => confirmDeleteClient(c.personName, c.companyName, ticketCounts.get(c.id) ?? 0) && mutate(`/api/clients?id=${c.id}`, 'DELETE', undefined, 'Client deleted');
 
   const add = async (e: FormEvent) => {
@@ -86,10 +97,16 @@ export default function Clients() {
         </form>
       )}
 
-      <input className="input mb-4 max-w-xs" placeholder="Search company, contact, email…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
+      <input className="input mb-4 max-w-xs" placeholder="Search company, contact, email…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); bulk.clear(); }} />
 
-      <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} onDelete={remove} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
-      <Pager total={rows.length} page={pageNo} onPage={setPageNo} />
+      {bulk.ids.length > 0 && (
+        <SelectionBar count={bulk.ids.length} noun="clients" allMatching={bulk.allMatching} total={rows.length} canSelectAll={bulk.canSelectAll} onSelectAll={bulk.selectAll}>
+          <button className="btn btn-danger" onClick={removeSelected}>Delete</button>
+        </SelectionBar>
+      )}
+
+      <DataTable key={bulk.tableKey} selectable onSelectionChange={bulk.onSelectionChange} columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} onDelete={remove} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
+      <Pager total={rows.length} page={pageNo} onPage={(next) => { setPageNo(next); bulk.clear(); }} />
     </div>
   );
 }

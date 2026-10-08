@@ -1,11 +1,11 @@
-import { and, desc, eq, getTableColumns, gt, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, gte, inArray, lt } from 'drizzle-orm';
 import { assignClient } from './_assign.js';
 import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { saveRecordings } from './_fireflies.js';
 import { ticketRows } from './_excel.js';
 import { clearSheetRows, updateSheet } from './_live_excel.js';
-import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
+import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, restartTicketNumbersIfNone, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
 import { awaitLink, cancelSession, inBackground, removeCalendarEvents, syncCalendar } from './_sessions.js';
 import { auditLogs, bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
@@ -197,8 +197,7 @@ async function deleteTickets(user: AuthUser, ids: string[]) {
   clearSheetRows(found.map((f) => ({ ticketNumber: f.ticket.ticketNumber, moduleSlug: f.module.slug }))); // their rows leave the Excel sheet
   const eventIds = found.flatMap((f) => (f.booking.googleEventId ? [f.booking.googleEventId] : []));
   if (eventIds.length) inBackground(found.length === 1 ? `Removing the Google Calendar event of the deleted ticket ${found[0].ticket.ticketNumber}` : `Removing the Google Calendar events of ${found.length} deleted tickets`, () => removeCalendarEvents(eventIds));
-  // With nothing left the numbering begins again (the first ticket after this is TKT-0001).
-  await db.execute(sql`select setval('public.ticket_number_seq', 1, false) where not exists (select 1 from tickets)`);
+  await restartTicketNumbersIfNone();
   return found;
 }
 

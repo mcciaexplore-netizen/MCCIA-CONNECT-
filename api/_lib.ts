@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { db } from '../src/lib/db.js';
 import { passwordStamp, verifyToken, readCookie, SESSION_COOKIE } from './_auth.js';
@@ -174,6 +174,11 @@ export function ownedBy(user: AuthUser, column: PgColumn) {
 
 export async function audit(actor: Actor, action: string, entityType: string, entityId: string | null, oldValue?: Record<string, unknown>, newValue?: Record<string, unknown>) {
   await db.insert(auditLogs).values({ entityType, entityId, action, oldValue: oldValue ?? null, newValue: newValue ?? null, doneByName: actor.name, role: actor.role });
+}
+
+/** With no ticket left at all the numbering begins again: the next ticket is TKT-0001. Called after anything that deletes tickets. */
+export async function restartTicketNumbersIfNone() {
+  await db.execute(sql`select setval('public.ticket_number_seq', 1, false) where not exists (select 1 from tickets)`);
 }
 
 /** app_settings merged over the defaults, so every key is always present. */

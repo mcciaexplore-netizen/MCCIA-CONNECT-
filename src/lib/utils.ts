@@ -182,5 +182,11 @@ export const confirmDeleteTickets = (count: number, everything: boolean) =>
 export const confirmDeleteClient = (name: string, company: string, tickets: number) =>
   window.confirm(`Delete ${name} (${company}) for good? ${tickets ? `Their ${tickets} ticket${tickets === 1 ? '' : 's'} and sessions are deleted too, and their Google Calendar events removed.` : 'They have no tickets.'} Nobody is emailed. This cannot be undone.`);
 
+export const confirmDeleteClients = (count: number, tickets: number) =>
+  window.confirm(`Delete ${count} client${count === 1 ? '' : 's'} for good? ${tickets ? `Their ${tickets} ticket${tickets === 1 ? '' : 's'} and sessions are deleted too, their Google Calendar events removed and their rows taken out of the Excel sheet.` : 'They have no tickets.'} A company left with nobody is deleted as well. Nobody is emailed. This cannot be undone.`);
+
+export const confirmDeleteCompanies = (count: number, clients: number, tickets: number) =>
+  window.confirm(`Delete ${count} ${count === 1 ? 'company' : 'companies'} for good? ${clients ? `Their ${clients} client${clients === 1 ? '' : 's'}` : 'They have no clients'}${tickets ? ` and ${tickets} ticket${tickets === 1 ? '' : 's'} (with sessions, notes and feedback links) are deleted too, their Google Calendar events removed and their rows taken out of the Excel sheet` : ''}. Nobody is emailed. This cannot be undone.`);
+
 export const confirmCancel = (count = 1) =>
   window.confirm(count === 1 ? 'Cancel this session? The calendar event is deleted and the client is emailed. This cannot be undone.' : `Cancel ${count} sessions? Their calendar events are deleted and the clients are emailed. This cannot be undone.`);

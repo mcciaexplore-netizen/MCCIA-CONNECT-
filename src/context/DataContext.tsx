@@ -278,7 +278,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const row = result as Record<string, unknown> | null;
     if (!row || typeof row !== 'object') return;
     if (path === '/api/tickets' && method === 'PATCH' && 'ticketNumber' in row) setRecords((now) => (now.tickets ? { ...now, tickets: upsert(now.tickets, row as unknown as Ticket) } : now));
-    else if (path.startsWith('/api/clients') && method === 'DELETE' && 'ticketIds' in row) {
+    else if (path === '/api/clients' && method === 'DELETE' && 'clientIds' in row) {
+      const gone = row as unknown as { clientIds: string[]; companyIds: string[]; ticketIds: string[]; bookingIds: string[] };
+      setRecords((now) => ({
+        ...now,
+        ...(now.clients && { clients: now.clients.filter((c) => !gone.clientIds.includes(c.id)) }),
+        ...(now.companies && { companies: now.companies.filter((c) => !gone.companyIds.includes(c.id)) }),
+        ...(now.tickets && { tickets: now.tickets.filter((t) => !gone.ticketIds.includes(t.id)) }),
+        ...(now.bookings && { bookings: now.bookings.filter((b) => !gone.bookingIds.includes(b.id)) }),
+      }));
+    } else if (path.startsWith('/api/clients') && method === 'DELETE' && 'ticketIds' in row) {
       const gone = row as unknown as { id: string; ticketIds: string[]; bookingIds: string[] };
       setRecords((now) => ({ ...now, ...(now.clients && { clients: now.clients.filter((c) => c.id !== gone.id) }), ...(now.tickets && { tickets: now.tickets.filter((t) => !gone.ticketIds.includes(t.id)) }), ...(now.bookings && { bookings: now.bookings.filter((b) => !gone.bookingIds.includes(b.id)) }) }));
     } else if (path === '/api/tickets' && method === 'DELETE' && 'ticketIds' in row) {
