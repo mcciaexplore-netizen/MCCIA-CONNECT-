@@ -294,6 +294,25 @@ function clientOf(d: Draft): ClientValues {
   };
 }
 
+/** A coordinator's name as typed, in lower case without marks such as ★ or ↺ that a sheet may carry next to it. */
+const cleanName = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}@.' _-]+/gu, '').replace(/\s+/g, ' ').trim();
+
+/** The coordinator a file's text means: their email or full name, else the part of the email before the @, else a first name only one coordinator has. */
+function findCoordinator(coordinators: Context['coordinators'], text: string) {
+  const who = cleanName(text);
+  if (!who || who === 'unassigned' || who === '-') return undefined;
+  const tries: ((c: Context['coordinators'][number]) => boolean)[] = [
+    (c) => c.email.toLowerCase() === who,
+    (c) => c.name.toLowerCase() === who,
+    (c) => c.email.toLowerCase().split('@')[0] === who,
+    (c) => c.name.toLowerCase().split(' ')[0] === who,
+  ];
+  for (const [i, matches] of tries.entries()) {
+    const found = coordinators.filter(matches);
+    if (found.length === 1 || (found.length > 1 && i < 2)) return found[0];
+  }
+}
+
 /** Checks one row and turns it into what will be saved; throws a RowError saying what is wrong with it. */
 function prepare(d: Draft, ctx: Context): Prepared {
   const client = clientOf(d);
@@ -310,9 +329,8 @@ function prepare(d: Draft, ctx: Context): Prepared {
   const modeText = d.mode.toLowerCase();
   const mode: BookingMode = !modeText ? 'online' : /offline|in.?person|physical|walk|visit|studio/.test(modeText) ? 'offline' : /online|virtual|meet|zoom|video|call/.test(modeText) ? 'online' : bad(`Mode "${d.mode}" is not Online or Offline`);
 
-  const who = d.coordinator.toLowerCase().replace(/\s+/g, ' ');
-  const coordinator = !who || who === 'unassigned' || who === '-' ? undefined : ctx.coordinators.find((c) => c.email.toLowerCase() === who || c.name.toLowerCase() === who);
-  const missingCoordinator = who && who !== 'unassigned' && who !== '-' && !coordinator ? d.coordinator : '';
+  const coordinator = findCoordinator(ctx.coordinators, d.coordinator);
+  const missingCoordinator = !coordinator && cleanName(d.coordinator) && !/^(unassigned|-)$/.test(cleanName(d.coordinator)) ? d.coordinator : '';
 
   const statusText = (d.post.consultation_status ?? '').toLowerCase();
   const status = !statusText ? (start < ctx.now ? 'completed' : 'new') : STATUS_BY_TEXT.get(statusText) ?? bad(`Status "${d.post.consultation_status}" is not one of ${TICKET_STATUSES.map((s) => STATUS_LABELS[s]).join(', ')}`);
