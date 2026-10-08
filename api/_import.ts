@@ -36,6 +36,8 @@ import {
  */
 
 const MAX_ERRORS = 100;
+/** A column of free text kept on each ticket as an internal note (the old software's remarks, how it was booked ...). */
+const NOTE_LABEL = 'Internal Note';
 const REQUIRED_CLIENT: readonly string[] = ['companyName', 'personName', 'email', 'phone'];
 
 // ---------- what a column can be ----------
@@ -52,6 +54,7 @@ export function importTargets(postQuestions: FormField[]): ImportTarget[] {
     ...postQuestions.map(({ label }) => ({ label, required: false })),
     ...FEEDBACK_FIELDS.map(({ label }) => ({ label, required: false })),
     { label: FEEDBACK_COMMENTS_LABEL, required: false },
+    { label: NOTE_LABEL, required: false },
   ];
   const seen = new Set<string>();
   return targets.filter(({ label }) => !seen.has(label) && seen.add(label)); // a label means one field: the first wins
@@ -72,6 +75,7 @@ const importAliases = new Map(
     STATUS: 'Consultation Status', 'TICKET STATUS': 'Consultation Status',
     MEMBER: 'Member / Non-Member', 'MEMBER TYPE': 'Member / Non-Member',
     DESIGNATION: 'Job Title', SECTOR: 'Sector',
+    'CHALLENGE / NOTES': NOTE_LABEL, NOTES: NOTE_LABEL, NOTE: NOTE_LABEL, REMARKS: NOTE_LABEL, COMMENTS: NOTE_LABEL,
   }).map(([header, label]) => [norm(header), norm(label)]),
 );
 
@@ -104,6 +108,7 @@ export function guideRows(postQuestions: FormField[]): [string, string, string][
     const rating = FEEDBACK_FIELDS.find((f) => f.label === label);
     if (rating) return 'The rating the client gave, 1 to 5. Empty if they did not rate.';
     if (label === FEEDBACK_COMMENTS_LABEL) return "The client's written feedback.";
+    if (label === NOTE_LABEL) return 'Anything to keep with the ticket: it becomes an internal note.';
     const question = postQuestions.find((q) => q.label === label);
     if (question?.id === 'consultation_status') return `One of: ${TICKET_STATUSES.map((s) => STATUS_LABELS[s]).join(' | ')}. Empty: Completed for a past session, Scheduled for a future one.`;
     if (question?.id === 'payment_status') return `One of: ${PAYMENT_STATUSES.map((s) => PAYMENT_LABELS[s]).join(' | ')}. Empty: Unpaid.`;
@@ -170,7 +175,12 @@ export function parseDate(text: string): { date: string; time?: string } | null 
 }
 
 const STATUS_BY_TEXT = new Map<string, TicketStatus>(TICKET_STATUSES.flatMap((s) => [[STATUS_LABELS[s].toLowerCase(), s], [s, s], [s.replace('_', ' '), s]] as [string, TicketStatus][]));
-const pickOption = (value: string, options?: readonly string[]) => options?.find((o) => o.toLowerCase() === value.toLowerCase()) ?? value;
+/** The option a text means: the same words in any capitals, or just its first word ("Micro" for "Micro (Turnover less than ...)") when only one option starts with it. Anything else is kept as written. */
+const pickOption = (value: string, options: readonly string[] = []) => {
+  const wanted = value.toLowerCase();
+  const byFirstWord = options.filter((o) => o.toLowerCase().split(/\s+/)[0] === wanted);
+  return options.find((o) => o.toLowerCase() === wanted) ?? (byFirstWord.length === 1 ? byFirstWord[0] : value);
+};
 
 // ---------- one row ----------
 
@@ -181,6 +191,7 @@ interface Draft {
   time: string;
   mode: string;
   coordinator: string;
+  note: string;
   client: Record<string, string>;
   post: Record<string, string>;
   feedback: Record<string, string>;
@@ -194,6 +205,7 @@ function fieldsOf(postQuestions: FormField[]) {
     [FIELD.time, (d, v) => (d.time = v)],
     [FIELD.mode, (d, v) => (d.mode = v)],
     [FIELD.coordinator, (d, v) => (d.coordinator = v)],
+    [NOTE_LABEL, (d, v) => (d.note = v)],
   ]);
   const add = (label: string, apply: (d: Draft, value: string) => void) => fields.has(label) || fields.set(label, apply);
   for (const { key, label } of CLIENT_FIELDS) add(label, (d, v) => (d.client[key] = v));
@@ -244,7 +256,8 @@ interface Prepared {
   payment: PaymentStatus;
   post: Record<string, string>;
   feedback: Record<string, string>;
-  note: string;
+  note: string; // the system's note (where it came from)
+  fileNote: string; // the file's own note column
 }
 
 /** The client's details from a row: the four contact details are required, everything else is kept as written. */
@@ -318,7 +331,7 @@ function prepare(d: Draft, ctx: Context): Prepared {
   if (d.feedback[FEEDBACK_COMMENTS]) feedback[FEEDBACK_COMMENTS] = d.feedback[FEEDBACK_COMMENTS].slice(0, 5000);
 
   const note = [`Imported from the previous software${d.ticketNo ? ` (its ticket number: ${d.ticketNo})` : ''}.`, missingCoordinator && `Coordinator in the file: ${missingCoordinator} (not found here, so the ticket is unassigned).`].filter(Boolean).join(' ');
-  return { row: d.row, client, start, end, mode, coordinatorId: coordinator?.id ?? null, missingCoordinator, status, payment, post, feedback, note };
+  return { row: d.row, client, start, end, mode, coordinatorId: coordinator?.id ?? null, missingCoordinator, status, payment, post, feedback, note, fileNote: d.note.slice(0, 5000) };
 }
 
 // ---------- the file as a table ----------
@@ -363,7 +376,7 @@ export async function importRows({ user, module, postQuestions, rows, mapping, f
   const prepared: Prepared[] = [];
   rows.forEach((cells, index) => {
     if (cells.every((cell) => !cell.trim())) return; // an empty row in the middle of a sheet is just a gap
-    const draft: Draft = { row: firstRow + index, ticketNo: '', date: '', time: '', mode: '', coordinator: '', client: {}, post: {}, feedback: {} };
+    const draft: Draft = { row: firstRow + index, ticketNo: '', date: '', time: '', mode: '', coordinator: '', note: '', client: {}, post: {}, feedback: {} };
     columns.forEach((apply, column) => apply?.(draft, (cells[column] ?? '').trim()));
     try {
       prepared.push(prepare(draft, ctx));
@@ -410,7 +423,8 @@ export async function importRows({ user, module, postQuestions, rows, mapping, f
     }
     const bookingId = crypto.randomUUID();
     const bookingStatus: BookingStatus = p.status === 'cancelled' || p.status === 'completed' ? p.status : 'scheduled';
-    const notes: InternalNote[] = [{ text: p.note, author: user.name, at: new Date().toISOString() }];
+    const at = new Date().toISOString();
+    const notes: InternalNote[] = [{ text: p.note, author: user.name, at }, ...(p.fileNote ? [{ text: p.fileNote, author: user.name, at }] : [])];
     bookingRows.push({ id: bookingId, moduleId: module.id, clientId, coordinatorId: p.coordinatorId, startTime: p.start, endTime: p.end, mode: p.mode, excelRowNumber: last + index + 1, status: bookingStatus, createdBy: 'admin', reminderSent: true, meetLinkFailedNotified: true });
     ticketRows.push({ id: crypto.randomUUID(), bookingId, moduleId: module.id, clientId, coordinatorId: p.coordinatorId, status: p.status, paymentStatus: p.payment, postConsultationData: p.post, feedbackData: p.feedback, internalNotes: notes });
   });

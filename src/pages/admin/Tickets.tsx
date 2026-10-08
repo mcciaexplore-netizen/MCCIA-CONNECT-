@@ -13,7 +13,7 @@ import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
-import { confirmCancel, formatDate, isOpen, studioDay } from '../../lib/utils';
+import { confirmCancel, formatDate, isOpen, studioDay, ticketSerial } from '../../lib/utils';
 import { BOOKING_MODES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
 const NO_FILTERS = { search: '', status: '', moduleId: '', coordinatorId: '', mode: '', notes: '', dateFrom: '', dateTo: '' };
@@ -73,7 +73,7 @@ export default function Tickets() {
       (!filters.dateTo || (day !== '' && day <= filters.dateTo)) &&
       (!filters.notes || Boolean(session && awaitingNotes(session, now)))
     );
-  });
+  }).sort((a, b) => ticketSerial(b.ticketNumber) - ticketSerial(a.ticketNumber)); // newest first: the highest ticket number on top
 
   const { rows: shown, start } = pageOf(rows, page);
 
