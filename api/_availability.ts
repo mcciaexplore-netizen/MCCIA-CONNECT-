@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, gte, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
-import { db, HttpError } from './_lib.js';
+import { db, HttpError, needString, optString } from './_lib.js';
 import { bookings, clients, coordinators, modules, slotConfig, tickets } from './_schema.js';
-import type { Availability, BookingMode, CoordinatorSlot, SlotInfo } from '../src/types/index.js';
+import type { Availability, BookingMode, Closures, CoordinatorSlot, SlotInfo } from '../src/types/index.js';
 
 // Slot config times are in studio time: the time zone in Settings (app_settings.timezone.tz).
 const MINUTE = 60_000;
@@ -35,6 +35,13 @@ function hoursOn(rules: Availability, date: string) {
   return overrides.length ? (overrides.some((o) => o.closed) ? [] : overrides) : rules.weeklyRules.filter((r) => r.day === weekday);
 }
 
+/** The studio's closed ranges on a date (ms), for its breaks; null when the whole date is a holiday. */
+function closedOn(closures: Closures, date: string, tz: string): [number, number][] | null {
+  if (closures.holidays.some((h) => h.from <= date && date <= h.to)) return null;
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return closures.breaks.filter((b) => b.days.includes(weekday)).map((b) => [studioTime(date, b.start, tz), studioTime(date, b.end, tz)]);
+}
+
 const addDays = (date: string, days: number) => new Date(new Date(`${date}T00:00:00Z`).getTime() + days * DAY).toISOString().slice(0, 10);
 
 /**
@@ -54,9 +61,10 @@ export function openModes(config: Config, taken: Taken[], start: Date, end: Date
 
 /**
  * Every slot the studio offers over `days` days from `from` (weekly rules, or that date's overrides), each with the modes
- * still open. A slot that is full has no modes. Slots inside the minimum-notice window are left out.
+ * still open. A slot that is full has no modes. Slots inside the minimum-notice window are left out, and so are the studio's breaks and holidays
+ * (`closures`: they win over a service's own hours and date overrides).
  */
-export function computeSlots(config: Config, taken: Taken[], from: string, days: number, tz: string, now = new Date()): SlotInfo[] {
+export function computeSlots(config: Config, taken: Taken[], from: string, days: number, tz: string, closures: Closures, now = new Date()): SlotInfo[] {
   const length = Math.max(5, config.slotIncrement) * MINUTE;
   const earliest = now.getTime() + config.minNotice * MINUTE;
   const latest = now.getTime() + config.maxAdvanceDays * DAY; // nothing is offered (or accepted) further ahead than this
@@ -64,10 +72,12 @@ export function computeSlots(config: Config, taken: Taken[], from: string, days:
 
   for (let i = 0; i < days; i++) {
     const date = addDays(from, i);
+    const closed = closedOn(closures, date, tz);
+    if (!closed) continue; // a holiday
 
     for (const { start, end } of hoursOn(config, date)) {
       for (let t = studioTime(date, start, tz); t + length <= studioTime(date, end, tz); t += length) {
-        if (t < earliest || t > latest) continue;
+        if (t < earliest || t > latest || closed.some(([from, to]) => t < to && t + length > from)) continue;
         slots.push({ startsAt: new Date(t).toISOString(), endsAt: new Date(t + length).toISOString(), modes: openModes(config, taken, new Date(t), new Date(t + length)) });
       }
     }
@@ -95,12 +105,12 @@ export async function takenAround(moduleId: string, from: Date, to: Date, exclud
  * A module's slot config and its slots (see computeSlots); config is null until an admin sets it up.
  * `excludeBookingId` leaves one booking out of what is taken (rescheduling it must not block its own time).
  */
-export async function loadAvailability(moduleId: string, from: string, days: number, tz: string, excludeBookingId?: string) {
+export async function loadAvailability(moduleId: string, from: string, days: number, tz: string, closures: Closures, excludeBookingId?: string) {
   const [config] = await db.select().from(slotConfig).where(eq(slotConfig.moduleId, moduleId));
   if (!config) return { config: null, slots: [] as SlotInfo[] };
   const windowStart = new Date(studioTime(from, '00:00', tz));
   const taken = await takenAround(moduleId, windowStart, new Date(windowStart.getTime() + days * DAY), excludeBookingId);
-  return { config, slots: computeSlots(config, taken, from, days, tz) };
+  return { config, slots: computeSlots(config, taken, from, days, tz, closures) };
 }
 
 // ---------- a coordinator's own hours and calendar ----------
@@ -171,7 +181,7 @@ export async function leastLoaded<T extends { id: string }>(candidates: T[], sta
  * A coordinator's calendar over `days` days: their own sessions (booked), and the slots they can still be booked in (available):
  * a slot of an active service that has room, falls inside their hours and overlaps none of their sessions.
  */
-export async function coordinatorCalendar(coordinator: { id: string; availability: Availability | null }, from: string, days: number, tz: string): Promise<CoordinatorSlot[]> {
+export async function coordinatorCalendar(coordinator: { id: string; availability: Availability | null }, from: string, days: number, tz: string, closures: Closures): Promise<CoordinatorSlot[]> {
   const windowStart = new Date(studioTime(from, '00:00', tz));
   const windowEnd = new Date(windowStart.getTime() + days * DAY);
   const [services, sessions] = await Promise.all([
@@ -197,7 +207,7 @@ export async function coordinatorCalendar(coordinator: { id: string; availabilit
   const free = new Map<string, CoordinatorSlot>(); // one row per time, listing every service that can be booked in it
   await Promise.all(
     services.map(async ({ config, name }) => {
-      for (const slot of computeSlots(config, await takenAround(config.moduleId, windowStart, windowEnd), from, days, tz)) {
+      for (const slot of computeSlots(config, await takenAround(config.moduleId, windowStart, windowEnd), from, days, tz, closures)) {
         const start = new Date(slot.startsAt);
         const end = new Date(slot.endsAt);
         if (!slot.modes.length || !withinHours(coordinator.availability, start, end, tz) || sessions.some((s) => s.booking.startTime < end && s.booking.endTime > start)) continue;
@@ -247,4 +257,33 @@ export function parseHours(body: Record<string, unknown>): Availability {
     return override;
   });
   return { weeklyRules, dateOverrides };
+}
+
+/** A real calendar date (YYYY-MM-DD): the shape is right and the day exists. */
+const realDate = (value: unknown): value is string => typeof value === 'string' && DATE.test(value) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);
+
+const MAX_BREAKS = 20;
+const MAX_HOLIDAYS = 400;
+const MAX_HOLIDAY_DAYS = 120;
+
+/** The studio's breaks and holidays from a request body, checked (Settings, Slot manager > Breaks & holidays). Holidays come back in date order. */
+export function parseClosures(body: unknown): Closures {
+  const raw = (body ?? {}) as Record<string, unknown>;
+  const breaks = list(raw.breaks, 'Breaks').map((b) => {
+    const days = Array.isArray(b.days) ? [...new Set(b.days.map((d) => count(d, 'Weekday', 0, 6)))].sort() : [];
+    if (!days.length) throw new HttpError(400, 'Choose at least one day for each break');
+    const range = { start: time(b.start, 'Break start'), end: time(b.end, 'Break end') };
+    if (range.end <= range.start) throw new HttpError(400, 'Each break must end after it starts');
+    return { label: optString(b.label).slice(0, 40) || 'Break', days, ...range };
+  });
+  const holidays = list(raw.holidays, 'Holidays').map((h) => {
+    const name = needString(h.name, 'Holiday name').slice(0, 80);
+    const to = typeof h.to === 'string' && h.to ? h.to : h.from;
+    if (!realDate(h.from) || !realDate(to)) throw new HttpError(400, `"${name}": dates must look like 2026-11-08`);
+    if (to < h.from) throw new HttpError(400, `"${name}" ends before it starts`);
+    if ((Date.parse(to) - Date.parse(h.from)) / DAY >= MAX_HOLIDAY_DAYS) throw new HttpError(400, `"${name}" is longer than ${MAX_HOLIDAY_DAYS} days`);
+    return { name, from: h.from, to };
+  });
+  if (breaks.length > MAX_BREAKS || holidays.length > MAX_HOLIDAYS) throw new HttpError(400, `At most ${MAX_BREAKS} breaks and ${MAX_HOLIDAYS} holidays`);
+  return { breaks, holidays: holidays.sort((a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name)) };
 }

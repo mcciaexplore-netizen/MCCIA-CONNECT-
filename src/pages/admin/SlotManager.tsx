@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
+import ClosuresEditor from '../../components/slots/ClosuresEditor';
 import CoordinatorsView from '../../components/slots/CoordinatorsView';
 import { badDay, DateOverrides, WeeklyHours } from '../../components/slots/HoursEditors';
 import DataState from '../../components/ui/DataState';
@@ -70,7 +71,7 @@ function ConfigEditor({ moduleId, config }: { moduleId: string; config?: SlotCon
     <form onSubmit={save} className="space-y-6">
       <section className="card">
         <h2 className="mb-1 font-semibold">Weekly availability</h2>
-        <p className="mb-4 text-ink-2">Switch a day on and set its hours, in {settings.timezone.label} ({settings.timezone.offset}, set in Settings). Add a second range for a lunch break.</p>
+        <p className="mb-4 text-ink-2">Switch a day on and set its hours, in {settings.timezone.label} ({settings.timezone.offset}, set in Settings). Lunch, half-days and festival leaves are set once for the whole studio under Breaks &amp; holidays.</p>
         <WeeklyHours rules={draft.weeklyRules} onChange={(weeklyRules) => setDraft({ ...draft, weeklyRules })} />
       </section>
 
@@ -99,7 +100,7 @@ export default function SlotManager() {
   const { modules, slotConfigs } = useData();
   const navigate = useNavigate();
   const page = usePageData('slotConfigs');
-  const [view, setView] = useState<'services' | 'coordinators'>('services');
+  const [view, setView] = useState<'services' | 'coordinators' | 'closures'>('services');
   const [moduleId, setModuleId] = useState('');
 
   const selected = modules.find((m) => m.id === moduleId) ?? modules[0];
@@ -112,21 +113,25 @@ export default function SlotManager() {
         <div>
           <h1 className="page-title">Slot manager</h1>
           <p className="page-sub">
-            {view === 'coordinators'
+            {view === 'closures'
+              ? 'When the studio is closed: the daily lunch break, half-days and festival leaves. They apply to every service and every coordinator.'
+              : view === 'coordinators'
               ? "Each coordinator's own hours, and which of their slots are free or booked. Bookings from every account show up here."
               : `Slots are generated from these rules, minus what is already booked. ${selected && !config ? 'This module has no availability yet, so nothing can be booked.' : ''}`}
           </p>
         </div>
       </div>
       <div className="mb-4 flex gap-2" role="tablist">
-        {(['services', 'coordinators'] as const).map((tab) => (
+        {([['services', 'Services'], ['coordinators', 'Coordinators'], ['closures', 'Breaks & holidays']] as const).map(([tab, label]) => (
           <button key={tab} role="tab" aria-selected={view === tab} onClick={() => setView(tab)} className={cn('btn', view === tab && 'border-primary bg-primary-light text-primary-dark')}>
-            {tab === 'services' ? 'Services' : 'Coordinators'}
+            {label}
           </button>
         ))}
       </div>
 
-      {view === 'coordinators' ? (
+      {view === 'closures' ? (
+        <ClosuresEditor />
+      ) : view === 'coordinators' ? (
         <CoordinatorsView />
       ) : !selected ? (
         <div className="card">

@@ -13,6 +13,12 @@ export async function findCompany(name: string) {
   return company;
 }
 
+/** SQL for the id of the company a name belongs to (used inside an insert, after the company itself was inserted). */
+export const companyIdOf = (name: string) => sql<string>`(select id from companies where name_normalized = normalize_company_name(${name}))`;
+
+/** SQL for the coordinator of the company a name belongs to (null when it has none or does not exist yet). */
+export const companyCoordinatorOf = (name: string) => sql<string | null>`(select assigned_coordinator_id from companies where name_normalized = normalize_company_name(${name}))`;
+
 /** The client's company, created (and the client linked to it) if that was never done. */
 export async function companyOf(client: { id: string; companyName: string; companyId: string | null }) {
   if (client.companyId) {

@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadSettings, needString, optString, ownedBy, parseClient, readBody, requireUser, siteOrigin, UUID, type Actor, type AuthUser } from './_lib.js';
 import { clashesOf, ensureCoordinatorFree, freeCoordinators, leastLoaded, loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
 import { assignClient } from './_assign.js';
-import { findCompany } from './_companies.js';
+import { companyIdOf, findCompany } from './_companies.js';
 import { updateSheet } from './_live_excel.js';
 import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
@@ -112,7 +112,7 @@ async function rescheduleSession(user: AuthUser, bookingId: string, body: Record
   // The new time must be an open slot for this mode, not counting the session itself.
   const settings = await loadSettings();
   const tz = settings.timezone.tz;
-  const { config, slots } = await loadAvailability(row.module.id, studioDate(start, tz), 1, tz, bookingId);
+  const { config, slots } = await loadAvailability(row.module.id, studioDate(start, tz), 1, tz, settings.closures, bookingId);
   const slot = slots.find((s) => new Date(s.startsAt).getTime() === start.getTime());
   if (!config || !slot?.modes.includes(row.booking.mode)) throw new HttpError(409, 'That time is not available. Please pick another.');
   const end = new Date(slot.endsAt);
@@ -222,7 +222,7 @@ export default handler({
     // The chosen time must still be open for this mode.
     const settings = await loadSettings();
     const tz = settings.timezone.tz;
-    const { config, slots } = await loadAvailability(module.id, studioDate(start, tz), 1, tz);
+    const { config, slots } = await loadAvailability(module.id, studioDate(start, tz), 1, tz, settings.closures);
     const slot = slots.find((s) => new Date(s.startsAt).getTime() === start.getTime());
     if (!config || !slot?.modes.includes(mode)) throw new HttpError(409, 'Sorry, that time is no longer available. Please pick another.');
     const end = new Date(slot.endsAt);
@@ -288,7 +288,7 @@ export default handler({
     const clientId = existing?.id ?? crypto.randomUUID();
     const bookingId = crypto.randomUUID();
     const ticketId = crypto.randomUUID();
-    const companyIdOf = sql<string>`(select id from companies where name_normalized = normalize_company_name(${clientInput.companyName}))`;
+    const companyId = companyIdOf(clientInput.companyName);
 
     // Take one of the IP's 3 allowed bookings now, before anything is written, so parallel requests cannot all get in.
     // It is given back if the booking then does not happen.
@@ -301,10 +301,10 @@ export default handler({
       const writes = [
         ...(company ? [] : [db.insert(companies).values({ name: clientInput.companyName, nameNormalized: sql`normalize_company_name(${clientInput.companyName})` }).onConflictDoNothing()]),
         // A new client starts with the company's coordinator, when it has one.
-        ...(existing ? [] : [db.insert(clients).values({ id: clientId, ...clientInput, companyId: companyIdOf, assignedCoordinatorId: permanent?.id ?? null })]),
+        ...(existing ? [] : [db.insert(clients).values({ id: clientId, ...clientInput, companyId: companyId, assignedCoordinatorId: permanent?.id ?? null })]),
         ...(!existing && permanent ? [db.insert(coordinatorAssignments).values({ clientId, coordinatorId: permanent.id })] : []),
         ...(existing && Object.keys(missing).length ? [db.update(clients).set(missing).where(eq(clients.id, existing.id))] : []),
-        ...(existing && !existing.companyId ? [db.update(clients).set({ companyId: companyIdOf }).where(eq(clients.id, existing.id))] : []),
+        ...(existing && !existing.companyId ? [db.update(clients).set({ companyId: companyId }).where(eq(clients.id, existing.id))] : []),
         ...(existing && permanent && existing.assignedCoordinatorId !== permanent.id ? [db.update(clients).set({ assignedCoordinatorId: permanent.id }).where(eq(clients.id, existing.id))] : []),
         // The client had a coordinator but their company did not (older data): the company takes it, so the whole company shares it.
         ...(company && permanent && !company.assignedCoordinatorId ? [db.update(companies).set({ assignedCoordinatorId: permanent.id }).where(eq(companies.id, company.id))] : []),

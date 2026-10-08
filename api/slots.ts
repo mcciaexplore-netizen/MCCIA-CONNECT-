@@ -17,7 +17,8 @@ export default handler({
       return await db.select().from(slotConfig);
     }
 
-    const { tz } = (await loadSettings()).timezone;
+    const settings = await loadSettings();
+    const { tz } = settings.timezone;
     const from = url.searchParams.get('from') ?? studioDate(new Date(), tz);
     if (!DATE.test(from)) throw new HttpError(400, 'from must be a date like 2026-10-12');
     const days = Math.min(MAX_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
@@ -28,13 +29,13 @@ export default handler({
       if (!id || !UUID.test(id) || (user.role !== 'super_admin' && id !== user.coordinatorId)) throw new HttpError(404, 'Coordinator not found');
       const [coordinator] = await db.select().from(coordinators).where(eq(coordinators.id, id));
       if (!coordinator) throw new HttpError(404, 'Coordinator not found');
-      return await coordinatorCalendar(coordinator, from, days, tz);
+      return await coordinatorCalendar(coordinator, from, days, tz, settings.closures);
     }
 
     const [module] = await db.select({ id: modules.id }).from(modules).where(and(eq(modules.slug, slug!), eq(modules.isActive, true)));
     if (!module) throw new HttpError(404, 'This booking page does not exist');
     // Kept for 10 s by the CDN: a slot taken in that moment is caught by the booking itself (it re-checks and says so).
-    return cached((await loadAvailability(module.id, from, days, tz)).slots, 10);
+    return cached((await loadAvailability(module.id, from, days, tz, settings.closures)).slots, 10);
   },
 
   // Saves (creates or replaces) a module's slot config.

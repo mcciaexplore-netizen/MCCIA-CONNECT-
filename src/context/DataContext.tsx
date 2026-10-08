@@ -103,8 +103,8 @@ interface DataContextValue extends Base, Records {
   get: <T = unknown>(path: string) => Promise<T>;
   /** Calls a write endpoint, toasts the outcome and shows the saved result straight away (the rest reloads quietly). Resolves to null when it failed. */
   mutate: <T = unknown>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown, success?: string) => Promise<T | null>;
-  /** Downloads an Excel file, generated fresh: every module's tab, just the given tickets, or (audit) the audit log. */
-  exportExcel: (options?: { ids?: string[]; audit?: boolean }) => Promise<void>;
+  /** Downloads an Excel file, generated fresh: every module's tab, just the given tickets, the audit log, or the empty import file of a module (`template` = its id). */
+  exportExcel: (options?: { ids?: string[]; audit?: boolean; template?: string }) => Promise<void>;
   // used by usePageData
   want: (slices: Slice[]) => void;
   ready: Slice[];
@@ -315,22 +315,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const brandName = base.settings.brand.name;
   const exportExcel: DataContextValue['exportExcel'] = useCallback(
-    async ({ ids, audit } = {}) => {
+    async ({ ids, audit, template } = {}) => {
       try {
-        const query = audit ? 'audit=1' : `modules=all${ids ? `&ids=${ids.join(',')}` : ''}`;
-        const file = await api<Blob>(`/api/excel/download?${query}`, { blob: true });
+        const query = template ? `template?module=${template}` : audit ? 'download?audit=1' : `download?modules=all${ids ? `&ids=${ids.join(',')}` : ''}`;
+        const file = await api<Blob>(`/api/excel/${query}`, { blob: true });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(file);
         const brand = brandName.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'Studio';
-        link.download = `${brand}-${audit ? 'Audit-Logs' : 'Bookings'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+        const kind = template ? `Import-${base.modules.find((m) => m.id === template)?.slug ?? 'tickets'}` : audit ? 'Audit-Logs' : 'Bookings';
+        link.download = `${brand}-${kind}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
         link.click();
         URL.revokeObjectURL(link.href);
-        toast.success(audit ? 'Audit log downloaded' : 'Excel downloaded');
+        toast.success(template ? 'Import file downloaded' : audit ? 'Audit log downloaded' : 'Excel downloaded');
       } catch (e) {
         if (!sessionEnded(e)) toast.error(errorMessage(e));
       }
     },
-    [sessionEnded, brandName],
+    [sessionEnded, brandName, base.modules],
   );
 
   // ---------- lookups ----------

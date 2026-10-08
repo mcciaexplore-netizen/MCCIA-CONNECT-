@@ -1,6 +1,7 @@
 import { audit, cached, db, handler, HttpError, loadSettings, readBody, requireUser } from './_lib.js';
 import { syncEverything } from './_live_excel.js';
 import { appSettings } from './_schema.js';
+import { parseClosures } from './_availability.js';
 import { DEFAULT_SETTINGS, TIMEZONES, type AppSettings, type PublicSettings } from '../src/types/index.js';
 
 export default handler({
@@ -43,6 +44,7 @@ export default handler({
         if (!zone) throw new HttpError(400, 'Choose one of the listed time zones');
         return { key, value: { tz: zone.tz, label: zone.label, offset: zone.offset, locale: zone.locale }, updatedAt: new Date() };
       }
+      if (key === 'closures') return { key, value: parseClosures(sent), updatedAt: new Date() };
       const value = Object.fromEntries(
         Object.entries(DEFAULT_SETTINGS[key]).map(([field, fallback]) => [field, typeof sent[field] === typeof fallback ? sent[field] : fallback]),
       ) as AppSettings[typeof key];

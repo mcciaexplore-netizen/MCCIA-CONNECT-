@@ -13,6 +13,9 @@ import { CLIENT_FIELDS, DEFAULT_POST_CONSULTATION_QUESTIONS, defaultPostQuestion
 export const nextRowNumber = (moduleId: string) =>
   sql<number>`(select coalesce(max(${bookings.excelRowNumber}), 0) + 1 from ${bookings} where ${bookings.moduleId} = ${moduleId})`;
 
+/** The headers other code needs to find: the ticket number, and the columns that hold when and how a session happened. */
+export const FIELD = { ticket: 'Ticket ID', domain: 'Domain', mode: 'Mode of Consultation', date: 'Date', time: 'Time Slot', coordinator: 'Coordinator Assigned' } as const;
+
 export interface Row {
   srNo: number;
   domain: string; // the module (its tab)
@@ -63,13 +66,13 @@ const CONSULTANT_VALUES: Record<string, (r: Row) => string | number> = {
 function buildColumns(consultantForm: FormField[]): Column[] {
   return [
     column('auto', 'Sr. No', 6, (r) => r.srNo),
-    column('auto', 'Ticket ID', 16, (r) => r.ticket.ticketNumber),
-    column('auto', 'Domain', 20, (r) => r.domain),
-    column('auto', 'Mode of Consultation', 12, (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline')),
-    column('auto', 'Date', 12, (r, z) => dateText(z, r.booking.startTime)),
+    column('auto', FIELD.ticket, 16, (r) => r.ticket.ticketNumber),
+    column('auto', FIELD.domain, 20, (r) => r.domain),
+    column('auto', FIELD.mode, 12, (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline')),
+    column('auto', FIELD.date, 12, (r, z) => dateText(z, r.booking.startTime)),
     column('auto', 'Month/Year', 10, (r, z) => monthText(z, r.booking.startTime)),
-    column('auto', 'Time Slot', 10, (r, z) => timeText(z, r.booking.startTime)),
-    column('auto', 'Coordinator Assigned', 18, (r) => r.coordinator ?? 'Unassigned'),
+    column('auto', FIELD.time, 10, (r, z) => timeText(z, r.booking.startTime)),
+    column('auto', FIELD.coordinator, 18, (r) => r.coordinator ?? 'Unassigned'),
     column('auto', 'Year-Month', 10, (r, z) => yearMonthText(z, r.booking.startTime)),
     ...CLIENT_FIELDS.map(({ key, label, type }) => column('booking', label, 18, (r) => (key === 'employmentRange' ? numeric(clientText(r.client, key)) : type === 'tel' ? r.client.phone : clientText(r.client, key)))),
     ...consultantForm.map(({ id, label, type }) =>
@@ -87,6 +90,56 @@ export function columnsFor(slug: string) {
   if (!hasOwnPostQuestions(slug)) return COLUMNS;
   if (!own.has(slug)) own.set(slug, buildColumns(defaultPostQuestions(slug)));
   return own.get(slug)!;
+}
+
+// ---------- the studio's own workbook: its headers against ours ----------
+
+/** A header with capitals and spaces taken out: how headers are compared. */
+export const norm = (text: string) => text.toUpperCase().replace(/\s+/g, '');
+
+/** Headers as the workbook spells them (typos included) -> the download column that holds the same thing. Others match by their own name. */
+const ALIASES: Record<string, string> = {
+  'SR NO': 'Sr. No',
+  'TICKET': 'Ticket ID',
+  'CONTACT': 'Contact / Phone',
+  'PAYMENT': 'Payment Status',
+  'CONSLTATION STATUS': 'Consultation Status',
+  'HOD/COORDINATOR ASSIGNED': 'Coordinator Assigned',
+  'MEMBER/ NON MEMBER': 'Member / Non-Member',
+  'MODE OF APPLET SETUP': 'Mode of Consultation',
+  'AQUISTION FROM': 'Acquisition From',
+  'TIME SPAN': 'Time Span (minutes)',
+  'AVERAGE RATE OF THE SOLUTION': 'Rate solution/recommendation',
+  'RATE THE CONSULTANT': 'Rate understanding level',
+  'ADDITIONAL SUGGESTION': 'Additional Suggestions',
+  'EMPLOYEMENT RANGE': 'Employment Range',
+  'ESTIMANTED BUDGET FOR AI': 'Estimated Budget for AI',
+  'ONLINE PRESENSE': 'Online Presence',
+  'ACCOUTING/GST': 'Accounting & GST',
+  'DATA USAGE IN DECISION': 'Data Usage in Decisions',
+  'SYSTEM INTEGRATIONS': 'System Integration',
+  'ATTENDANCE/PAYROLL MANGEMENT': 'Attendance & Payroll Management',
+  'DASHBOARD TOOL': 'Dashboard Tools',
+  'TIME COST(IN HOURS)': 'Time Cost (hours)',
+  'MONEY COST(INR)': 'Money Cost (INR)',
+  'IMPLEMENTATION LEVEL': 'AI Implementation Level',
+};
+const aliases = new Map(Object.entries(ALIASES).map(([sheet, column]) => [norm(sheet), norm(column)]));
+
+/** What a header is called in the download: its alias when the workbook spells it another way, else itself (both compared with `norm`). */
+export const downloadName = (header: string) => aliases.get(norm(header)) ?? norm(header);
+
+/** How a sheet's headers map to the columns of its module's tab (a module's own consultant form gives its own columns, e.g. Applet Setup's). */
+export type ColumnOf = (header: string) => Column | undefined;
+const mappings = new Map<string, ColumnOf>();
+export function mappingOf(slug: string): ColumnOf {
+  let mapping = mappings.get(slug);
+  if (!mapping) {
+    const byName = new Map(columnsFor(slug).map((column) => [norm(column.header), column]));
+    mapping = (header) => byName.get(downloadName(header));
+    mappings.set(slug, mapping);
+  }
+  return mapping;
 }
 
 /** Tickets with what their rows need (booking, client, the coordinator's name, module), in Sr. No order. `condition` picks the tickets. */

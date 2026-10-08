@@ -1,7 +1,7 @@
 import { eq, inArray, type SQL } from 'drizzle-orm';
 import { db, loadSettings } from './_lib.js';
 import { studioDate } from './_availability.js';
-import { columnsFor, ticketRows, type Column, type Row } from './_excel.js';
+import { FIELD, mappingOf, norm, ticketRows, type ColumnOf, type Row } from './_excel.js';
 import { excelConfigured, forgetWorkbook, removeRows, syncSheet, upsertRows, warmUp, type Cell, type SheetRow, type SyncResult } from './_graph.js';
 import { inBackground } from './_sessions.js';
 import { adminNotifications, modules, tickets } from './_schema.js';
@@ -18,59 +18,15 @@ import { FEEDBACK_FIELDS, type StudioZone } from '../src/types/index.js';
  */
 
 /** Module slug -> its sheet in the workbook. (WORKSHOP and CLUSTER are not connected yet.) */
-const SHEETS: Record<string, string> = { 'ai-consultation': 'CONSULTATION', 'applet-setup': 'APPLET' };
-
-const norm = (text: string) => text.toUpperCase().replace(/\s+/g, '');
-
-/** Headers as the workbook spells them (typos included) -> the download column that holds the same thing. Others match by their own name. */
-const ALIASES: Record<string, string> = {
-  'SR NO': 'Sr. No',
-  'TICKET': 'Ticket ID',
-  'CONTACT': 'Contact / Phone',
-  'PAYMENT': 'Payment Status',
-  'CONSLTATION STATUS': 'Consultation Status',
-  'HOD/COORDINATOR ASSIGNED': 'Coordinator Assigned',
-  'MEMBER/ NON MEMBER': 'Member / Non-Member',
-  'MODE OF APPLET SETUP': 'Mode of Consultation',
-  'AQUISTION FROM': 'Acquisition From',
-  'TIME SPAN': 'Time Span (minutes)',
-  'AVERAGE RATE OF THE SOLUTION': 'Rate solution/recommendation',
-  'RATE THE CONSULTANT': 'Rate understanding level',
-  'ADDITIONAL SUGGESTION': 'Additional Suggestions',
-  'EMPLOYEMENT RANGE': 'Employment Range',
-  'ESTIMANTED BUDGET FOR AI': 'Estimated Budget for AI',
-  'ONLINE PRESENSE': 'Online Presence',
-  'ACCOUTING/GST': 'Accounting & GST',
-  'DATA USAGE IN DECISION': 'Data Usage in Decisions',
-  'SYSTEM INTEGRATIONS': 'System Integration',
-  'ATTENDANCE/PAYROLL MANGEMENT': 'Attendance & Payroll Management',
-  'DASHBOARD TOOL': 'Dashboard Tools',
-  'TIME COST(IN HOURS)': 'Time Cost (hours)',
-  'MONEY COST(INR)': 'Money Cost (INR)',
-  'IMPLEMENTATION LEVEL': 'AI Implementation Level',
-};
-const aliases = new Map(Object.entries(ALIASES).map(([sheet, column]) => [norm(sheet), norm(column)]));
-
-/** How a sheet's headers map to the columns of its module's tab (a module's own consultant form gives its own columns, e.g. Applet Setup's). */
-type ColumnOf = (header: string) => Column | undefined;
-const mappings = new Map<string, ColumnOf>();
-function mappingOf(slug: string): ColumnOf {
-  let mapping = mappings.get(slug);
-  if (!mapping) {
-    const byName = new Map(columnsFor(slug).map((column) => [norm(column.header), column]));
-    mapping = (header) => byName.get(aliases.get(norm(header)) ?? norm(header));
-    mappings.set(slug, mapping);
-  }
-  return mapping;
-}
+export const SHEETS: Record<string, string> = { 'ai-consultation': 'CONSULTATION', 'applet-setup': 'APPLET' };
 
 /** What writing a module's sheet needs: its name, which header is the ticket column and which column holds dates. */
 function sheetOf(slug: string) {
   const columnOf = mappingOf(slug);
   return {
     name: SHEETS[slug],
-    isTicket: (header: string) => columnOf(header)?.header === 'Ticket ID',
-    formats: [{ header: (header: string) => columnOf(header)?.header === 'Date', code: 'dd/mm/yyyy' }],
+    isTicket: (header: string) => columnOf(header)?.header === FIELD.ticket,
+    formats: [{ header: (header: string) => columnOf(header)?.header === FIELD.date, code: 'dd/mm/yyyy' }],
   };
 }
 
@@ -97,7 +53,7 @@ function sheetRow(row: Row, zone: StudioZone, columnOf: ColumnOf): SheetRow {
         if (norm(header) === AVERAGE_RATING) return averageRating(row);
         const column = columnOf(header);
         if (!column) return null;
-        return column.header === 'Date' ? excelDate(row.booking.startTime, zone.tz) : column.value(row, zone);
+        return column.header === FIELD.date ? excelDate(row.booking.startTime, zone.tz) : column.value(row, zone);
       }),
   };
 }

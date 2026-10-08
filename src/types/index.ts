@@ -193,12 +193,32 @@ export interface StudioZone {
 }
 
 /** app_settings rows, one key each. */
+/** A gap the studio is closed at the same time every week (lunch, a half-day): on the weekdays listed (0 = Sunday ... 6 = Saturday), in studio time. */
+export interface StudioBreak {
+  label: string;
+  days: number[];
+  start: string; // HH:mm
+  end: string;
+}
+/** A festival or leave: the studio is closed from `from` to `to`, both days included (the same date for a single day). YYYY-MM-DD. */
+export interface Holiday {
+  name: string;
+  from: string;
+  to: string;
+}
+/** When the studio is closed whatever a service's own hours say: no slot is offered or accepted for any service or coordinator. */
+export interface Closures {
+  breaks: StudioBreak[];
+  holidays: Holiday[];
+}
+
 export interface AppSettings {
   brand: { name: string };
   apps_script_url: { url: string };
   venue: { address: string };
   notifications: { admin_email: string; send_confirmations: boolean; lead_time_hours: number }; // lead_time_hours: how long before a session the reminder goes out (0 = no reminders)
   timezone: StudioZone;
+  closures: Closures;
 }
 
 /** The zones offered in Settings > Time zone. The studio's slot hours are read in the chosen zone. */
@@ -219,6 +239,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   venue: { address: '' },
   notifications: { admin_email: '', send_confirmations: true, lead_time_hours: 24 },
   timezone: (({ tz, label, offset, locale }) => ({ tz, label, offset, locale }))(TIMEZONES[0]),
+  // Lunch every day and Saturday afternoon, until an admin changes them (Slot manager > Breaks & holidays).
+  closures: {
+    breaks: [
+      { label: 'Lunch', days: [0, 1, 2, 3, 4, 5, 6], start: '13:00', end: '14:00' },
+      { label: 'Saturday afternoon', days: [6], start: '14:00', end: '16:00' },
+    ],
+    holidays: [],
+  },
 };
 
 /** The settings anyone may read (GET /api/settings?public=1): what the public pages and every role need. */
@@ -391,6 +419,37 @@ export function validateClient(client: ClientInput, complete = true) {
   }
   return errors;
 }
+
+// ---------- importing tickets from a file (Tickets > Import) ----------
+
+/** A field a file's column can be matched to; `label` is also the header the template uses. */
+export interface ImportTarget {
+  label: string;
+  required: boolean;
+}
+/** The file as read (POST /api/excel/import, step "read"): its sheets, header row, rows as text, and which target each column probably is (null = not matched). */
+export interface ImportRead {
+  sheets: string[];
+  sheet: number;
+  headers: string[];
+  rows: string[][];
+  firstRow: number; // the row number (as Excel counts) of rows[0]
+  mapping: (string | null)[];
+  targets: ImportTarget[];
+}
+/** What a check (nothing saved) or a run of the import found. `row` is the row's number in the file. */
+export interface ImportReport {
+  ready: number; // rows that can be imported
+  created: number; // tickets saved by this request (0 for a check)
+  duplicates: number; // rows whose session is already in the app (same email, module and start time)
+  failed: number;
+  errors: { row: number; message: string }[]; // the first ones only
+  warnings: string[];
+  tickets: string[]; // the numbers of the first tickets saved
+}
+/** The most rows one file may have, and how many go in one request while importing. */
+export const IMPORT_MAX_ROWS = 1500;
+export const IMPORT_CHUNK = 100;
 
 /** An admin login, as Settings > Team lists it (GET /api/auth/users). */
 export interface AdminUser {

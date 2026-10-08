@@ -26,6 +26,9 @@
     },
     "api/clients.ts": {
       "maxDuration": 60
+    },
+    "api/excel/[action].ts": {
+      "maxDuration": 60
     }
   },
   "headers": [

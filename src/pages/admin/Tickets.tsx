@@ -8,6 +8,7 @@ import DataTable, { type Column } from '../../components/ui/DataTable';
 import EmptyState from '../../components/ui/EmptyState';
 import Pager, { pageOf } from '../../components/ui/Pager';
 import Icon, { type IconName } from '../../components/ui/Icon';
+import ImportModal from '../../components/ticket/ImportModal';
 import ModePill from '../../components/ui/ModePill';
 import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -31,6 +32,7 @@ export default function Tickets() {
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tableKey, setTableKey] = useState(0); // remounting the table clears its checkboxes
+  const [importing, setImporting] = useState(false);
 
   const clearSelection = () => {
     setSelectedIds([]);
@@ -133,6 +135,7 @@ export default function Tickets() {
         </div>
         {admin && (
           <div className="flex gap-2">
+            <button className="btn" onClick={() => setImporting(true)}>Import tickets</button>
             <button className="btn" onClick={() => exportExcel()}>Export all to Excel</button>
             <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking')}>+ Create Booking</button>
           </div>
@@ -216,6 +219,7 @@ export default function Tickets() {
           <Pager total={rows.length} page={page} onPage={goTo} always />
         </>
       )}
+      {importing && <ImportModal onClose={() => setImporting(false)} />}
     </div>
   );
 }
