@@ -2,8 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { db } from '../src/lib/db.js';
 import { passwordStamp, verifyToken, readCookie, SESSION_COOKIE } from './_auth.js';
-import { appSettings, auditLogs, coordinators, formQuestions, users } from './_schema.js';
-import { BOOKING_FORM, DEFAULT_POST_CONSULTATION_QUESTIONS, DEFAULT_SETTINGS, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, POST_CONSULTATION_FORM, ROLES, type AppSettings, type FormField, type Role } from '../src/types/index.js';
+import { appSettings, auditLogs, coordinators, formQuestions, modules, users } from './_schema.js';
+import { BOOKING_FORM, defaultPostQuestions, DEFAULT_SETTINGS, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, POST_CONSULTATION_FORM, ROLES, type AppSettings, type FormField, type Role } from '../src/types/index.js';
 
 export { db };
 
@@ -196,8 +196,9 @@ async function loadQuestions(formType: string) {
 
 export const loadBookingQuestions = () => loadQuestions(BOOKING_FORM);
 
-/** Returns a lookup: a module's post-consultation questions, or the defaults when it has none saved. */
+/** Returns a lookup: a module's post-consultation questions, or its default form when it has none saved (Applet Setup has its own, see types). */
 export async function loadPostQuestions() {
-  const byModule = await loadQuestions(POST_CONSULTATION_FORM);
-  return (moduleId: string) => byModule.get(moduleId) ?? DEFAULT_POST_CONSULTATION_QUESTIONS;
+  const [byModule, all] = await Promise.all([loadQuestions(POST_CONSULTATION_FORM), db.select({ id: modules.id, slug: modules.slug }).from(modules)]);
+  const slugOf = new Map(all.map((m) => [m.id, m.slug]));
+  return (moduleId: string) => byModule.get(moduleId) ?? defaultPostQuestions(slugOf.get(moduleId));
 }

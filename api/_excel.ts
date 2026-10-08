@@ -1,7 +1,7 @@
 import { asc, eq, sql, type SQL } from 'drizzle-orm';
 import { db } from './_lib.js';
 import { bookings, clients, coordinators, modules, tickets } from './_schema.js';
-import { CLIENT_FIELDS, DEFAULT_POST_CONSULTATION_QUESTIONS, FEEDBACK_COMMENTS, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, PAYMENT_LABELS, STATUS_LABELS, clientText, type StudioZone } from '../src/types/index.js';
+import { CLIENT_FIELDS, DEFAULT_POST_CONSULTATION_QUESTIONS, defaultPostQuestions, FEEDBACK_COMMENTS, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, PAYMENT_LABELS, STATUS_LABELS, clientText, hasOwnPostQuestions, type FormField, type StudioZone } from '../src/types/index.js';
 
 /**
  * What an Excel row of a ticket holds, column by column (no Excel library in here: the booking, ticket and client functions all load this file).
@@ -39,7 +39,7 @@ const numeric = (value: string) => (value !== '' && !Number.isNaN(Number(value))
 type Section = 'auto' | 'booking' | 'consultant' | 'feedback';
 const SECTION_FILL: Record<Section, string> = { auto: 'FF0157B3', booking: 'FF0157B3', consultant: 'FF0F7B5F', feedback: 'FF633806' };
 
-interface Column {
+export interface Column {
   header: string;
   width: number;
   fill: string;
@@ -59,24 +59,35 @@ const CONSULTANT_VALUES: Record<string, (r: Row) => string | number> = {
 };
 
 // Every field has its own column: 9 filled by the system (the 8 auto-generated ones and the Ticket ID), the 17 booking-form fields,
-// the 27 consultant-form fields and the 3 ratings plus Additional Suggestions of the feedback form.
-export const COLUMNS: Column[] = [
-  column('auto', 'Sr. No', 6, (r) => r.srNo),
-  column('auto', 'Ticket ID', 16, (r) => r.ticket.ticketNumber),
-  column('auto', 'Domain', 20, (r) => r.domain),
-  column('auto', 'Mode of Consultation', 12, (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline')),
-  column('auto', 'Date', 12, (r, z) => dateText(z, r.booking.startTime)),
-  column('auto', 'Month/Year', 10, (r, z) => monthText(z, r.booking.startTime)),
-  column('auto', 'Time Slot', 10, (r, z) => timeText(z, r.booking.startTime)),
-  column('auto', 'Coordinator Assigned', 18, (r) => r.coordinator ?? 'Unassigned'),
-  column('auto', 'Year-Month', 10, (r, z) => yearMonthText(z, r.booking.startTime)),
-  ...CLIENT_FIELDS.map(({ key, label, type }) => column('booking', label, 18, (r) => (key === 'employmentRange' ? numeric(clientText(r.client, key)) : type === 'tel' ? r.client.phone : clientText(r.client, key)))),
-  ...DEFAULT_POST_CONSULTATION_QUESTIONS.map(({ id, label, type }) =>
-    column('consultant', label, type === 'textarea' ? 30 : type === 'select' || type === 'checkbox' ? 22 : 14, CONSULTANT_VALUES[id] ?? ((r) => (type === 'number' ? numeric(post(r, id)) : post(r, id)))),
-  ),
-  ...FEEDBACK_FIELDS.map(({ key, label }) => column('feedback', label, 10, (r) => numeric(r.ticket.feedbackData[key] ?? ''))),
-  column('feedback', FEEDBACK_COMMENTS_LABEL, 30, (r) => r.ticket.feedbackData[FEEDBACK_COMMENTS] ?? ''),
-];
+// the consultant-form fields (27 by default) and the 3 ratings plus Additional Suggestions of the feedback form.
+function buildColumns(consultantForm: FormField[]): Column[] {
+  return [
+    column('auto', 'Sr. No', 6, (r) => r.srNo),
+    column('auto', 'Ticket ID', 16, (r) => r.ticket.ticketNumber),
+    column('auto', 'Domain', 20, (r) => r.domain),
+    column('auto', 'Mode of Consultation', 12, (r) => (r.booking.mode === 'online' ? 'Online' : 'Offline')),
+    column('auto', 'Date', 12, (r, z) => dateText(z, r.booking.startTime)),
+    column('auto', 'Month/Year', 10, (r, z) => monthText(z, r.booking.startTime)),
+    column('auto', 'Time Slot', 10, (r, z) => timeText(z, r.booking.startTime)),
+    column('auto', 'Coordinator Assigned', 18, (r) => r.coordinator ?? 'Unassigned'),
+    column('auto', 'Year-Month', 10, (r, z) => yearMonthText(z, r.booking.startTime)),
+    ...CLIENT_FIELDS.map(({ key, label, type }) => column('booking', label, 18, (r) => (key === 'employmentRange' ? numeric(clientText(r.client, key)) : type === 'tel' ? r.client.phone : clientText(r.client, key)))),
+    ...consultantForm.map(({ id, label, type }) =>
+      column('consultant', label, type === 'textarea' ? 30 : type === 'select' || type === 'checkbox' ? 22 : 14, CONSULTANT_VALUES[id] ?? ((r) => (type === 'number' ? numeric(post(r, id)) : post(r, id)))),
+    ),
+    ...FEEDBACK_FIELDS.map(({ key, label }) => column('feedback', label, 10, (r) => numeric(r.ticket.feedbackData[key] ?? ''))),
+    column('feedback', FEEDBACK_COMMENTS_LABEL, 30, (r) => r.ticket.feedbackData[FEEDBACK_COMMENTS] ?? ''),
+  ];
+}
+
+export const COLUMNS = buildColumns(DEFAULT_POST_CONSULTATION_QUESTIONS);
+const own = new Map<string, Column[]>();
+/** The columns of a module's tab: the same ones, with the module's own consultant form in the middle when it has one (Applet Setup). */
+export function columnsFor(slug: string) {
+  if (!hasOwnPostQuestions(slug)) return COLUMNS;
+  if (!own.has(slug)) own.set(slug, buildColumns(defaultPostQuestions(slug)));
+  return own.get(slug)!;
+}
 
 /** Tickets with what their rows need (booking, client, the coordinator's name, module), in Sr. No order. `condition` picks the tickets. */
 export async function ticketRows(condition: SQL | undefined) {

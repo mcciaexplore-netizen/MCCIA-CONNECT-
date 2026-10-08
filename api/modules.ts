@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { audit, cached, db, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser } from './_lib.js';
 import { formQuestions, modules } from './_schema.js';
-import { BOOKING_FORM, CHOICE_TYPES, DEFAULT_POST_CONSULTATION_QUESTIONS, FIELD_TYPES, POST_CONSULTATION_FORM, type DisabledModule, type FieldType, type FormField } from '../src/types/index.js';
+import { BOOKING_FORM, CHOICE_TYPES, defaultPostQuestions, FIELD_TYPES, POST_CONSULTATION_FORM, type DisabledModule, type FieldType, type FormField } from '../src/types/index.js';
 
 const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const color = (value: unknown) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#0157b3');
@@ -66,7 +66,7 @@ export default handler({
         .values({ name, slug, description: optString(body.description) || null, color: color(body.color) })
         .returning();
       await audit(user, 'module.created', 'module', module.id, undefined, { name });
-      return { ...module, questions: [], postQuestions: DEFAULT_POST_CONSULTATION_QUESTIONS };
+      return { ...module, questions: [], postQuestions: defaultPostQuestions(module.slug) };
     } catch (e) {
       throw isUniqueViolation(e) ? new HttpError(409, 'A module with this link already exists') : e;
     }

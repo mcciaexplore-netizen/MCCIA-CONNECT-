@@ -29,7 +29,7 @@ export default function FeedbackCard({ ticket }: { ticket: Ticket }) {
             return (
               <div key={key} className={isRating ? 'flex items-center justify-between gap-4' : undefined}>
                 <dt className="text-ink-2">{labelOf(key)}</dt>
-                <dd aria-label={isRating ? `${stars} out of 5` : undefined} className={isRating ? 'text-base tracking-wider text-gold' : 'mt-0.5 whitespace-pre-line'}>
+                <dd aria-label={isRating ? `${stars} out of 5` : undefined} className={isRating ? 'text-base tracking-wider text-gold' : 'mt-0.5 whitespace-pre-line break-words'}>
                   {isRating ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : value}
                 </dd>
               </div>

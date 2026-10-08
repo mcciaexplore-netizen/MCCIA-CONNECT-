@@ -1,7 +1,7 @@
 import { eq, inArray, type SQL } from 'drizzle-orm';
 import { db, loadSettings } from './_lib.js';
 import { studioDate } from './_availability.js';
-import { COLUMNS, ticketRows, type Row } from './_excel.js';
+import { columnsFor, ticketRows, type Column, type Row } from './_excel.js';
 import { excelConfigured, forgetWorkbook, removeRows, syncSheet, upsertRows, warmUp, type Cell, type SheetRow, type SyncResult } from './_graph.js';
 import { inBackground } from './_sessions.js';
 import { adminNotifications, modules, tickets } from './_schema.js';
@@ -17,8 +17,8 @@ import { FEEDBACK_FIELDS, type StudioZone } from '../src/types/index.js';
  * database and put right what differs.
  */
 
-/** Module slug -> its sheet in the workbook. (The other sheets are not connected yet.) */
-const SHEETS: Record<string, string> = { 'ai-consultation': 'CONSULTATION' };
+/** Module slug -> its sheet in the workbook. (WORKSHOP and CLUSTER are not connected yet.) */
+const SHEETS: Record<string, string> = { 'ai-consultation': 'CONSULTATION', 'applet-setup': 'APPLET' };
 
 const norm = (text: string) => text.toUpperCase().replace(/\s+/g, '');
 
@@ -31,6 +31,7 @@ const ALIASES: Record<string, string> = {
   'CONSLTATION STATUS': 'Consultation Status',
   'HOD/COORDINATOR ASSIGNED': 'Coordinator Assigned',
   'MEMBER/ NON MEMBER': 'Member / Non-Member',
+  'MODE OF APPLET SETUP': 'Mode of Consultation',
   'AQUISTION FROM': 'Acquisition From',
   'TIME SPAN': 'Time Span (minutes)',
   'AVERAGE RATE OF THE SOLUTION': 'Rate solution/recommendation',
@@ -49,10 +50,30 @@ const ALIASES: Record<string, string> = {
   'IMPLEMENTATION LEVEL': 'AI Implementation Level',
 };
 const aliases = new Map(Object.entries(ALIASES).map(([sheet, column]) => [norm(sheet), norm(column)]));
-const columns = new Map(COLUMNS.map((column) => [norm(column.header), column]));
-const columnOf = (header: string) => columns.get(aliases.get(norm(header)) ?? norm(header));
 
-const isTicketHeader = (header: string) => columnOf(header)?.header === 'Ticket ID';
+/** How a sheet's headers map to the columns of its module's tab (a module's own consultant form gives its own columns, e.g. Applet Setup's). */
+type ColumnOf = (header: string) => Column | undefined;
+const mappings = new Map<string, ColumnOf>();
+function mappingOf(slug: string): ColumnOf {
+  let mapping = mappings.get(slug);
+  if (!mapping) {
+    const byName = new Map(columnsFor(slug).map((column) => [norm(column.header), column]));
+    mapping = (header) => byName.get(aliases.get(norm(header)) ?? norm(header));
+    mappings.set(slug, mapping);
+  }
+  return mapping;
+}
+
+/** What writing a module's sheet needs: its name, which header is the ticket column and which column holds dates. */
+function sheetOf(slug: string) {
+  const columnOf = mappingOf(slug);
+  return {
+    name: SHEETS[slug],
+    isTicket: (header: string) => columnOf(header)?.header === 'Ticket ID',
+    formats: [{ header: (header: string) => columnOf(header)?.header === 'Date', code: 'dd/mm/yyyy' }],
+  };
+}
+
 const AVERAGE_RATING = norm('AVERAGE RATING OF THE CONSULTATION');
 
 /** The average of the ratings the client gave, to one decimal (blank until they have rated). */
@@ -66,10 +87,9 @@ const excelDate = (date: Date, tz: string) => {
   const [year, month, day] = studioDate(date, tz).split('-').map(Number);
   return Date.UTC(year, month - 1, day) / 86_400_000 + 25_569;
 };
-const DATE_FORMAT = { header: (header: string) => columnOf(header)?.header === 'Date', code: 'dd/mm/yyyy' };
 
 /** The cells of a ticket's row, in the order of the sheet's headers: null for a column that is not ours. */
-function sheetRow(row: Row, zone: StudioZone): SheetRow {
+function sheetRow(row: Row, zone: StudioZone, columnOf: ColumnOf): SheetRow {
   return {
     id: row.ticket.ticketNumber,
     cells: (headers) =>
@@ -101,21 +121,23 @@ async function guarded(work: () => Promise<unknown>) {
 }
 
 export type Found = Awaited<ReturnType<typeof ticketRows>>[number];
-const toSheetRow = (found: Found, zone: StudioZone) => sheetRow({ ...found, domain: found.module.name, srNo: found.booking.excelRowNumber ?? 0 }, zone);
+const toSheetRow = (found: Found, zone: StudioZone) => sheetRow({ ...found, domain: found.module.name, srNo: found.booking.excelRowNumber ?? 0 }, zone, mappingOf(found.module.slug));
 
 /** Writes these tickets' rows (found by the condition) into their sheets: updated where they are, added where they are not. */
 export async function writeTickets(where: SQL) {
   warmUp(); // signing in and finding the file overlap with reading the database
   const settings = await loadSettings();
-  const bySheet = new Map<string, Map<string, SheetRow>>();
+  const byModule = new Map<string, Map<string, SheetRow>>();
   for (const found of await ticketRows(where)) {
-    const sheet = SHEETS[found.module.slug];
-    if (!sheet) continue;
+    if (!SHEETS[found.module.slug]) continue;
     const row = toSheetRow(found, settings.timezone);
-    bySheet.set(sheet, (bySheet.get(sheet) ?? new Map()).set(row.id, row));
+    byModule.set(found.module.slug, (byModule.get(found.module.slug) ?? new Map()).set(row.id, row));
   }
-  for (const [sheet, rows] of bySheet) await upsertRows(sheet, isTicketHeader, [...rows.values()], [DATE_FORMAT]);
-  return [...bySheet.values()].reduce((n, rows) => n + rows.size, 0);
+  for (const [slug, rows] of byModule) {
+    const { name, isTicket, formats } = sheetOf(slug);
+    await upsertRows(name, isTicket, [...rows.values()], formats);
+  }
+  return [...byModule.values()].reduce((n, rows) => n + rows.size, 0);
 }
 
 // The first change is written at once; changes that come while that is being written (a bulk edit, a booking and its first edit) are written together
@@ -157,8 +179,8 @@ export function clearSheetRows(removed: { ticketNumber: string; moduleSlug: stri
   if (!excelConfigured() || !mine.length) return;
   inBackground('Removing rows from the Excel sheet', () =>
     guarded(async () => {
-      for (const sheet of new Set(mine.map((t) => SHEETS[t.moduleSlug]))) {
-        await removeRows(sheet, isTicketHeader, mine.filter((t) => SHEETS[t.moduleSlug] === sheet).map((t) => t.ticketNumber));
+      for (const slug of new Set(mine.map((t) => t.moduleSlug))) {
+        await removeRows(SHEETS[slug], sheetOf(slug).isTicket, mine.filter((t) => t.moduleSlug === slug).map((t) => t.ticketNumber));
       }
     }),
   );
@@ -169,11 +191,12 @@ export async function reconcileSheets(): Promise<SyncResult> {
   warmUp();
   const settings = await loadSettings();
   const total: SyncResult = { added: 0, updated: 0, removed: 0, duplicates: 0, skippedOrphans: 0 };
-  for (const [slug, sheet] of Object.entries(SHEETS)) {
+  for (const slug of Object.keys(SHEETS)) {
     const [module] = await db.select({ id: modules.id }).from(modules).where(eq(modules.slug, slug));
     if (!module) continue;
     const rows = (await ticketRows(eq(tickets.moduleId, module.id))).map((found) => toSheetRow(found, settings.timezone));
-    const done = await syncSheet(sheet, isTicketHeader, (id) => /^TKT-\d+$/.test(id), rows, [DATE_FORMAT]);
+    const { name, isTicket, formats } = sheetOf(slug);
+    const done = await syncSheet(name, isTicket, (id) => /^TKT-\d+$/.test(id), rows, formats);
     for (const key of Object.keys(total) as (keyof SyncResult)[]) total[key] += done[key];
   }
   return total;

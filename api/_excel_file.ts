@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { and, asc, desc, inArray } from 'drizzle-orm';
 import { db, HttpError } from './_lib.js';
-import { COLUMNS, dateText, ticketRows, timeText } from './_excel.js';
+import { columnsFor, dateText, ticketRows, timeText } from './_excel.js';
 import { auditLogs, modules, tickets } from './_schema.js';
 import type { AppSettings } from '../src/types/index.js';
 
@@ -65,7 +65,8 @@ export async function exportFilteredExcel(settings: AppSettings, { modules: slug
     let next = Math.max(0, ...inModule.map((f) => f.booking.excelRowNumber ?? 0));
     const tabRows = inModule.map((f) => ({ ...f, domain: module.name, srNo: f.booking.excelRowNumber ?? ++next }));
     total += tabRows.length;
-    addSheet(workbook, module.name, COLUMNS, tabRows.map((row) => COLUMNS.map((column) => column.value(row, settings.timezone))));
+    const columns = columnsFor(module.slug);
+    addSheet(workbook, module.name, columns, tabRows.map((row) => columns.map((column) => column.value(row, settings.timezone))));
   }
   return { buffer: await workbook.xlsx.writeBuffer(), tickets: total };
 }

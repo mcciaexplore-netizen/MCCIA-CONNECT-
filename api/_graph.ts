@@ -80,12 +80,14 @@ export function warmUp() {
 }
 
 const tables = new Map<string, string>(); // sheet name -> its table's id
+const withRows = new Set<string>(); // sheets whose table is known to have a data row
 const sheetName = (name: string) => encodeURIComponent(name.replace(/'/g, "''"));
 
 /** Forget what was learned about the workbook (after a failure: the file or its table may have been replaced). */
 export function forgetWorkbook() {
   workbook = undefined;
   tables.clear();
+  withRows.clear();
   token = undefined;
 }
 
@@ -118,6 +120,17 @@ async function sheetInfo(sheet: string): Promise<SheetInfo> {
   const at = /!\$?([A-Z]+)\$?(\d+)/.exec(header.address);
   if (!at) throw new Error(`Excel: cannot read the address ${header.address}`);
   return { book, sheet, table, headers: header.values[0].map(String), headerRow: Number(at[2]), firstColumn: columnNumber(at[1]) };
+}
+
+/**
+ * A table can have no data rows at all (the studio's APPLET table did), yet Microsoft still reports the row under its header as the data body, so
+ * reading that row fails. Such a table gets the one empty row a new table has, and everything below can rely on it. Checked once per server instance.
+ */
+async function ensureRow(info: SheetInfo) {
+  if (withRows.has(info.sheet)) return;
+  const { value } = await graph<{ value: unknown[] }>('GET', `${info.table}/rows?$top=1&$select=index`);
+  if (!value.length) await graph('POST', `${info.table}/rows/add`, { index: null, values: [info.headers.map(() => '')] });
+  withRows.add(info.sheet);
 }
 
 const cellRange = (info: SheetInfo, row: number, from: number, to: number) => `${LETTERS(info.firstColumn + from)}${row}:${LETTERS(info.firstColumn + to)}${row}`;
@@ -206,6 +219,7 @@ export function upsertRows(sheet: string, isIdHeader: (header: string) => boolea
     const info = await sheetInfo(sheet);
     const idIndex = info.headers.findIndex(isIdHeader);
     if (idIndex < 0) throw new SheetProblem(`Excel: the "${sheet}" sheet has no ticket id column`);
+    await ensureRow(info);
     const ids = await columnValues(info, idIndex);
 
     await applyFormats(info, ids.length, formats);
@@ -276,6 +290,7 @@ export function syncSheet(sheet: string, isIdHeader: (header: string) => boolean
     const info = await sheetInfo(sheet);
     const idIndex = info.headers.findIndex(isIdHeader);
     if (idIndex < 0) throw new SheetProblem(`Excel: the "${sheet}" sheet has no ticket id column`);
+    if (wanted.length) await ensureRow(info);
     const { values } = await graph<{ values: unknown[][] }>('GET', `${info.table}/dataBodyRange?$select=values`);
     const ids = values.map((row) => String(row[idIndex] ?? '').trim());
     await applyFormats(info, ids.length, formats);

@@ -21,9 +21,9 @@ export default function PostConsultation({ ticket }: { ticket: Ticket }) {
       {filled ? (
         <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
           {questions.map((q) => (
-            <div key={q.id} className={q.type === 'textarea' ? 'sm:col-span-2' : ''}>
+            <div key={q.id} className={q.type === 'textarea' ? 'min-w-0 sm:col-span-2' : 'min-w-0'}>
               <dt className="text-xs text-ink-3">{q.label}</dt>
-              <dd className="whitespace-pre-line">{data[q.id] || '—'}</dd>
+              <dd className="whitespace-pre-line break-words">{data[q.id] || '—'}</dd>
             </div>
           ))}
         </dl>

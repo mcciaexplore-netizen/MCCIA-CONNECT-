@@ -136,6 +136,26 @@ export const DEFAULT_POST_CONSULTATION_QUESTIONS: FormField[] = [
   question('consultation_status', 'Consultation Status', 'select', false, ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Pending', 'Follow Up']),
 ];
 
+/** The stages of an applet's progress report (the Progress Report answer of Applet Setup). */
+export const PROGRESS_STAGES = ['Pre Dev', 'Development', 'Testing', 'Deployment'] as const;
+
+/**
+ * The consultant form of Applet Setup: what is being built and how far it is. Its status and payment are the ticket's own, like on every consultant
+ * form (the status is called "Applet Status" here). An admin can still change it per module in the Form builder.
+ */
+export const APPLET_POST_QUESTIONS: FormField[] = [
+  question('application_name', 'Application Name', 'text'),
+  question('application_usecase', 'Application Use Case', 'textarea'),
+  question('progress_report', 'Progress Report', 'select', false, [...PROGRESS_STAGES]),
+  question('consultation_status', 'Applet Status', 'select', false, ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Pending', 'Follow Up']),
+  question('payment_status', 'Payment Status', 'select', false, ['Paid', 'Unpaid', 'Waived']),
+];
+
+/** The modules whose consultant form is not the default one, by slug (a form saved in the Form builder replaces either). */
+const OWN_POST_QUESTIONS: Record<string, FormField[]> = { 'applet-setup': APPLET_POST_QUESTIONS };
+export const hasOwnPostQuestions = (slug: string) => slug in OWN_POST_QUESTIONS;
+export const defaultPostQuestions = (slug?: string) => (slug && OWN_POST_QUESTIONS[slug]) || DEFAULT_POST_CONSULTATION_QUESTIONS;
+
 /** slot_config.weekly_rules item: open hours on a weekday (0 = Sunday), times as "HH:mm" studio time. */
 export interface WeeklyRule {
   day: number;
