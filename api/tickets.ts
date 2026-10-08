@@ -6,9 +6,9 @@ import { saveRecordings } from './_fireflies.js';
 import { clearSheetRows, updateSheet } from './_live_excel.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
-import { cancelSession, inBackground, loadBooking, removeCalendarEvents } from './_sessions.js';
+import { awaitLink, cancelSession, inBackground, loadBooking, removeCalendarEvents, syncCalendar } from './_sessions.js';
 import { bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
-import { answerProblem, FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_FIELDS, TICKET_STATUSES, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
+import { answerProblem, BOOKING_MODES, FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_FIELDS, TICKET_STATUSES, type BookingMode, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
 
 const MAX_BULK = 100;
 const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails afterwards, so a big batch could outlast the function
@@ -19,10 +19,11 @@ const DAY = 24 * 60 * 60_000;
 const { transcript: _transcript, ...TICKET_COLUMNS } = getTableColumns(tickets);
 
 /**
- * Applies status / coordinatorId (+ reason) / dueDate / note / postConsultation to one ticket (checking this user may),
+ * Applies status / coordinatorId (+ reason) / dueDate / note / postConsultation / mode to one ticket (checking this user may),
  * logs it, returns the ticket. A coordinator is assigned to the ticket's CLIENT (see _assign.ts): their open tickets and
  * future bookings follow, and so will their next booking. Replacing one coordinator with another needs a reason.
- * Cancelling removes the Calendar event and tells the client and the coordinator.
+ * Cancelling removes the Calendar event and tells the client and the coordinator. Changing the booking mode (online / offline) moves the
+ * session's Calendar event and Meet link with it when the app made one for a session still to come; for any other session it is a correction only.
  */
 async function updateTicket(user: AuthUser, id: string, body: Record<string, unknown>, siteUrl: string) {
   await returnFollowUps();
@@ -33,6 +34,7 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   const patch: Partial<typeof tickets.$inferInsert> = {};
   const bookingPatch: Partial<typeof bookings.$inferInsert> = {};
   let toClient: { coordinatorId: string; reason: string } | undefined; // assign the ticket's client (after the ticket's own changes)
+  let modeChange: { to: BookingMode; session: typeof bookings.$inferSelect } | undefined;
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
 
@@ -112,6 +114,21 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
     after.note = text;
   }
 
+  if (body.mode !== undefined) {
+    if (!BOOKING_MODES.includes(body.mode as BookingMode)) throw new HttpError(400, 'Booking mode must be online or offline');
+    const [session] = await db.select().from(bookings).where(eq(bookings.id, ticket.bookingId));
+    const to = body.mode as BookingMode;
+    if (session && session.mode !== to) {
+      const word = (m: BookingMode) => (m === 'online' ? 'Online' : 'Offline');
+      modeChange = { to, session };
+      bookingPatch.mode = to;
+      if (to === 'offline') bookingPatch.meetingLink = null; // an offline session has no Meet link
+      patch.internalNotes = [...(patch.internalNotes ?? ticket.internalNotes), { text: `Booking mode changed from ${word(session.mode)} to ${word(to)} by ${user.name}.`, author: user.name, at: new Date().toISOString() }];
+      before.mode = session.mode;
+      after.mode = to;
+    }
+  }
+
   if (body.postConsultation !== undefined) {
     // Keep only the module's own questions, enforce required ones, and check select / radio / number values.
     const given = (body.postConsultation ?? {}) as Record<string, unknown>;
@@ -144,6 +161,13 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   await audit(user, after.postConsultation ? 'ticket.post_consultation' : 'ticket.updated', 'ticket', id, before, after);
   // Google and the emails follow the answer.
   if (patch.status === 'cancelled') inBackground(`Removing the calendar event and emailing about ${ticket.ticketNumber}`, () => cancelSession(user, ticket.bookingId, siteUrl));
+  // A session still to come that has a Calendar event: the event is replaced to match (an online one gets a Meet link, which is emailed to the client).
+  else if (modeChange?.session.googleEventId && modeChange.session.status === 'scheduled' && modeChange.session.endTime > new Date()) {
+    inBackground(`The calendar event for ${ticket.ticketNumber}`, async () => {
+      const { row, linkProblem } = await syncCalendar(ticket.bookingId, await loadSettings());
+      if (row.booking.mode === 'online') await awaitLink(row, linkProblem, siteUrl);
+    });
+  }
   const [updated] = await db.select(TICKET_COLUMNS).from(tickets).where(eq(tickets.id, id));
   updateSheet([id]); // its row in the Excel sheet
   return updated;
@@ -265,7 +289,7 @@ export default handler({
     if (!Array.isArray(body.ids)) return await updateTicket(user, needString(body.id, 'Ticket'), body, siteUrl);
 
     if (!body.ids.length || body.ids.length > MAX_BULK) throw new HttpError(400, `Choose between 1 and ${MAX_BULK} tickets`);
-    if (body.dueDate !== undefined || body.note !== undefined || body.paymentStatus !== undefined || body.payment_status !== undefined) throw new HttpError(400, 'Bulk updates only change status or coordinator');
+    if (body.dueDate !== undefined || body.note !== undefined || body.paymentStatus !== undefined || body.payment_status !== undefined || body.mode !== undefined) throw new HttpError(400, 'Bulk updates only change status or coordinator');
     if (body.status === 'cancelled' && body.ids.length > MAX_BULK_CANCEL) throw new HttpError(400, `Cancel at most ${MAX_BULK_CANCEL} sessions at a time`);
     const failed: { id: string; error: string }[] = [];
     let updated = 0;

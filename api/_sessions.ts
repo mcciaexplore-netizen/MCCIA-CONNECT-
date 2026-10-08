@@ -137,6 +137,31 @@ export async function announceLink(bookingId: string, siteUrl: string, first = f
   if (row.coordinator?.email) await sendAll([sendMail('internal', { to: row.coordinator.email, ...coordinatorLinkReady(mail) })]);
 }
 
+/**
+ * Asks Google for the session's event and Meet link, then writes down on the ticket if the client is now waiting for the
+ * link (so it is emailed when it arrives). Never throws: the session stands without Google. Returns the booking as it is now
+ * and, for staff, why an online session has no link.
+ */
+export async function syncCalendar(bookingId: string, settings: AppSettings) {
+  let problem: string | undefined;
+  try {
+    await createCalendarEvent((await loadBooking(bookingId))!, settings);
+  } catch (e) {
+    console.error('Apps Script failed:', e);
+    problem = errorText(e);
+  }
+  const row = (await loadBooking(bookingId))!; // with the link and event id, whichever way they were saved
+  const missingLink = row.booking.mode === 'online' && !row.booking.meetingLink;
+  return { row, missingLink, linkProblem: problem ?? (missingLink ? 'Google did not return a link' : undefined) };
+}
+
+/** The client was told the link will follow: note it on the ticket (staff see why) and check once more, in case it arrived meanwhile. */
+export async function awaitLink(row: BookingRow, linkProblem: string | undefined, siteUrl: string) {
+  const why = linkProblem ? `${linkProblem}. Use "Create Meet link" on this ticket if it does not arrive.` : 'the link is emailed on its own once Google has made it.';
+  await addNote((await loadBooking(row.booking.id))!.ticket, `${LINK_WAITING}: ${why}`);
+  await announceLink(row.booking.id, siteUrl);
+}
+
 /** Removes these Google Calendar events (for tickets that were deleted). Tries every one, then fails once if any could not be removed. */
 export async function removeCalendarEvents(eventIds: string[]) {
   const results = await Promise.allSettled(

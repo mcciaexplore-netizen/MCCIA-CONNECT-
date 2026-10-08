@@ -9,36 +9,11 @@ import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
-import { addNote, announceLink, createCalendarEvent, errorText, HTTPS_LINK, inBackground, LINK_WAITING, loadBooking, mailOf, sendAll, waitingForLink, type BookingRow } from './_sessions.js';
+import { addNote, announceLink, awaitLink, createCalendarEvent, errorText, HTTPS_LINK, inBackground, LINK_WAITING, loadBooking, mailOf, sendAll, syncCalendar, waitingForLink } from './_sessions.js';
 import { bookings, clients, companies, coordinatorAssignments, coordinators, modules, tickets } from './_schema.js';
-import { answerProblem, BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type AppSettings, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
+import { answerProblem, BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
 const MAX_REASON = 500;
-
-/**
- * Asks Google for the session's event and Meet link, then writes down on the ticket if the client is now waiting for the
- * link (so it is emailed when it arrives). Never throws: the session stands without Google. Returns the booking as it is now
- * and, for staff, why an online session has no link.
- */
-async function syncCalendar(bookingId: string, settings: AppSettings) {
-  let problem: string | undefined;
-  try {
-    await createCalendarEvent((await loadBooking(bookingId))!, settings);
-  } catch (e) {
-    console.error('Apps Script failed:', e);
-    problem = errorText(e);
-  }
-  const row = (await loadBooking(bookingId))!; // with the link and event id, whichever way they were saved
-  const missingLink = row.booking.mode === 'online' && !row.booking.meetingLink;
-  return { row, missingLink, linkProblem: problem ?? (missingLink ? 'Google did not return a link' : undefined) };
-}
-
-/** The client was told the link will follow: note it on the ticket (staff see why) and check once more, in case it arrived meanwhile. */
-async function awaitLink(row: BookingRow, linkProblem: string | undefined, siteUrl: string) {
-  const why = linkProblem ? `${linkProblem}. Use "Create Meet link" on this ticket if it does not arrive.` : 'the link is emailed on its own once Google has made it.';
-  await addNote((await loadBooking(row.booking.id))!.ticket, `${LINK_WAITING}: ${why}`);
-  await announceLink(row.booking.id, siteUrl);
-}
 
 /**
  * Called by the Apps Script (apps-script/main.gs) once it has created the calendar event: stores the Meet link and event id.

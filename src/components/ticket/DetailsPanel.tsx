@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
 import { useData } from '../../context/DataContext';
 import { companyNote, confirmCancel, confirmDelete, formatDate, isOpen } from '../../lib/utils';
-import { PAYMENT_LABELS, PAYMENT_STATUSES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
+import { BOOKING_MODES, PAYMENT_LABELS, PAYMENT_STATUSES, STATUS_LABELS, TICKET_STATUSES, type BookingMode, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
 import ModePill from '../ui/ModePill';
@@ -91,7 +91,13 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       </Field>
 
       <Field label="Created">{formatDate(ticket.createdAt)}</Field>
-      <Field label="Booking mode">{mode ? <ModePill mode={mode} /> : '—'}</Field>
+      <Field label="Booking mode">
+        {booking && ticket.status !== 'cancelled' ? (
+          <select className="input" aria-label="Booking mode" value={booking.mode} onChange={(e) => mutate('/api/tickets', 'PATCH', { id: ticket.id, mode: e.target.value as BookingMode }, 'Booking mode changed')}>
+            {BOOKING_MODES.map((m) => <option key={m} value={m}>{m === 'online' ? 'Online' : 'Offline'}</option>)}
+          </select>
+        ) : mode ? <ModePill mode={mode} /> : '—'}
+      </Field>
       {booking?.status === 'scheduled' && isOpen(ticket.status) && <button className="btn w-full" onClick={() => setRescheduling(true)}>Reschedule</button>}
       {rescheduling && booking && <RescheduleModal ticket={ticket} booking={booking} onClose={() => setRescheduling(false)} />}
       {role === 'super_admin' && <button className="btn btn-danger w-full" onClick={remove}>Delete ticket</button>}

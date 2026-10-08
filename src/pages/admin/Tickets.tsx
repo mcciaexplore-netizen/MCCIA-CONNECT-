@@ -58,6 +58,7 @@ export default function Tickets() {
   const active = Object.values(filters).some(Boolean);
   const query = filters.search.trim().toLowerCase();
   const now = new Date();
+  const startOf = (t: Ticket) => getSession(t.id)?.booking.startTime ?? '';
   const rows = tickets.filter((t) => {
     const client = getClient(t.clientId);
     const session = getSession(t.id);
@@ -73,7 +74,7 @@ export default function Tickets() {
       (!filters.dateTo || (day !== '' && day <= filters.dateTo)) &&
       (!filters.notes || Boolean(session && awaitingNotes(session, now)))
     );
-  }).sort((a, b) => ticketSerial(b.ticketNumber) - ticketSerial(a.ticketNumber)); // newest first: the highest ticket number on top
+  }).sort((a, b) => startOf(b).localeCompare(startOf(a)) || ticketSerial(b.ticketNumber) - ticketSerial(a.ticketNumber)); // latest session on top; the same time: the higher ticket number first
 
   const { rows: shown, start } = pageOf(rows, page);
 
