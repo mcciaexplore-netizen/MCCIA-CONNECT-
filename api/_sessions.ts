@@ -117,8 +117,8 @@ export async function createCalendarEvent({ booking, ticket, client, module, coo
 
 /**
  * Emails the client their Meet link (and tells the coordinator it is ready) once the link exists, if they were waiting for it. Once: the
- * ticket note it leaves ends the wait. The confirmation email never carries the link, so every online booking gets it here:
- * `first` is the booking's own first announcement (the link was already there when it was made), which needs no "waiting" note before it.
+ * ticket note it leaves ends the wait. A booking's confirmation carries the link when it was ready, so this is for a link that came later;
+ * `first` is for a booking whose confirmation could not be sent, which needs no "waiting" note before it.
  */
 export async function announceLink(bookingId: string, siteUrl: string, first = false) {
   const row = await loadBooking(bookingId);
@@ -135,6 +135,12 @@ export async function announceLink(bookingId: string, siteUrl: string, first = f
   }
   await addNote(row.ticket, settings.notifications.send_confirmations ? LINK_SENT : LINK_READY);
   if (row.coordinator?.email) await sendAll([sendMail('internal', { to: row.coordinator.email, ...coordinatorLinkReady(mail) })]);
+}
+
+/** The client's confirmation and the coordinator's notice both carried the link, so no second email goes out: the ticket just records it. */
+export async function noteLinkSent(bookingId: string, emailed: boolean) {
+  const row = await loadBooking(bookingId);
+  if (row) await addNote(row.ticket, emailed ? LINK_SENT : LINK_READY);
 }
 
 /**

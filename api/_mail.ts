@@ -86,11 +86,11 @@ function clientMessage(b: BookingMail, { subject, lead, where = true, linkLater 
 
 const named = (b: BookingMail, text: (module: string) => string) => ({ text: text(b.moduleName), html: text(`<b>${esc(b.moduleName)}</b>`) });
 
-/** The booking confirmation. */
+/** The booking confirmation. An online session's Meet link is in it when Google had made one; if not, it says the link follows in its own email. */
 export const clientConfirmation = (b: BookingMail) =>
-  clientMessage(b, { subject: `Booking confirmed: ${b.moduleName} (${b.ticketNumber})`, lead: named(b, (m) => `Your ${m} session is confirmed.`), linkLater: true });
+  clientMessage(b, { subject: `Booking confirmed: ${b.moduleName} (${b.ticketNumber})`, lead: named(b, (m) => `Your ${m} session is confirmed.`), linkLater: b.mode === 'online' && !b.meetingLink });
 
-/** The Meet link, in its own email, the moment it exists (the confirmation only says it is coming). */
+/** The Meet link, in its own email, the moment it exists: for a link that was not ready when the confirmation went out, or was asked for later. */
 export function clientLink(b: BookingMail) {
   const minutes = Math.round((b.end.getTime() - b.start.getTime()) / 60_000);
   const html =

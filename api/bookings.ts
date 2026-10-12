@@ -9,7 +9,7 @@ import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
-import { announceLink, awaitLink, errorText, giveMeetLink, HTTPS_LINK, inBackground, loadBooking, mailOf, sendAll, syncCalendar } from './_sessions.js';
+import { announceLink, awaitLink, errorText, giveMeetLink, HTTPS_LINK, inBackground, loadBooking, mailOf, noteLinkSent, sendAll, syncCalendar } from './_sessions.js';
 import { bookings, clients, companies, coordinatorAssignments, coordinators, modules, tickets } from './_schema.js';
 import { answerProblem, BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
@@ -353,22 +353,24 @@ export default handler({
 
     // The booking is saved: the client gets their answer now, and Google and the emails follow. Their failures never undo the booking.
     inBackground(`The calendar event and emails for ${ticketNumber}`, async () => {
-      // The client's confirmation does not wait for Google: it only says the Meet link follows in its own email. Clients are mailed from the
-      // Gmail account; the coordinator and the booking copy go out from the Zoho account.
-      const [{ row, missingLink, linkProblem }] = await Promise.all([
-        syncCalendar(bookingId, settings),
-        settings.notifications.send_confirmations && loadBooking(bookingId).then((booked) => sendAll([sendMail('client', { to: clientInput.email, ...clientConfirmation(mailOf(booked!, settings, siteUrl)) })])),
-      ]);
+      // Google goes first so the client's confirmation and the coordinator's notice both carry the Meet link: one email each, with everything.
+      // When Google is slow or says no, the confirmation says the link follows and it is emailed on its own once it exists. Clients are mailed
+      // from the Gmail account; the coordinator and the booking copy go out from the Zoho account.
+      const { row, missingLink, linkProblem } = await syncCalendar(bookingId, settings);
       const booking = mailOf(row, settings, siteUrl, linkProblem);
       const copyTo = settings.notifications.admin_email;
-      await sendAll([
-        ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
-        ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
+      const wanted = settings.notifications.send_confirmations;
+      const [confirmed] = await Promise.all([
+        wanted && sendMail('client', { to: clientInput.email, ...clientConfirmation(booking) }).then(() => true, (e) => { console.error('Email failed:', e); return false; }),
+        sendAll([
+          ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
+          ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
+        ]),
       ]);
-      // The link goes out in its own email as soon as it exists (now, or when the Apps Script calls back).
       if (row.booking.mode === 'online') {
-        if (missingLink) await awaitLink(row, linkProblem, siteUrl);
-        else await announceLink(bookingId, siteUrl, true);
+        if (missingLink) await awaitLink(row, linkProblem, siteUrl); // emailed on its own when it exists (now, or when the Apps Script calls back)
+        else if (wanted && !confirmed) await announceLink(bookingId, siteUrl, true); // the confirmation did not go out: the link email is a second try
+        else await noteLinkSent(bookingId, confirmed);
       }
     });
 
