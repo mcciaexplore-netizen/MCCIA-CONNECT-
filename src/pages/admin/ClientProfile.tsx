@@ -70,13 +70,11 @@ export default function ClientProfile() {
               <p className="text-ink-2">{client.companyName}</p>
             </div>
           </div>
-          {admin && (
-            <div className="flex gap-2">
-              <button className="btn" onClick={() => setEditing(true)}>Edit client</button>
-              <button className="btn btn-danger" onClick={remove}>Delete client</button>
-              <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking', { state: { clientId: client.id } })}>+ Add Ticket</button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <button className="btn" onClick={() => setEditing(true)}>Edit client</button>
+            {admin && <button className="btn btn-danger" onClick={remove}>Delete client</button>}
+            {admin && <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking', { state: { clientId: client.id } })}>+ Add Ticket</button>}
+          </div>
         </div>
 
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line">

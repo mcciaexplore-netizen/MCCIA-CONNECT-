@@ -49,9 +49,7 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
 
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-2">Contact Properties</h3>
-        {role === 'super_admin' && (
-          <button title="Edit contact" className="rounded p-1 text-ink-2 hover:bg-page hover:text-primary" onClick={() => setEditing(true)}><Icon name="pencil" /></button>
-        )}
+        <button title="Edit contact" className="rounded p-1 text-ink-2 hover:bg-page hover:text-primary" onClick={() => setEditing(true)}><Icon name="pencil" /></button>
       </div>
       <dl className="space-y-3">
         {fields.map(([label, value]) => (

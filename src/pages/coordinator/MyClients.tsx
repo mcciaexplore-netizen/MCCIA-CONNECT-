@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
+import EditClient from '../../components/client/EditClient';
 import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -8,13 +9,14 @@ import Pager, { pageOf } from '../../components/ui/Pager';
 import { formatDate } from '../../lib/utils';
 import type { Client } from '../../types';
 
-/** The clients assigned to this coordinator (the API only returns those). Click a row for the read-only profile. */
+/** The clients assigned to this coordinator (the API only returns those). Click a row for the profile, or the pencil to edit the client. */
 export default function MyClients() {
   const { clients, tickets, sessions } = useData();
   const page = usePageData('clients', 'tickets', 'bookings');
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [pageNo, setPageNo] = useState(1);
+  const [editingId, setEditingId] = useState<string>();
   const ticketCounts = useMemo(() => {
     const counts = new Map<string, number>(); // counted once for everyone, not once per row
     for (const t of tickets) counts.set(t.clientId, (counts.get(t.clientId) ?? 0) + 1);
@@ -54,8 +56,9 @@ export default function MyClients() {
         </div>
       </div>
       <input className="input mb-3 max-w-xs" placeholder="Search company, person, phone, sector…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
-      <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/coordinator/clients/${c.id}`)} empty={query ? 'No clients match your search.' : 'No clients assigned to you yet.'} emptyIcon="users" emptyAction={query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
+      <DataTable columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/coordinator/clients/${c.id}`)} onEdit={(c) => setEditingId(c.id)} empty={query ? 'No clients match your search.' : 'No clients assigned to you yet.'} emptyIcon="users" emptyAction={query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
       <Pager total={rows.length} page={pageNo} onPage={setPageNo} />
+      {clients.map((c) => c.id === editingId && <EditClient key={c.id} client={c} onClose={() => setEditingId(undefined)} />)}
     </div>
   );
 }

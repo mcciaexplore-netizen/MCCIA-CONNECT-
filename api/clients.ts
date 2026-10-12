@@ -146,6 +146,12 @@ async function deleteClients(user: AuthUser, clientIds: string[], companyIds: st
   return { clientIds: memberIds, companyIds: goneCompanies, ticketIds, bookingIds: sessions.map((s) => s.bookingId) };
 }
 
+/** The clients a coordinator can see and edit: assigned to them, or with a ticket assigned to them. Admins have no limit (undefined). */
+const ownClients = (user: AuthUser) =>
+  user.role === 'super_admin'
+    ? undefined
+    : or(eq(clients.assignedCoordinatorId, user.coordinatorId!), inArray(clients.id, db.select({ id: tickets.clientId }).from(tickets).where(eq(tickets.coordinatorId, user.coordinatorId!))));
+
 export default handler({
   // ?history=<clientId> (admin) is that client's coordinator history. ?companies=1 (admin) is every company with its coordinator and
   // numbers. Otherwise: admins see every client; coordinators the clients assigned to them or with a ticket assigned to them.
@@ -174,14 +180,7 @@ export default handler({
     }
     const user = await requireUser(req);
     await returnFollowUps();
-    const mine =
-      user.role === 'super_admin'
-        ? undefined
-        : or(
-            eq(clients.assignedCoordinatorId, user.coordinatorId!),
-            inArray(clients.id, db.select({ id: tickets.clientId }).from(tickets).where(eq(tickets.coordinatorId, user.coordinatorId!))),
-          );
-    return await db.select().from(clients).where(mine).orderBy(desc(clients.createdAt));
+    return await db.select().from(clients).where(ownClients(user)).orderBy(desc(clients.createdAt));
   },
 
   POST: async (req) => {
@@ -196,15 +195,21 @@ export default handler({
     return client;
   },
 
+  // { id, client }: edits a client's details. Admins any client; a coordinator their own (see ownClients), but not the company name: that would move
+  // the client to another company, and so possibly to another coordinator. { companyId, company } edits a company (admins only).
   PATCH: async (req) => {
-    const user = await requireUser(req, 'super_admin');
+    const user = await requireUser(req);
     const body = await readBody(req);
-    if (body.companyId !== undefined) return await updateCompany(user, body);
+    if (body.companyId !== undefined) {
+      if (user.role !== 'super_admin') throw new HttpError(403, 'You do not have access to this');
+      return await updateCompany(user, body);
+    }
     const id = needString(body.id, 'Client');
-    const [before] = await db.select().from(clients).where(eq(clients.id, id));
+    const [before] = UUID.test(id) ? await db.select().from(clients).where(and(eq(clients.id, id), ownClients(user))) : [];
     if (!before) throw new HttpError(404, 'Client not found');
 
     const values = parseClient(body.client);
+    if (user.role !== 'super_admin' && values.companyName !== before.companyName) throw new HttpError(403, 'Only an admin can change the company name (it moves the client to another company)');
     if (values.email !== before.email.toLowerCase()) {
       // Bookings find a client by email, so two clients must not share one.
       const [taken] = await db.select({ name: clients.personName }).from(clients).where(and(sql`lower(${clients.email}) = ${values.email}`, ne(clients.id, id)));
