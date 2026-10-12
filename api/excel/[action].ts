@@ -101,7 +101,7 @@ const importer = handler({
     if (new Set(used).size !== used.length) throw new HttpError(400, 'Each field can be matched to one column only');
     const missing = targets.filter((t) => t.required && !used.includes(t.label));
     if (missing.length) throw new HttpError(400, `Match a column to: ${missing.map((t) => t.label).join(', ')}`);
-    return await importRows({ user, module, modules: await db.select({ id: modules.id, name: modules.name, slug: modules.slug }).from(modules), postQuestionsOf, rows, mapping, firstRow: count(body.firstRow, 'First row', 1), dryRun, file: optString(body.name).slice(0, 200) });
+    return await importRows({ user, module, modules: await db.select({ id: modules.id, name: modules.name, slug: modules.slug, ticketPrefix: modules.ticketPrefix }).from(modules), postQuestionsOf, rows, mapping, firstRow: count(body.firstRow, 'First row', 1), dryRun, file: optString(body.name).slice(0, 200) });
   },
 });
 

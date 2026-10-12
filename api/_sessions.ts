@@ -162,6 +162,55 @@ export async function awaitLink(row: BookingRow, linkProblem: string | undefined
   await announceLink(row.booking.id, siteUrl);
 }
 
+/** An event already in the Google Calendar: its id and its Meet link ('' when it has none). */
+interface FoundEvent {
+  eventId: string;
+  meetingLink: string;
+  title: string;
+}
+
+/**
+ * Asks the Apps Script for the events already in the calendar for this session: starting within minutes of it, with the client as a guest or the client's
+ * or company's name in the title. Needs the script's newer version; an older one says so and nothing is created (it would make a duplicate).
+ */
+export async function findCalendarEvents({ booking, client }: BookingRow): Promise<FoundEvent[]> {
+  const reply = await triggerAppsScript({ action: 'find', startTime: booking.startTime.toISOString(), clientEmail: client.email, clientName: client.personName, companyName: client.companyName, windowMinutes: 15 });
+  const failure = scriptFailure(reply);
+  if (failure) throw new Error(/unknown action/i.test(failure) ? 'The Apps Script is the old version and cannot look for existing events: deploy its new version first (Apps Script > Deploy > Manage deployments > Edit > New version)' : `Apps Script reported: ${failure}`);
+  return (Array.isArray(reply.found) ? reply.found : []).map((e: Record<string, unknown>) => ({ eventId: String(e.eventId ?? ''), meetingLink: HTTPS_LINK.test(String(e.meetingLink ?? '')) ? String(e.meetingLink) : '', title: String(e.title ?? '') })).filter((e: FoundEvent) => e.eventId);
+}
+
+/**
+ * Gives a session its Google Meet link. With `reuse`, an event that is already in the calendar for it is used: its Meet link is taken (an event that has
+ * none gets one added, quietly) and nobody is emailed, the client already has it. Otherwise (or when there is none) a new event with a link is made
+ * and the client is emailed the link. Throws when Google cannot do it.
+ */
+export async function giveMeetLink(row: BookingRow, settings: AppSettings, siteUrl: string, { reuse, by }: { reuse: boolean; by: string }) {
+  if (reuse) {
+    const found = await findCalendarEvents(row);
+    const pick = found.find((e) => e.meetingLink) ?? found[0];
+    if (pick) {
+      let meetingLink = pick.meetingLink;
+      if (!meetingLink) {
+        const reply = await triggerAppsScript({ action: 'add-meet', eventId: pick.eventId });
+        const failure = scriptFailure(reply);
+        meetingLink = HTTPS_LINK.test(String(reply.meetingLink ?? '')) ? String(reply.meetingLink) : '';
+        if (failure || !meetingLink) throw new Error(failure ? `Apps Script reported: ${failure}` : 'Google did not add a Meet link to the existing event');
+      }
+      await db.update(bookings).set({ googleEventId: pick.eventId, meetingLink, meetLinkRequestedAt: new Date(), meetLinkFailedNotified: false }).where(eq(bookings.id, row.booking.id));
+      await addNote(row.ticket, `Google Meet link taken from the event already in the calendar${pick.title ? ` (${pick.title})` : ''}. The client was not emailed.`);
+      return { meetingLink, how: 'existing' as const };
+    }
+  }
+  // The client is told the link when it exists, so make sure that happens even if it arrives late.
+  if (!waitingForLink(row.ticket.internalNotes)) await addNote(row.ticket, `${LINK_WAITING}: ${by} asked for it.`);
+  await createCalendarEvent(row, settings);
+  const created = await loadBooking(row.booking.id);
+  if (!created?.booking.meetingLink) throw new Error('Google did not return a Meet link. Try again in a minute.');
+  await announceLink(row.booking.id, siteUrl);
+  return { meetingLink: created.booking.meetingLink, how: 'created' as const };
+}
+
 /** Removes these Google Calendar events (for tickets that were deleted). Tries every one, then fails once if any could not be removed. */
 export async function removeCalendarEvents(eventIds: string[]) {
   const results = await Promise.allSettled(

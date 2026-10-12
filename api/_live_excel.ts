@@ -152,7 +152,7 @@ export async function reconcileSheets(): Promise<SyncResult> {
     if (!module) continue;
     const rows = (await ticketRows(eq(tickets.moduleId, module.id))).map((found) => toSheetRow(found, settings.timezone));
     const { name, isTicket, formats } = sheetOf(slug);
-    const done = await syncSheet(name, isTicket, (id) => /^TKT-\d+$/.test(id), rows, formats);
+    const done = await syncSheet(name, isTicket, (id) => /^[A-Z]{2,5}-\d+$/.test(id), rows, formats);
     for (const key of Object.keys(total) as (keyof SyncResult)[]) total[key] += done[key];
   }
   return total;

@@ -9,7 +9,7 @@ import { nextRowNumber } from './_excel.js';
 import { sendMail } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
-import { addNote, announceLink, awaitLink, createCalendarEvent, errorText, HTTPS_LINK, inBackground, LINK_WAITING, loadBooking, mailOf, sendAll, syncCalendar, waitingForLink } from './_sessions.js';
+import { announceLink, awaitLink, errorText, giveMeetLink, HTTPS_LINK, inBackground, loadBooking, mailOf, sendAll, syncCalendar } from './_sessions.js';
 import { bookings, clients, companies, coordinatorAssignments, coordinators, modules, tickets } from './_schema.js';
 import { answerProblem, BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
@@ -48,48 +48,49 @@ async function ownBooking(user: AuthUser, bookingId: string) {
 const MAX_MEET_BATCH = 5; // each is a call to Google that takes a few seconds, and the request must end within its time limit
 
 /**
- * { action: 'create-meet', bookingIds }: the same for a few sessions in a row (after an import, or from the ticket list): each gets its Calendar event and
- * Meet link and its client the link by email. A session that cannot (over, offline, already has a link, Google said no) is listed with the reason.
+ * Staff ask for the calendar event and Meet link again (it failed or was never set up when the booking was made). Mails the client the link.
+ * With `reuse` (the batch below), an event that is already in the calendar for the session is used instead of making a second one: its link is taken
+ * and nobody is emailed.
  */
-async function createMeetLinks(user: AuthUser, ids: unknown[], siteUrl: string) {
-  if (!ids.length || ids.length > MAX_MEET_BATCH) throw new HttpError(400, `Choose between 1 and ${MAX_MEET_BATCH} sessions at a time`);
-  const failed: { bookingId: string; error: string }[] = [];
-  let created = 0;
-  for (const bookingId of ids.map(String)) {
-    try {
-      await createMeetLink(user, { bookingId }, siteUrl);
-      created++;
-    } catch (e) {
-      if (!(e instanceof HttpError)) throw e;
-      failed.push({ bookingId, error: e.message });
-    }
-  }
-  return { created, failed };
-}
-
-/** Staff ask for the calendar event and Meet link again (it failed or was never set up when the booking was made). Mails the client the link. */
-async function createMeetLink(user: AuthUser, body: Record<string, unknown>, siteUrl: string) {
+async function createMeetLink(user: AuthUser, body: Record<string, unknown>, siteUrl: string, reuse = false) {
   const bookingId = needString(body.bookingId, 'Booking');
   const row = await ownBooking(user, bookingId);
   if (row.booking.mode !== 'online') throw new HttpError(400, 'Only online sessions have a Meet link');
   if (row.booking.status !== 'scheduled' || row.booking.endTime.getTime() < Date.now()) throw new HttpError(400, 'This session is over or was cancelled');
   if (row.booking.meetingLink) throw new HttpError(400, 'This booking already has a Meet link');
 
-  const settings = await loadSettings();
-  // The client was told the link would follow, so make sure it is sent when it exists.
-  if (!waitingForLink(row.ticket.internalNotes)) {
-    await addNote(row.ticket, `${LINK_WAITING}: ${user.name} asked for it from the ticket.`);
-  }
+  let given;
   try {
-    await createCalendarEvent(row, settings);
+    given = await giveMeetLink(row, await loadSettings(), siteUrl, { reuse, by: `${user.name} from the ticket` });
   } catch (e) {
     throw new HttpError(502, `Could not create the Meet link: ${errorText(e)}`);
   }
-  const created = await loadBooking(bookingId);
-  if (!created?.booking.meetingLink) throw new HttpError(502, 'Google did not return a Meet link. Try again in a minute.');
-  await announceLink(bookingId, siteUrl);
-  await audit(user, 'booking.meet_created', 'ticket', row.ticket.id, undefined, { meetingLink: created.booking.meetingLink });
-  return { meetingLink: created.booking.meetingLink };
+  await audit(user, 'booking.meet_created', 'ticket', row.ticket.id, undefined, { meetingLink: given.meetingLink, how: given.how });
+  return { meetingLink: given.meetingLink, how: given.how };
+}
+
+/**
+ * { action: 'create-meet', bookingIds }: the same for a few sessions in a row (after an import, or from the ticket list). For each, an event that is
+ * already in the calendar is used (its Meet link, nobody emailed); otherwise a new event and link are made and the client is emailed the link.
+ * A session that cannot (over, offline, already has a link, Google said no) is listed with the reason. `created` counts every session that now has
+ * a link, `reused` those of them that took the link of an existing event.
+ */
+async function createMeetLinks(user: AuthUser, ids: unknown[], siteUrl: string) {
+  if (!ids.length || ids.length > MAX_MEET_BATCH) throw new HttpError(400, `Choose between 1 and ${MAX_MEET_BATCH} sessions at a time`);
+  const failed: { bookingId: string; error: string }[] = [];
+  let created = 0;
+  let reused = 0;
+  for (const bookingId of ids.map(String)) {
+    try {
+      const done = await createMeetLink(user, { bookingId }, siteUrl, true);
+      created++;
+      if (done.how === 'existing') reused++;
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      failed.push({ bookingId, error: e.message });
+    }
+  }
+  return { created, reused, failed };
 }
 
 /**

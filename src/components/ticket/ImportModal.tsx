@@ -26,7 +26,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
   const [checked, setChecked] = useState<ImportReport | null>(null);
   const [result, setResult] = useState<ImportReport | null>(null);
   const [makeMeet, setMakeMeet] = useState(true);
-  const [meetResult, setMeetResult] = useState<{ created: number; failed: number; reason?: string } | undefined>();
+  const [meetResult, setMeetResult] = useState<{ created: number; reused: number; failed: number; reason?: string } | undefined>();
   const [busy, setBusy] = useState(''); // what is going on right now; the dialog cannot be closed meanwhile
 
   const send = (step: string, extra: object) => mutate<ImportRead & ImportReport>('/api/excel/import', 'POST', { step, module: moduleId, name: upload?.name, ...extra });
@@ -68,16 +68,17 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
     total.upcomingOnline = total.meetBookingIds.length;
     // The upcoming online sessions get their Calendar event and Meet link (a few at a time: each is a call to Google).
     if (makeMeet && total.meetBookingIds.length) {
-      const result = { created: 0, failed: 0, reason: '' };
+      const result = { created: 0, reused: 0, failed: 0, reason: '' };
       for (let i = 0; i < total.meetBookingIds.length; i += MEET_CHUNK) {
-        setBusy(`Making Google Meet links… ${i} of ${total.meetBookingIds.length}`);
-        const part = await mutate<{ created: number; failed: { error: string }[] }>('/api/bookings', 'POST', { action: 'create-meet', bookingIds: total.meetBookingIds.slice(i, i + MEET_CHUNK) });
+        setBusy(`Looking for existing events and making Google Meet links… ${i} of ${total.meetBookingIds.length}`);
+        const part = await mutate<{ created: number; reused: number; failed: { error: string }[] }>('/api/bookings', 'POST', { action: 'create-meet', bookingIds: total.meetBookingIds.slice(i, i + MEET_CHUNK) });
         if (!part) {
           result.failed += total.meetBookingIds.length - i; // the reason was shown; the rest can be done from the ticket list
           result.reason ||= 'the request failed';
           break;
         }
         result.created += part.created;
+        result.reused += part.reused;
         result.failed += part.failed.length;
         result.reason ||= part.failed[0]?.error ?? '';
       }

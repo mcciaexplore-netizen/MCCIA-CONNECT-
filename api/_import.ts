@@ -44,7 +44,7 @@ const MEET_LABEL = 'Meet Link';
 const RECORDING_LABEL = 'Recording Link';
 /** A cell that says "nothing here" (NA, N/A, —, -, not available): the same as an empty one, in every column. */
 const PLACEHOLDER = /^(n\/?a|n\.a\.?|nil|[-–—]+|not available|not applicable)$/i;
-const TICKET_NUMBER = /^TKT-?(\d{1,6})$/i;
+const TICKET_NUMBER = /^([A-Za-z]{2,5})-?(\d{1,6})$/;
 const REQUIRED_CLIENT: readonly string[] = ['companyName', 'personName', 'email', 'phone'];
 
 // ---------- what a column can be ----------
@@ -108,7 +108,7 @@ export function suggestMapping(headers: string[], targets: ImportTarget[]) {
 /** What to write in each column of the template ("How to fill" tab), by the column's label. */
 export function guideRows(postQuestions: FormField[]): [string, string, string][] {
   const note = (label: string): string => {
-    if (label === FIELD.ticket) return 'A number like TKT-0007 is kept as the ticket\'s number (it must not be used by another ticket). Anything else is kept in a note and the ticket gets the next number.';
+    if (label === FIELD.ticket) return 'A number of the service\'s own series (TKT-0007 for AI Consultation, APP-0003 for Applet Setup) is kept as the ticket\'s number (it must not be used by another ticket). Anything else is kept in a note and the ticket gets the next number of its series.';
     if (label === FIELD.domain) return 'The service (for example AI Consultation or Applet Setup). Left out, every row goes to the service chosen on the screen.';
     if (label === DUE_LABEL) return 'A date, like 20/10/2026 (optional).';
     if (label === MEET_LABEL) return 'The Google Meet link of an online session, starting with https:// (optional). Upcoming online sessions without one can get one made.';
@@ -128,7 +128,7 @@ export function guideRows(postQuestions: FormField[]): [string, string, string][
     if (label === FEEDBACK_COMMENTS_LABEL) return "The client's written feedback.";
     if (label === NOTE_LABEL) return 'Anything to keep with the ticket: it becomes an internal note.';
     const question = postQuestions.find((q) => q.label === label);
-    if (question?.id === 'consultation_status') return `One of: ${TICKET_STATUSES.map((s) => STATUS_LABELS[s]).join(' | ')}. Empty: Completed for a past session, Scheduled for a future one.`;
+    if (question?.id === 'consultation_status') return `One of: ${TICKET_STATUSES.filter((s) => STATUS_LABELS[s]).map((s) => STATUS_LABELS[s]).join(' | ')}. Empty: no status (the ticket shows a blank status until someone sets one).`;
     if (question?.id === 'payment_status') return `One of: ${PAYMENT_STATUSES.map((s) => PAYMENT_LABELS[s]).join(' | ')}. Empty: Unpaid.`;
     if (question?.options?.length) return `One of: ${question.options.join(' | ')}${question.type === 'checkbox' ? ' (several: separate with a comma)' : ''}.`;
     if (question?.type === 'number') return 'A number.';
@@ -178,10 +178,10 @@ export function parseDate(text: string): { date: string; time?: string } | null 
   else if ((m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?:[,\sT]+(.*))?$/.exec(t))) {
     [d, mo, y, rest] = [Number(m[1]), Number(m[2]), m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]), m[4] ?? ''];
     if (mo > 12 && d <= 12) [d, mo] = [mo, d];
-  } else if ((m = /^(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{4})(?:[,\sT]+(.*))?$/i.exec(t)) && MONTHS.includes(m[2].slice(0, 3).toLowerCase())) {
-    [d, mo, y, rest] = [Number(m[1]), MONTHS.indexOf(m[2].slice(0, 3).toLowerCase()) + 1, Number(m[3]), m[4] ?? ''];
-  } else if ((m = /^([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?:[,\sT]+(.*))?$/i.exec(t)) && MONTHS.includes(m[1].slice(0, 3).toLowerCase())) {
-    [d, mo, y, rest] = [Number(m[2]), MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1, Number(m[3]), m[4] ?? ''];
+  } else if ((m = /^(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{4}|\d{2})(?:[,\sT]+(.*))?$/i.exec(t)) && MONTHS.includes(m[2].slice(0, 3).toLowerCase())) {
+    [d, mo, y, rest] = [Number(m[1]), MONTHS.indexOf(m[2].slice(0, 3).toLowerCase()) + 1, m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]), m[4] ?? ''];
+  } else if ((m = /^([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4}|\d{2})(?:[,\sT]+(.*))?$/i.exec(t)) && MONTHS.includes(m[1].slice(0, 3).toLowerCase())) {
+    [d, mo, y, rest] = [Number(m[2]), MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1, m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]), m[4] ?? ''];
   } else if (/^\d+(\.\d+)?$/.test(t) && Number(t) > 20_000 && Number(t) < 80_000) {
     const at = new Date(Date.UTC(1899, 11, 30) + Math.round(Number(t) * 86_400_000));
     [y, mo, d, rest] = [at.getUTCFullYear(), at.getUTCMonth() + 1, at.getUTCDate(), Number(t) % 1 ? `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}` : ''];
@@ -192,7 +192,8 @@ export function parseDate(text: string): { date: string; time?: string } | null 
   return { date, time: (rest && parseTime(rest)) || undefined };
 }
 
-const STATUS_BY_TEXT = new Map<string, TicketStatus>(TICKET_STATUSES.flatMap((s) => [[STATUS_LABELS[s].toLowerCase(), s], [s, s], [s.replace('_', ' '), s]] as [string, TicketStatus][]));
+const STATUS_BY_TEXT = new Map<string, TicketStatus>(TICKET_STATUSES.filter((s) => STATUS_LABELS[s]).flatMap((s) => [[STATUS_LABELS[s].toLowerCase(), s], [s, s], [s.replace('_', ' '), s]] as [string, TicketStatus][]));
+for (const word of ['none', 'no status', 'blank']) STATUS_BY_TEXT.set(word, 'none');
 /** The option a text means: the same words in any capitals, or just its first word ("Micro" for "Micro (Turnover less than ...)") when only one option starts with it. Anything else is kept as written. */
 const pickOption = (value: string, options: readonly string[] = []) => {
   const wanted = value.toLowerCase();
@@ -245,6 +246,7 @@ interface ModuleInfo {
   id: string;
   name: string;
   slug: string;
+  ticketPrefix: string; // its tickets are numbered PREFIX-0001, PREFIX-0002 ...
   slotMinutes: number; // how long a session is when the file does not say
   postQuestions: FormField[];
 }
@@ -302,8 +304,8 @@ interface Prepared {
 /** The client's details from a row: the four contact details are required, everything else is kept as written. */
 function clientOf(d: Draft): ClientValues {
   const text = (key: string) => d.client[key] ?? '';
-  const email = text('email');
-  if (!text('companyName')) bad('Company Name is missing');
+  const email = text('email').split(/[,;\s]+/).find((address) => address.includes('@')) ?? text('email'); // several addresses in one cell: the first
+  const company = text('companyName') || text('personName'); // a person with no company is their own company
   if (!text('personName')) bad('Person Name is missing');
   if (!email) bad('Email ID is missing');
   if (!EMAIL_PATTERN.test(email)) bad(`"${email}" is not a valid email address`);
@@ -311,16 +313,18 @@ function clientOf(d: Draft): ClientValues {
   const employment = text('employmentRange');
   if (employment && !/^\d{1,7}$/.test(employment)) bad(`Employment Range "${employment}" must be a whole number`);
   const option = (key: string) => (pickOption(text(key), CLIENT_FIELDS.find((f) => f.key === key)?.options) || null);
-  const isMember = /^(member|yes|y|true|1)$/i.test(text('isMember')) || (!text('isMember') && Boolean(text('membershipId')));
+  const code = /^(IA|AG)-\d+$/i.test(text('udyamNo')); // an MCCIA membership number written in the UDYAM column
+  const membershipId = text('membershipId') || (code ? text('udyamNo') : '');
+  const isMember = /^(member|yes|y|true|1)$/i.test(text('isMember')) || (!text('isMember') && Boolean(membershipId));
   return {
-    companyName: text('companyName'),
+    companyName: company,
     personName: text('personName'),
     email,
     phone: normalizePhone(text('phone')) ?? text('phone'),
     isMember,
-    membershipId: (isMember && text('membershipId')) || null,
+    membershipId: (isMember && membershipId) || null,
     jobTitle: text('jobTitle') || null,
-    udyamNo: text('udyamNo') || null,
+    udyamNo: (!code && text('udyamNo')) || null,
     district: text('district') || null,
     subSector: text('subSector') || null,
     employmentRange: employment ? Number(employment) : null,
@@ -383,7 +387,7 @@ function prepare(d: Draft, ctx: Context): Prepared {
   const missingCoordinator = !coordinator && cleanName(d.coordinator) && !/^(unassigned|-)$/.test(cleanName(d.coordinator)) ? d.coordinator : '';
 
   const statusText = (d.post.consultation_status ?? '').toLowerCase();
-  const status = !statusText ? (start < ctx.now ? 'completed' : 'new') : STATUS_BY_TEXT.get(statusText) ?? bad(`Status "${d.post.consultation_status}" is not one of ${TICKET_STATUSES.map((s) => STATUS_LABELS[s]).join(', ')}`);
+  const status = !statusText ? 'none' : STATUS_BY_TEXT.get(statusText) ?? bad(`Status "${d.post.consultation_status}" is not one of ${TICKET_STATUSES.map((s) => STATUS_LABELS[s]).join(', ')}`);
   const paymentText = (d.post.payment_status ?? '').toLowerCase();
   const payment = !paymentText ? 'unpaid' : PAYMENT_STATUSES.find((p) => p === paymentText || PAYMENT_LABELS[p].toLowerCase() === paymentText) ?? bad(`Payment "${d.post.payment_status}" is not Paid, Unpaid or Waived`);
 
@@ -398,8 +402,8 @@ function prepare(d: Draft, ctx: Context): Prepared {
   }
   if (d.feedback[FEEDBACK_COMMENTS]) feedback[FEEDBACK_COMMENTS] = d.feedback[FEEDBACK_COMMENTS].slice(0, 5000);
 
-  const kept = TICKET_NUMBER.exec(d.ticketNo); // a number like TKT-0007 is the ticket's own; anything else is only remembered
-  const ticketNumber = kept && Number(kept[1]) > 0 ? `TKT-${Number(kept[1]) < 10000 ? String(Number(kept[1])).padStart(4, '0') : Number(kept[1])}` : null;
+  const kept = TICKET_NUMBER.exec(d.ticketNo); // a number of the service's own series (TKT-0007 for AI Consultation) is the ticket's own; anything else is only remembered
+  const ticketNumber = kept && kept[1].toUpperCase() === module.ticketPrefix && Number(kept[2]) > 0 ? numberText(module.ticketPrefix, Number(kept[2])) : null;
   let due: Date | null = null;
   if (d.due) {
     const when = parseDate(d.due);
@@ -431,7 +435,7 @@ export function splitTable(table: string[][]) {
 export interface ImportRequest {
   user: AuthUser;
   module: { id: string; name: string }; // the service chosen on the screen: the one for every row that does not name its own
-  modules: { id: string; name: string; slug: string }[]; // every service (a row may name one)
+  modules: { id: string; name: string; slug: string; ticketPrefix: string }[]; // every service (a row may name one)
   postQuestionsOf: (moduleId: string) => FormField[];
   rows: string[][]; // text of every cell
   mapping: (string | null)[]; // per column of the rows: the target label, or null to ignore the column
@@ -444,7 +448,7 @@ const clean = (cell: string | undefined) => {
   const text = (cell ?? '').trim();
   return PLACEHOLDER.test(text) ? '' : text;
 };
-const ticketText = (n: number) => `TKT-${n < 10000 ? String(n).padStart(4, '0') : n}`;
+const numberText = (prefix: string, n: number) => `${prefix}-${n < 10000 ? String(n).padStart(4, '0') : n}`;
 const bookingStatusOf = (status: TicketStatus): BookingStatus => (status === 'cancelled' || status === 'completed' ? status : 'scheduled');
 
 export async function importRows({ user, module, modules: allModules, postQuestionsOf, rows, mapping, firstRow, dryRun, file }: ImportRequest): Promise<ImportReport> {
@@ -516,14 +520,15 @@ export async function importRows({ user, module, modules: allModules, postQuesti
 
   // One request writes the whole chunk or none of it.
   const lasts = new Map((await db.select({ moduleId: bookings.moduleId, n: sql<number>`coalesce(max(${bookings.excelRowNumber}), 0)::int` }).from(bookings).groupBy(bookings.moduleId)).map((r) => [r.moduleId, r.n]));
-  const explicit = ok.flatMap((p) => (p.ticketNumber ? [Number(p.ticketNumber.slice(4))] : []));
-  // With numbers given by the file, the rows without one follow the highest number there is (the database numbers rows as it saves them, which would not fit).
-  let nextAuto = 0;
+  const explicit = ok.filter((p) => p.ticketNumber);
+  // With numbers given by the file, the rows without one follow the highest number of their series (the database numbers rows as it saves them, which would not fit).
+  const next = new Map<string, number>();
   if (explicit.length) {
-    const [{ n }] = (await db.execute(sql`select coalesce(max(substring(ticket_number from 5)::int), 0) as n from tickets where ticket_number ~ '^TKT-[0-9]+$'`)).rows as { n: number }[];
-    nextAuto = Math.max(Number(n), ...explicit) + 1;
+    const highest = (await db.execute(sql`select split_part(ticket_number, '-', 1) as prefix, max(substring(ticket_number from '[0-9]+$')::int) as n from tickets where ticket_number ~ '^[A-Z]{2,5}-[0-9]+$' group by 1`)).rows as { prefix: string; n: number }[];
+    for (const h of highest) next.set(h.prefix, Number(h.n));
+    for (const p of ok) if (p.ticketNumber) next.set(p.module.ticketPrefix, Math.max(next.get(p.module.ticketPrefix) ?? 0, Number(p.ticketNumber.split('-')[1])));
   }
-  const finals = explicit.length ? ok.map((p) => p.ticketNumber ?? ticketText(nextAuto++)) : undefined;
+  const finals = explicit.length ? ok.map((p) => p.ticketNumber ?? numberText(p.module.ticketPrefix, next.set(p.module.ticketPrefix, (next.get(p.module.ticketPrefix) ?? 0) + 1).get(p.module.ticketPrefix)!)) : undefined;
 
   const newClients = new Map<string, string>(); // email -> the id of the client created for it
   const clientRows: (Omit<typeof clients.$inferInsert, 'companyId' | 'assignedCoordinatorId'> & { companyId: SQL; assignedCoordinatorId: SQL })[] = []; // the company is looked up by SQL, in the same request that creates it
@@ -562,8 +567,8 @@ export async function importRows({ user, module, modules: allModules, postQuesti
     );
   }
   const results = (await db.batch(writes as unknown as [(typeof writes)[0], ...(typeof writes)[number][]])) as unknown as { id: string; ticketNumber: string }[][];
-  // The counter carries on from the highest number there is, so the next ticket is free.
-  if (finals) await db.execute(sql`select setval('public.ticket_number_seq', greatest(m.n, 1), m.n > 0) from (select coalesce(max(substring(ticket_number from 5)::int), 0) as n from tickets where ticket_number ~ '^TKT-[0-9]+$') m`);
+  // Each series carries on from the highest number it has, so the next ticket is free.
+  if (finals) await db.execute(sql`insert into ticket_counters (prefix, last_number) select split_part(ticket_number, '-', 1), max(substring(ticket_number from '[0-9]+$')::int) from tickets where ticket_number ~ '^[A-Z]{2,5}-[0-9]+$' group by 1 on conflict (prefix) do update set last_number = excluded.last_number`);
   const numbers = finals ?? ticketIds.map((id) => results[insertAt].find((t) => t.id === id)?.ticketNumber ?? '');
 
   report.created = ticketIds.length;

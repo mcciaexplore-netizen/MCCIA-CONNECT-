@@ -176,9 +176,9 @@ export async function audit(actor: Actor, action: string, entityType: string, en
   await db.insert(auditLogs).values({ entityType, entityId, action, oldValue: oldValue ?? null, newValue: newValue ?? null, doneByName: actor.name, role: actor.role });
 }
 
-/** With no ticket left at all the numbering begins again: the next ticket is TKT-0001. Called after anything that deletes tickets. */
+/** With no ticket left at all every number series begins again (TKT-0001, APP-0001 ...). Called after anything that deletes tickets. */
 export async function restartTicketNumbersIfNone() {
-  await db.execute(sql`select setval('public.ticket_number_seq', 1, false) where not exists (select 1 from tickets)`);
+  await db.execute(sql`update public.ticket_counters set last_number = 0 where not exists (select 1 from tickets)`);
 }
 
 /** app_settings merged over the defaults, so every key is always present. */

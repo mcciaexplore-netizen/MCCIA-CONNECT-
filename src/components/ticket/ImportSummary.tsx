@@ -8,7 +8,7 @@ interface Props {
   onRun?: () => void;
   onClose?: () => void;
   meet?: { on: boolean; onChange: (on: boolean) => void }; // the check: make Meet links for the upcoming online sessions after importing?
-  meetResult?: { created: number; failed: number; reason?: string }; // the result: how that went
+  meetResult?: { created: number; reused: number; failed: number; reason?: string }; // the result: how that went
 }
 
 const Stat = ({ label, value, tone }: { label: string; value: number; tone?: string }) => (
@@ -32,13 +32,13 @@ export default function ImportSummary({ report, done, busy, onBack, onRun, onClo
         <label className="flex items-start gap-2 rounded-md bg-page px-3 py-2">
           <input type="checkbox" className="mt-1" checked={meet.on} onChange={(e) => meet.onChange(e.target.checked)} />
           <span>
-            Make a Google Calendar event and Meet link for the {report.upcomingOnline} upcoming online {report.upcomingOnline === 1 ? 'session' : 'sessions'} after importing. Their clients get the Google invitation and the link by email. A session that has already happened never gets one.
+            Give the {report.upcomingOnline} upcoming online {report.upcomingOnline === 1 ? 'session' : 'sessions'} a Google Meet link after importing. A meeting that is already in Google Calendar keeps that event's link and nobody is emailed; for the others a new event is made and the client is emailed the link. A session that has already happened never gets one.
           </span>
         </label>
       )}
       {done && meetResult && (
         <p className="rounded-md bg-page px-3 py-2 text-ink-2">
-          Google Meet links: {meetResult.created} made{meetResult.failed ? `, ${meetResult.failed} could not be made (${meetResult.reason}). Select those tickets in the list and press "Create Meet links" to try again.` : '.'}
+          Google Meet links: {meetResult.created} ready{meetResult.reused ? ` (${meetResult.reused} taken from events already in the calendar)` : ''}{meetResult.failed ? `, ${meetResult.failed} could not be given one (${meetResult.reason}). Select those tickets in the list and press "Create Meet links" to try again.` : '.'}
         </p>
       )}
       {report.warnings.map((warning) => <p key={warning} className="rounded-md bg-gold-light px-3 py-2 text-[#8a6d1c]">{warning}</p>)}

@@ -6,10 +6,13 @@ import type { adminNotifications, auditLogs, bookings, clients, companies, coord
 export const ROLES = ['super_admin', 'coordinator'] as const;
 export type Role = (typeof ROLES)[number];
 
-export const TICKET_STATUSES = ['new', 'pending', 'follow_up', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show'] as const;
+export const TICKET_STATUSES = ['new', 'pending', 'follow_up', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show', 'none'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
-/** `new` reads "Scheduled": every ticket is a booked session. These are also the choices of the consultant form's Consultation Status. */
+/**
+ * `new` reads "Scheduled": every ticket is a booked session. These are also the choices of the consultant form's Consultation Status.
+ * `none` is a blank status (a meeting that was held and has not been marked yet): its label is empty, so exports and the form leave it blank.
+ */
 export const STATUS_LABELS: Record<TicketStatus, string> = {
   new: 'Scheduled',
   pending: 'Pending',
@@ -19,7 +22,10 @@ export const STATUS_LABELS: Record<TicketStatus, string> = {
   cancelled: 'Cancelled',
   rescheduled: 'Rescheduled',
   no_show: 'No Show',
+  none: '',
 };
+/** A status as a person reads it in a list or a choice (the blank one reads "No status"). */
+export const statusText = (status: TicketStatus) => STATUS_LABELS[status] || 'No status';
 export const statusOf = (label: string) => TICKET_STATUSES.find((status) => STATUS_LABELS[status] === label);
 
 /** Shortest reason (characters) accepted when a ticket's coordinator is replaced by another. */

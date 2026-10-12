@@ -16,7 +16,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
 import { useBulk } from '../../lib/useBulk';
 import { confirmCancel, confirmCreateMeetLinks, confirmDeleteTickets, formatDate, isOpen, studioDay, ticketSerial } from '../../lib/utils';
-import { BOOKING_MODES, MEET_CHUNK, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
+import { BOOKING_MODES, MEET_CHUNK, statusText, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
 const BULK_SIZE = 100; // the most tickets one bulk request may carry
 const NO_FILTERS = { search: '', status: '', moduleId: '', coordinatorId: '', mode: '', notes: '', dateFrom: '', dateTo: '' };
@@ -92,15 +92,17 @@ export default function Tickets() {
     if (!sessions.length) return toast.error('None of the selected sessions needs a Meet link: it must be online, still to come, and without a link yet');
     if (!confirmCreateMeetLinks(sessions.length)) return;
     let created = 0;
+    let reused = 0;
     const failed: string[] = [];
     for (let i = 0; i < sessions.length; i += MEET_CHUNK) {
-      const part = await mutate<{ created: number; failed: { error: string }[] }>('/api/bookings', 'POST', { action: 'create-meet', bookingIds: sessions.slice(i, i + MEET_CHUNK).map((b) => b.id) });
+      const part = await mutate<{ created: number; reused: number; failed: { error: string }[] }>('/api/bookings', 'POST', { action: 'create-meet', bookingIds: sessions.slice(i, i + MEET_CHUNK).map((b) => b.id) });
       if (!part) break;
       created += part.created;
+      reused += part.reused;
       failed.push(...part.failed.map((f) => f.error));
     }
-    if (failed.length) toast.error(`${created} Meet link${created === 1 ? '' : 's'} made, ${failed.length} failed (${failed[0]})`);
-    else if (created) toast.success(`${created} Meet link${created === 1 ? '' : 's'} made`);
+    if (failed.length) toast.error(`${created} Meet link${created === 1 ? '' : 's'} ready, ${failed.length} failed (${failed[0]})`);
+    else if (created) toast.success(`${created} Meet link${created === 1 ? '' : 's'} ready${reused ? ` (${reused} from events already in the calendar)` : ''}`);
     clearSelection();
   };
   const deleteSelected = async () => {
@@ -177,7 +179,7 @@ export default function Tickets() {
               <input className="input w-72" placeholder="Search ticket ID, company, person, phone, email…" value={filters.search} onChange={(e) => filter({ search: e.target.value })} />
               <select className="input w-auto" value={filters.status} onChange={(e) => filter({ status: e.target.value })}>
                 <option value="">All statuses</option>
-                {TICKET_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                {TICKET_STATUSES.map((s) => <option key={s} value={s}>{statusText(s)}</option>)}
               </select>
               <select className="input w-auto" value={filters.moduleId} onChange={(e) => filter({ moduleId: e.target.value })}>
                 <option value="">All modules</option>
@@ -214,7 +216,7 @@ export default function Tickets() {
             <SelectionBar count={ids.length} noun="tickets" allMatching={bulkSel.allMatching} total={rows.length} canSelectAll={admin && bulkSel.canSelectAll} onSelectAll={bulkSel.selectAll}>
               <select className="input w-auto" value="" onChange={(e) => e.target.value && (e.target.value !== 'cancelled' || confirmCancel(ids.length)) && bulk({ status: e.target.value as TicketStatus })}>
                 <option value="">Change Status</option>
-                {TICKET_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                {TICKET_STATUSES.map((s) => <option key={s} value={s}>{statusText(s)}</option>)}
               </select>
               <button className="btn" onClick={createMeetLinks}>Create Meet links</button>
               {admin && (

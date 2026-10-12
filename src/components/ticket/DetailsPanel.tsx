@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
 import { useData } from '../../context/DataContext';
 import { companyNote, confirmCancel, confirmDelete, formatDate, isOpen } from '../../lib/utils';
-import { BOOKING_MODES, PAYMENT_LABELS, PAYMENT_STATUSES, STATUS_LABELS, TICKET_STATUSES, type BookingMode, type Ticket, type TicketStatus } from '../../types';
+import { BOOKING_MODES, PAYMENT_LABELS, PAYMENT_STATUSES, statusText, TICKET_STATUSES, type BookingMode, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
 import ModePill from '../ui/ModePill';
@@ -45,7 +45,7 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
       <Field label="Status">
         <select className="input" value={ticket.status} disabled={ticket.status === 'cancelled'} onChange={(e) => (e.target.value !== 'cancelled' || confirmCancel()) && update({ status: e.target.value as TicketStatus })}>
           {TICKET_STATUSES.map((s) => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            <option key={s} value={s}>{statusText(s)}</option>
           ))}
         </select>
       </Field>

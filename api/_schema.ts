@@ -31,6 +31,7 @@ export const modules = pgTable('modules', {
   description: text('description'),
   color: text('color').notNull().default('#C41E3A'),
   isActive: boolean('is_active').notNull().default(true),
+  ticketPrefix: text('ticket_prefix').notNull().default('TKT'), // its tickets are numbered PREFIX-0001, PREFIX-0002 ... in a series of their own (see ticket_counters)
   createdAt: createdAt(),
 });
 
@@ -121,7 +122,7 @@ export const bookings = pgTable('bookings', {
 
 export const tickets = pgTable('tickets', {
   id: id(),
-  // Filled by the generate_ticket_number() trigger from ticket_number_seq: TKT-0001 ..., one number per ticket (unique), counting up for the
+  // Filled by the generate_ticket_number() trigger from ticket_counters: the service's prefix and its own count (TKT-0001, APP-0001 ...), unique, counting up for the
   // whole studio. A company's tickets are tied together by the company (its normalized name), not by the number; company_ticket_numbers is
   // what the numbers used to be keyed by (until 7 Oct 2026) and is no longer used.
   ticketNumber: text('ticket_number').notNull().default(sql`''`),
