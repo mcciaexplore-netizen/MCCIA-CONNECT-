@@ -95,6 +95,8 @@ export default function ContactPanel({ client, readOnly = false }: { client: Cli
   const [draft, setDraft] = useState(toClientInput(client));
   const [editing, setEditing] = useState<Editing>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(toClientInput(client));
+  // The client can also be saved from the Edit client dialog: the panel then shows the saved values.
+  useEffect(() => { if (!editing) setDraft(toClientInput(client)); }, [client]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     const saved = await mutate<Client>('/api/clients', 'PATCH', { id: client.id, client: draft }, 'Client saved');

@@ -205,6 +205,11 @@ export default handler({
     if (!before) throw new HttpError(404, 'Client not found');
 
     const values = parseClient(body.client);
+    if (values.email !== before.email.toLowerCase()) {
+      // Bookings find a client by email, so two clients must not share one.
+      const [taken] = await db.select({ name: clients.personName }).from(clients).where(and(sql`lower(${clients.email}) = ${values.email}`, ne(clients.id, id)));
+      if (taken) throw new HttpError(409, `${taken.name} already has the email ${values.email}. Open that client instead.`);
+    }
     let [client] = await db.update(clients).set(values).where(eq(clients.id, id)).returning();
     // A different company name puts the client in that company, and under its coordinator when it has one.
     if (values.companyName !== before.companyName) {

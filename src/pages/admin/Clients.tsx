@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import toast from 'react-hot-toast';
 import { usePageData, useData } from '../../context/DataContext';
+import EditClient from '../../components/client/EditClient';
 import DataState from '../../components/ui/DataState';
 import Avatar from '../../components/ui/Avatar';
 import ClientFields from '../../components/ui/ClientFields';
@@ -25,6 +26,7 @@ export default function Clients() {
   }, [tickets]);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK_CLIENT);
+  const [editing, setEditing] = useState<Client>();
 
   const query = search.trim().toLowerCase();
   const rows = clients.filter((c) => !query || `${c.companyName} ${c.personName} ${c.email} ${c.phone}`.toLowerCase().includes(query));
@@ -105,8 +107,9 @@ export default function Clients() {
         </SelectionBar>
       )}
 
-      <DataTable key={bulk.tableKey} selectable onSelectionChange={bulk.onSelectionChange} columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => navigate(`/admin/clients/${c.id}`)} onDelete={remove} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
+      <DataTable key={bulk.tableKey} selectable onSelectionChange={bulk.onSelectionChange} columns={columns} data={shown} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={setEditing} onDelete={remove} empty="No clients found." emptyIcon="users" emptyAction={clients.length === 0 ? { label: 'Add client', onClick: () => setAdding(true) } : query ? { label: 'Clear search', onClick: () => setSearch('') } : undefined} />
       <Pager total={rows.length} page={pageNo} onPage={(next) => { setPageNo(next); bulk.clear(); }} />
+      {editing && <EditClient key={editing.id} client={clients.find((c) => c.id === editing.id) ?? editing} onClose={() => setEditing(undefined)} />}
     </div>
   );
 }

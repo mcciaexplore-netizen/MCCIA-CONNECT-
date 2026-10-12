@@ -4,6 +4,7 @@ import { usePageData, useData } from '../../context/DataContext';
 import { useEntityLogs } from '../../lib/useEntityLogs';
 import ActivitiesTab from '../../components/client/ActivitiesTab';
 import ContactPanel from '../../components/client/ContactPanel';
+import EditClient from '../../components/client/EditClient';
 import TicketsSection from '../../components/client/TicketsSection';
 import ActivityList from '../../components/ui/ActivityList';
 import DataState from '../../components/ui/DataState';
@@ -28,6 +29,7 @@ export default function ClientProfile() {
   const admin = role === 'super_admin';
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
+  const [editing, setEditing] = useState(false);
   const page = usePageData('clients', 'tickets', 'bookings', ...(admin ? (['companies'] as const) : []));
 
   const client = clients.find((c) => c.id === clientId);
@@ -70,6 +72,7 @@ export default function ClientProfile() {
           </div>
           {admin && (
             <div className="flex gap-2">
+              <button className="btn" onClick={() => setEditing(true)}>Edit client</button>
               <button className="btn btn-danger" onClick={remove}>Delete client</button>
               <button className="btn btn-primary" onClick={() => navigate('/admin/create-booking', { state: { clientId: client.id } })}>+ Add Ticket</button>
             </div>
@@ -100,6 +103,7 @@ export default function ClientProfile() {
         )}
         {tab === 'activities' && <ActivitiesTab clientId={client.id} />}
       </div>
+      {editing && <EditClient client={client} onClose={() => setEditing(false)} />}
     </div>
   );
 }

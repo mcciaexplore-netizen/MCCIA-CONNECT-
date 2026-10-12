@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
 import CompanyCard from '../../components/client/CompanyCard';
+import EditClient from '../../components/client/EditClient';
 import Avatar from '../../components/ui/Avatar';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -24,6 +25,7 @@ export default function CompanyDetail() {
   const page = usePageData('companies', 'clients', 'tickets', 'bookings');
   const navigate = useNavigate();
   const [reassigning, setReassigning] = useState(false);
+  const [editingId, setEditingId] = useState<string>();
   const [historyPage, setHistoryPage] = useState(1);
 
   if (page.loading || page.error) return <DataState {...page}>{null}</DataState>;
@@ -90,11 +92,13 @@ export default function CompanyDetail() {
       </section>
 
       <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-2">Clients</h2>
-      <DataTable columns={columns} data={members} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} empty="No clients in this company yet." emptyIcon="users" />
+      <DataTable columns={columns} data={members} rowKey={(c) => c.id} onRowClick={(c) => navigate(`/admin/clients/${c.id}`)} onEdit={(c) => setEditingId(c.id)} empty="No clients in this company yet." emptyIcon="users" />
 
       <h2 className="mb-2 mt-6 text-[11px] font-semibold uppercase tracking-wide text-ink-2">Ticket history ({history.length})</h2>
       <DataTable columns={historyColumns} data={pageOf(history, historyPage).rows} rowKey={(t) => t.id} onRowClick={(t) => navigate(`/admin/tickets/${t.id}`)} empty="No tickets yet." emptyIcon="ticket" />
       <Pager total={history.length} page={historyPage} onPage={setHistoryPage} />
+
+      {members.map((m) => m.id === editingId && <EditClient key={m.id} client={m} onClose={() => setEditingId(undefined)} />)}
 
       {reassigning && members[0] && (
         <ReassignModal

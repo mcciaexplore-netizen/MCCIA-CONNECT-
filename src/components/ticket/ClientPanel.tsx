@@ -4,6 +4,7 @@ import { useData } from '../../context/DataContext';
 import { useEntityLogs } from '../../lib/useEntityLogs';
 import { formatDate } from '../../lib/utils';
 import { CLIENT_FIELDS, clientText, type Ticket } from '../../types';
+import EditClient from '../client/EditClient';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
 
@@ -11,6 +12,7 @@ import Icon from '../ui/Icon';
 export default function ClientPanel({ ticket }: { ticket: Ticket }) {
   const { role, tickets, clients, getClient, getCoordinator } = useData();
   const [historyOpen, setHistoryOpen] = useState(true);
+  const [editing, setEditing] = useState(false);
   const client = getClient(ticket.clientId);
   const ownTickets = tickets.filter((t) => t.clientId === ticket.clientId);
   const auditLogs = useEntityLogs([ticket.clientId, ...ownTickets.map((t) => t.id)], role === 'super_admin' && historyOpen, tickets);
@@ -48,7 +50,7 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-2">Contact Properties</h3>
         {role === 'super_admin' && (
-          <Link to={`/admin/clients/${client.id}`} title="Edit contact" className="rounded p-1 text-ink-2 hover:bg-page hover:text-primary"><Icon name="pencil" /></Link>
+          <button title="Edit contact" className="rounded p-1 text-ink-2 hover:bg-page hover:text-primary" onClick={() => setEditing(true)}><Icon name="pencil" /></button>
         )}
       </div>
       <dl className="space-y-3">
@@ -84,6 +86,7 @@ export default function ClientPanel({ ticket }: { ticket: Ticket }) {
           )}
         </>
       )}
+      {editing && <EditClient client={client} onClose={() => setEditing(false)} />}
     </aside>
   );
 }
