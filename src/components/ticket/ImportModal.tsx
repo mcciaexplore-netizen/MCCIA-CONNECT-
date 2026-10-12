@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useData } from '../../context/DataContext';
-import { IMPORT_CHUNK, type ImportRead, type ImportReport } from '../../types';
+import { IMPORT_CHUNK, MEET_CHUNK, type ImportRead, type ImportReport } from '../../types';
 import Modal from '../ui/Modal';
 import ImportMatch from './ImportMatch';
 import ImportPick from './ImportPick';
@@ -25,6 +25,8 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
   const [mapping, setMapping] = useState<(string | null)[]>([]);
   const [checked, setChecked] = useState<ImportReport | null>(null);
   const [result, setResult] = useState<ImportReport | null>(null);
+  const [makeMeet, setMakeMeet] = useState(true);
+  const [meetResult, setMeetResult] = useState<{ created: number; failed: number; reason?: string } | undefined>();
   const [busy, setBusy] = useState(''); // what is going on right now; the dialog cannot be closed meanwhile
 
   const send = (step: string, extra: object) => mutate<ImportRead & ImportReport>('/api/excel/import', 'POST', { step, module: moduleId, name: upload?.name, ...extra });
@@ -50,7 +52,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
     setBusy('');
   };
   const run = async () => {
-    const total: ImportReport = { ready: 0, created: 0, duplicates: 0, failed: 0, errors: [], warnings: checked!.warnings, tickets: [] };
+    const total: ImportReport = { ready: 0, created: 0, duplicates: 0, failed: 0, errors: [], warnings: checked!.warnings, tickets: [], upcomingOnline: 0, meetBookingIds: [] };
     for (let i = 0; i < read!.rows.length; i += IMPORT_CHUNK) {
       setBusy(`Importing… ${i} of ${read!.rows.length} rows`);
       const part = await send('run', { rows: read!.rows.slice(i, i + IMPORT_CHUNK), mapping, firstRow: read!.firstRow + i });
@@ -60,8 +62,27 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
       total.failed += part.failed;
       total.errors.push(...part.errors);
       total.tickets.push(...part.tickets);
+      total.meetBookingIds.push(...part.meetBookingIds);
     }
     total.tickets = total.tickets.slice(0, 5);
+    total.upcomingOnline = total.meetBookingIds.length;
+    // The upcoming online sessions get their Calendar event and Meet link (a few at a time: each is a call to Google).
+    if (makeMeet && total.meetBookingIds.length) {
+      const result = { created: 0, failed: 0, reason: '' };
+      for (let i = 0; i < total.meetBookingIds.length; i += MEET_CHUNK) {
+        setBusy(`Making Google Meet links… ${i} of ${total.meetBookingIds.length}`);
+        const part = await mutate<{ created: number; failed: { error: string }[] }>('/api/bookings', 'POST', { action: 'create-meet', bookingIds: total.meetBookingIds.slice(i, i + MEET_CHUNK) });
+        if (!part) {
+          result.failed += total.meetBookingIds.length - i; // the reason was shown; the rest can be done from the ticket list
+          result.reason ||= 'the request failed';
+          break;
+        }
+        result.created += part.created;
+        result.failed += part.failed.length;
+        result.reason ||= part.failed[0]?.error ?? '';
+      }
+      setMeetResult(result);
+    }
     setBusy('');
     setResult(total);
     await refresh();
@@ -70,9 +91,9 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Import tickets" wide={Boolean(read)} onClose={() => !busy && onClose()}>
       {result ? (
-        <ImportSummary report={result} done onClose={onClose} />
+        <ImportSummary report={result} done meetResult={meetResult} onClose={onClose} />
       ) : checked ? (
-        <ImportSummary report={checked} busy={busy} onBack={() => setChecked(null)} onRun={run} />
+        <ImportSummary report={checked} busy={busy} onBack={() => setChecked(null)} onRun={run} meet={{ on: makeMeet, onChange: setMakeMeet }} />
       ) : read ? (
         <ImportMatch read={read} mapping={mapping} onMapping={setMapping} onSheet={(sheet) => load(moduleId, upload, sheet)} onBack={() => setRead(null)} onCheck={check} busy={busy} />
       ) : (

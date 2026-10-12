@@ -1,9 +1,10 @@
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { inArray, sql, type SQL } from 'drizzle-orm';
 import { studioTime } from './_availability.js';
 import { companyCoordinatorOf, companyIdOf } from './_companies.js';
 import { downloadName, FIELD, norm } from './_excel.js';
 import { updateSheet } from './_live_excel.js';
 import { audit, db, HttpError, loadSettings, type AuthUser } from './_lib.js';
+import { HTTPS_LINK } from './_sessions.js';
 import { bookings, clients, companies, coordinators, slotConfig, tickets } from './_schema.js';
 import {
   CLIENT_FIELDS,
@@ -38,6 +39,12 @@ import {
 const MAX_ERRORS = 100;
 /** A column of free text kept on each ticket as an internal note (the old software's remarks, how it was booked ...). */
 const NOTE_LABEL = 'Internal Note';
+const DUE_LABEL = 'Due Date';
+const MEET_LABEL = 'Meet Link';
+const RECORDING_LABEL = 'Recording Link';
+/** A cell that says "nothing here" (NA, N/A, —, -, not available): the same as an empty one, in every column. */
+const PLACEHOLDER = /^(n\/?a|n\.a\.?|nil|[-–—]+|not available|not applicable)$/i;
+const TICKET_NUMBER = /^TKT-?(\d{1,6})$/i;
 const REQUIRED_CLIENT: readonly string[] = ['companyName', 'personName', 'email', 'phone'];
 
 // ---------- what a column can be ----------
@@ -46,10 +53,14 @@ const REQUIRED_CLIENT: readonly string[] = ['companyName', 'personName', 'email'
 export function importTargets(postQuestions: FormField[]): ImportTarget[] {
   const targets: ImportTarget[] = [
     { label: FIELD.ticket, required: false },
+    { label: FIELD.domain, required: false },
     { label: FIELD.date, required: true },
     { label: FIELD.time, required: true },
     { label: FIELD.mode, required: false },
     { label: FIELD.coordinator, required: false },
+    { label: DUE_LABEL, required: false },
+    { label: MEET_LABEL, required: false },
+    { label: RECORDING_LABEL, required: false },
     ...CLIENT_FIELDS.map(({ key, label }) => ({ label, required: REQUIRED_CLIENT.includes(key) })),
     ...postQuestions.map(({ label }) => ({ label, required: false })),
     ...FEEDBACK_FIELDS.map(({ label }) => ({ label, required: false })),
@@ -67,6 +78,8 @@ const importAliases = new Map(
     PHONE: 'Contact / Phone', MOBILE: 'Contact / Phone', 'MOBILE NO': 'Contact / Phone', 'PHONE NO': 'Contact / Phone', 'CONTACT NO': 'Contact / Phone', 'CONTACT NUMBER': 'Contact / Phone', CONTACT: 'Contact / Phone',
     COMPANY: 'Company Name', ORGANISATION: 'Company Name', ORGANIZATION: 'Company Name', 'NAME OF COMPANY': 'Company Name', 'FIRM NAME': 'Company Name',
     NAME: 'Person Name', 'CONTACT PERSON': 'Person Name', 'CLIENT NAME': 'Person Name', 'NAME OF PERSON': 'Person Name', PERSON: 'Person Name',
+    'CONSULTATION DATE': 'Date', 'CONSULTATION TIME': 'Time Slot', UDYAM: 'UDYAM No', 'UDYAM NUMBER': 'UDYAM No', 'UDYAM ID': 'UDYAM No',
+    MODULE: FIELD.domain, SERVICE: FIELD.domain, 'DUE ON': DUE_LABEL, 'MEETING LINK': MEET_LABEL, 'GOOGLE MEET LINK': MEET_LABEL, 'GOOGLE MEET': MEET_LABEL, RECORDING: RECORDING_LABEL, 'MEETING RECORDING': RECORDING_LABEL,
     'DATE OF CONSULTATION': 'Date', 'SESSION DATE': 'Date', 'BOOKING DATE': 'Date', 'DATE OF SESSION': 'Date', 'DATE OF MEETING': 'Date',
     TIME: 'Time Slot', 'START TIME': 'Time Slot', SLOT: 'Time Slot', 'SESSION TIME': 'Time Slot',
     MODE: 'Mode of Consultation', 'MODE OF MEETING': 'Mode of Consultation',
@@ -83,8 +96,9 @@ const importAliases = new Map(
 export function suggestMapping(headers: string[], targets: ImportTarget[]) {
   const byName = new Map(targets.map(({ label }) => [norm(label), label]));
   const used = new Set<string>();
+  const named = (name: string) => byName.get(name) ?? (name === norm('Consultation Status') ? byName.get(norm('Applet Status')) : undefined); // an Applet Setup file's status column is its "Applet Status"
   return headers.map((header) => {
-    const label = byName.get(importAliases.get(norm(header)) ?? downloadName(header));
+    const label = named(importAliases.get(norm(header)) ?? downloadName(header));
     if (!label || used.has(label)) return null;
     used.add(label);
     return label;
@@ -94,7 +108,11 @@ export function suggestMapping(headers: string[], targets: ImportTarget[]) {
 /** What to write in each column of the template ("How to fill" tab), by the column's label. */
 export function guideRows(postQuestions: FormField[]): [string, string, string][] {
   const note = (label: string): string => {
-    if (label === FIELD.ticket) return "The previous software's ticket number. It is kept in a note on the ticket; every ticket here gets a new number.";
+    if (label === FIELD.ticket) return 'A number like TKT-0007 is kept as the ticket\'s number (it must not be used by another ticket). Anything else is kept in a note and the ticket gets the next number.';
+    if (label === FIELD.domain) return 'The service (for example AI Consultation or Applet Setup). Left out, every row goes to the service chosen on the screen.';
+    if (label === DUE_LABEL) return 'A date, like 20/10/2026 (optional).';
+    if (label === MEET_LABEL) return 'The Google Meet link of an online session, starting with https:// (optional). Upcoming online sessions without one can get one made.';
+    if (label === RECORDING_LABEL) return 'The web address of the recording (optional).';
     if (label === FIELD.date) return 'The day of the session: 12/10/2026 (day first), 2026-10-12 or 12 Oct 2026.';
     if (label === FIELD.time) return 'When the session started: 10:30 AM or 14:00.';
     if (label === FIELD.mode) return 'Online or Offline. Left empty it counts as Online.';
@@ -187,6 +205,10 @@ const pickOption = (value: string, options: readonly string[] = []) => {
 interface Draft {
   row: number;
   ticketNo: string;
+  module: string;
+  due: string;
+  meet: string;
+  recording: string;
   date: string;
   time: string;
   mode: string;
@@ -201,6 +223,10 @@ interface Draft {
 function fieldsOf(postQuestions: FormField[]) {
   const fields = new Map<string, (d: Draft, value: string) => void>([
     [FIELD.ticket, (d, v) => (d.ticketNo = v)],
+    [FIELD.domain, (d, v) => (d.module = v)],
+    [DUE_LABEL, (d, v) => (d.due = v)],
+    [MEET_LABEL, (d, v) => (d.meet = v)],
+    [RECORDING_LABEL, (d, v) => (d.recording = v)],
     [FIELD.date, (d, v) => (d.date = v)],
     [FIELD.time, (d, v) => (d.time = v)],
     [FIELD.mode, (d, v) => (d.mode = v)],
@@ -215,11 +241,19 @@ function fieldsOf(postQuestions: FormField[]) {
   return fields;
 }
 
+interface ModuleInfo {
+  id: string;
+  name: string;
+  slug: string;
+  slotMinutes: number; // how long a session is when the file does not say
+  postQuestions: FormField[];
+}
+
 interface Context {
   tz: string;
   now: Date;
-  slotMinutes: number;
-  postQuestions: FormField[];
+  modules: ModuleInfo[];
+  fallback: ModuleInfo; // the service chosen on the screen, for rows that do not name one
   coordinators: { id: string; name: string; email: string }[];
 }
 
@@ -246,6 +280,11 @@ interface ClientValues {
 
 interface Prepared {
   row: number;
+  module: ModuleInfo;
+  ticketNumber: string | null; // the number the file gives the ticket (TKT-0007); null = the next free one
+  due: Date | null;
+  meetLink: string | null;
+  recordingLink: string | null;
   client: ClientValues;
   start: Date;
   end: Date;
@@ -313,9 +352,20 @@ function findCoordinator(coordinators: Context['coordinators'], text: string) {
   }
 }
 
+/** The service a row is for: the one it names (its name or link, or most of it), else the one chosen on the screen. */
+function moduleOf(text: string, ctx: Context) {
+  if (!text) return ctx.fallback;
+  const key = norm(text);
+  const exact = ctx.modules.filter((m) => norm(m.name) === key || norm(m.slug) === key);
+  const near = ctx.modules.filter((m) => norm(m.name).includes(key) || key.includes(norm(m.name))); // "AI Applet Setup" for "Applet Setup"
+  const found = exact.length === 1 ? exact : near.length === 1 ? near : [];
+  return found[0] ?? bad(`Module "${text}" is not one of: ${ctx.modules.map((m) => m.name).join(', ')}`);
+}
+
 /** Checks one row and turns it into what will be saved; throws a RowError saying what is wrong with it. */
 function prepare(d: Draft, ctx: Context): Prepared {
   const client = clientOf(d);
+  const module = moduleOf(d.module, ctx);
 
   const day = d.date ? parseDate(d.date) : bad('Date is missing');
   if (!day) bad(`"${d.date}" is not a date (write it like 12/10/2026)`);
@@ -324,7 +374,7 @@ function prepare(d: Draft, ctx: Context): Prepared {
   const start = new Date(studioTime(day.date, time, ctx.tz));
 
   const span = Number(d.post.time_span_minutes);
-  const end = new Date(start.getTime() + (Number.isFinite(span) && span >= 5 && span <= 1440 ? span : ctx.slotMinutes) * 60_000);
+  const end = new Date(start.getTime() + (Number.isFinite(span) && span >= 5 && span <= 1440 ? span : module.slotMinutes) * 60_000);
 
   const modeText = d.mode.toLowerCase();
   const mode: BookingMode = !modeText ? 'online' : /offline|in.?person|physical|walk|visit|studio/.test(modeText) ? 'offline' : /online|virtual|meet|zoom|video|call/.test(modeText) ? 'online' : bad(`Mode "${d.mode}" is not Online or Offline`);
@@ -338,7 +388,7 @@ function prepare(d: Draft, ctx: Context): Prepared {
   const payment = !paymentText ? 'unpaid' : PAYMENT_STATUSES.find((p) => p === paymentText || PAYMENT_LABELS[p].toLowerCase() === paymentText) ?? bad(`Payment "${d.post.payment_status}" is not Paid, Unpaid or Waived`);
 
   const post: Record<string, string> = {};
-  for (const { id, options } of ctx.postQuestions) if (d.post[id] && !(id in TICKET_FIELDS)) post[id] = pickOption(d.post[id], options).slice(0, 5000);
+  for (const { id, options } of module.postQuestions) if (d.post[id] && !(id in TICKET_FIELDS)) post[id] = pickOption(d.post[id], options).slice(0, 5000);
   const feedback: Record<string, string> = {};
   for (const { key, label } of FEEDBACK_FIELDS) {
     if (!d.feedback[key]) continue;
@@ -348,8 +398,18 @@ function prepare(d: Draft, ctx: Context): Prepared {
   }
   if (d.feedback[FEEDBACK_COMMENTS]) feedback[FEEDBACK_COMMENTS] = d.feedback[FEEDBACK_COMMENTS].slice(0, 5000);
 
-  const note = [`Imported from the previous software${d.ticketNo ? ` (its ticket number: ${d.ticketNo})` : ''}.`, missingCoordinator && `Coordinator in the file: ${missingCoordinator} (not found here, so the ticket is unassigned).`].filter(Boolean).join(' ');
-  return { row: d.row, client, start, end, mode, coordinatorId: coordinator?.id ?? null, missingCoordinator, status, payment, post, feedback, note, fileNote: d.note.slice(0, 5000) };
+  const kept = TICKET_NUMBER.exec(d.ticketNo); // a number like TKT-0007 is the ticket's own; anything else is only remembered
+  const ticketNumber = kept && Number(kept[1]) > 0 ? `TKT-${Number(kept[1]) < 10000 ? String(Number(kept[1])).padStart(4, '0') : Number(kept[1])}` : null;
+  let due: Date | null = null;
+  if (d.due) {
+    const when = parseDate(d.due);
+    if (!when) bad(`Due Date "${d.due}" is not a date (write it like 20/10/2026)`);
+    due = new Date(studioTime(when!.date, '00:00', ctx.tz));
+  }
+  for (const [label, link] of [[MEET_LABEL, d.meet], [RECORDING_LABEL, d.recording]] as const) if (link && !HTTPS_LINK.test(link)) bad(`${label} "${link.slice(0, 40)}" must be a web address starting with https://`);
+
+  const note = [`Imported from the previous software${d.ticketNo && !ticketNumber ? ` (its ticket number: ${d.ticketNo})` : ''}.`, missingCoordinator && `Coordinator in the file: ${missingCoordinator} (not found here, so the ticket is unassigned).`].filter(Boolean).join(' ');
+  return { row: d.row, module, ticketNumber, due, meetLink: mode === 'online' ? d.meet || null : null, recordingLink: d.recording || null, client, start, end, mode, coordinatorId: coordinator?.id ?? null, missingCoordinator, status, payment, post, feedback, note, fileNote: d.note.slice(0, 5000) };
 }
 
 // ---------- the file as a table ----------
@@ -370,8 +430,9 @@ export function splitTable(table: string[][]) {
 
 export interface ImportRequest {
   user: AuthUser;
-  module: { id: string; name: string };
-  postQuestions: FormField[];
+  module: { id: string; name: string }; // the service chosen on the screen: the one for every row that does not name its own
+  modules: { id: string; name: string; slug: string }[]; // every service (a row may name one)
+  postQuestionsOf: (moduleId: string) => FormField[];
   rows: string[][]; // text of every cell
   mapping: (string | null)[]; // per column of the rows: the target label, or null to ignore the column
   firstRow: number; // the file's row number of rows[0] (messages say "row 5")
@@ -379,59 +440,96 @@ export interface ImportRequest {
   file: string;
 }
 
-export async function importRows({ user, module, postQuestions, rows, mapping, firstRow, dryRun, file }: ImportRequest): Promise<ImportReport> {
-  const fields = fieldsOf(postQuestions);
-  const columns = mapping.map((label) => (label ? fields.get(label) : undefined));
-  const report: ImportReport = { ready: 0, created: 0, duplicates: 0, failed: 0, errors: [], warnings: [], tickets: [] };
+const clean = (cell: string | undefined) => {
+  const text = (cell ?? '').trim();
+  return PLACEHOLDER.test(text) ? '' : text;
+};
+const ticketText = (n: number) => `TKT-${n < 10000 ? String(n).padStart(4, '0') : n}`;
+const bookingStatusOf = (status: TicketStatus): BookingStatus => (status === 'cancelled' || status === 'completed' ? status : 'scheduled');
 
-  const [settings, coordinatorRows, [config]] = await Promise.all([
+export async function importRows({ user, module, modules: allModules, postQuestionsOf, rows, mapping, firstRow, dryRun, file }: ImportRequest): Promise<ImportReport> {
+  const fields = fieldsOf(postQuestionsOf(module.id));
+  const columns = mapping.map((label) => (label ? fields.get(label) : undefined));
+  const report: ImportReport = { ready: 0, created: 0, duplicates: 0, failed: 0, errors: [], warnings: [], tickets: [], upcomingOnline: 0, meetBookingIds: [] };
+  const fail = (row: number, message: string) => {
+    report.failed++;
+    if (report.errors.length < MAX_ERRORS) report.errors.push({ row, message });
+  };
+
+  const [settings, coordinatorRows, configs] = await Promise.all([
     loadSettings(),
     db.select({ id: coordinators.id, name: coordinators.name, email: coordinators.email }).from(coordinators),
-    db.select({ slotIncrement: slotConfig.slotIncrement }).from(slotConfig).where(eq(slotConfig.moduleId, module.id)),
+    db.select({ moduleId: slotConfig.moduleId, slotIncrement: slotConfig.slotIncrement }).from(slotConfig),
   ]);
-  const ctx: Context = { tz: settings.timezone.tz, now: new Date(), slotMinutes: config?.slotIncrement ?? 60, postQuestions, coordinators: coordinatorRows };
+  const infos: ModuleInfo[] = allModules.map((m) => ({ ...m, slotMinutes: configs.find((c) => c.moduleId === m.id)?.slotIncrement ?? 60, postQuestions: postQuestionsOf(m.id) }));
+  const ctx: Context = { tz: settings.timezone.tz, now: new Date(), modules: infos, fallback: infos.find((m) => m.id === module.id)!, coordinators: coordinatorRows };
 
   const prepared: Prepared[] = [];
   rows.forEach((cells, index) => {
     if (cells.every((cell) => !cell.trim())) return; // an empty row in the middle of a sheet is just a gap
-    const draft: Draft = { row: firstRow + index, ticketNo: '', date: '', time: '', mode: '', coordinator: '', note: '', client: {}, post: {}, feedback: {} };
-    columns.forEach((apply, column) => apply?.(draft, (cells[column] ?? '').trim()));
+    const draft: Draft = { row: firstRow + index, ticketNo: '', module: '', due: '', meet: '', recording: '', date: '', time: '', mode: '', coordinator: '', note: '', client: {}, post: {}, feedback: {} };
+    columns.forEach((apply, column) => apply?.(draft, clean(cells[column])));
     try {
       prepared.push(prepare(draft, ctx));
     } catch (e) {
       if (!(e instanceof RowError)) throw e;
-      report.failed++;
-      if (report.errors.length < MAX_ERRORS) report.errors.push({ row: draft.row, message: e.message });
+      fail(draft.row, e.message);
     }
   });
 
-  // A session already in the app (same client, module and start time, cancelled or not) is not added again; nor is one twice in the file.
+  // A session already in the app (same client, service and start time, cancelled or not) is not added again; nor is one twice in the file.
   const emails = [...new Set(prepared.map((p) => p.client.email.toLowerCase()))];
   const known = emails.length ? await db.select().from(clients).where(inArray(sql`lower(${clients.email})`, emails)).orderBy(clients.createdAt) : [];
   const byEmail = new Map<string, (typeof known)[number]>();
   for (const c of known) if (!byEmail.has(c.email.toLowerCase())) byEmail.set(c.email.toLowerCase(), c);
-  const sessions = byEmail.size ? await db.select({ clientId: bookings.clientId, start: bookings.startTime }).from(bookings).where(and(eq(bookings.moduleId, module.id), inArray(bookings.clientId, [...byEmail.values()].map((c) => c.id)))) : [];
-  const taken = new Set(sessions.map((s) => `${s.clientId}|${s.start.getTime()}`));
+  const sessions = byEmail.size ? await db.select({ clientId: bookings.clientId, moduleId: bookings.moduleId, start: bookings.startTime }).from(bookings).where(inArray(bookings.clientId, [...byEmail.values()].map((c) => c.id))) : [];
+  const taken = new Set(sessions.map((s) => `${s.clientId}|${s.moduleId}|${s.start.getTime()}`));
   const fresh: Prepared[] = [];
   for (const p of prepared) {
-    const email = p.client.email.toLowerCase();
-    const key = `${byEmail.get(email)?.id ?? email}|${p.start.getTime()}`;
+    const key = `${byEmail.get(p.client.email.toLowerCase())?.id ?? p.client.email.toLowerCase()}|${p.module.id}|${p.start.getTime()}`;
     if (taken.has(key)) report.duplicates++;
     else fresh.push(p), taken.add(key);
   }
-  report.ready = fresh.length;
+
+  // A ticket number the file gives must be free, and given once.
+  const asked = fresh.flatMap((p) => (p.ticketNumber ? [p.ticketNumber] : []));
+  const used = asked.length ? new Set((await db.select({ n: tickets.ticketNumber }).from(tickets).where(inArray(tickets.ticketNumber, asked))).map((t) => t.n)) : new Set<string>();
+  const firstOf = new Map<string, number>();
+  const ok: Prepared[] = [];
+  for (const p of fresh) {
+    if (p.ticketNumber && used.has(p.ticketNumber)) fail(p.row, `${p.ticketNumber} is already used by another ticket`);
+    else if (p.ticketNumber && firstOf.has(p.ticketNumber)) fail(p.row, `${p.ticketNumber} is also on row ${firstOf.get(p.ticketNumber)} of this file`);
+    else {
+      if (p.ticketNumber) firstOf.set(p.ticketNumber, p.row);
+      ok.push(p);
+    }
+  }
+
+  // An online session still to come with no Meet link yet can be given one (never a session that has already happened).
+  const wantsMeet = (p: Prepared) => p.mode === 'online' && bookingStatusOf(p.status) === 'scheduled' && p.end > ctx.now && !p.meetLink;
+  report.ready = ok.length;
+  report.upcomingOnline = ok.filter(wantsMeet).length;
   const missing = new Map<string, number>();
-  for (const p of fresh) if (p.missingCoordinator) missing.set(p.missingCoordinator, (missing.get(p.missingCoordinator) ?? 0) + 1);
+  for (const p of ok) if (p.missingCoordinator) missing.set(p.missingCoordinator, (missing.get(p.missingCoordinator) ?? 0) + 1);
   for (const [name, n] of missing) report.warnings.push(`Coordinator "${name}" is not in this app: ${n} ${n === 1 ? 'ticket is' : 'tickets are'} left unassigned. Add them under Coordinators first to keep it.`);
-  if (dryRun || !fresh.length) return report;
+  if (dryRun || !ok.length) return report;
 
   // One request writes the whole chunk or none of it.
-  const [{ n: last }] = await db.select({ n: sql<number>`coalesce(max(${bookings.excelRowNumber}), 0)::int` }).from(bookings).where(eq(bookings.moduleId, module.id));
+  const lasts = new Map((await db.select({ moduleId: bookings.moduleId, n: sql<number>`coalesce(max(${bookings.excelRowNumber}), 0)::int` }).from(bookings).groupBy(bookings.moduleId)).map((r) => [r.moduleId, r.n]));
+  const explicit = ok.flatMap((p) => (p.ticketNumber ? [Number(p.ticketNumber.slice(4))] : []));
+  // With numbers given by the file, the rows without one follow the highest number there is (the database numbers rows as it saves them, which would not fit).
+  let nextAuto = 0;
+  if (explicit.length) {
+    const [{ n }] = (await db.execute(sql`select coalesce(max(substring(ticket_number from 5)::int), 0) as n from tickets where ticket_number ~ '^TKT-[0-9]+$'`)).rows as { n: number }[];
+    nextAuto = Math.max(Number(n), ...explicit) + 1;
+  }
+  const finals = explicit.length ? ok.map((p) => p.ticketNumber ?? ticketText(nextAuto++)) : undefined;
+
   const newClients = new Map<string, string>(); // email -> the id of the client created for it
   const clientRows: (Omit<typeof clients.$inferInsert, 'companyId' | 'assignedCoordinatorId'> & { companyId: SQL; assignedCoordinatorId: SQL })[] = []; // the company is looked up by SQL, in the same request that creates it
   const bookingRows: (typeof bookings.$inferInsert)[] = [];
   const ticketRows: (typeof tickets.$inferInsert)[] = [];
-  fresh.forEach((p, index) => {
+  ok.forEach((p) => {
     const email = p.client.email.toLowerCase();
     let clientId = byEmail.get(email)?.id ?? newClients.get(email);
     if (!clientId) {
@@ -440,25 +538,38 @@ export async function importRows({ user, module, postQuestions, rows, mapping, f
       clientRows.push({ id: clientId, ...p.client, companyId: companyIdOf(p.client.companyName), assignedCoordinatorId: companyCoordinatorOf(p.client.companyName) });
     }
     const bookingId = crypto.randomUUID();
-    const bookingStatus: BookingStatus = p.status === 'cancelled' || p.status === 'completed' ? p.status : 'scheduled';
     const at = new Date().toISOString();
     const notes: InternalNote[] = [{ text: p.note, author: user.name, at }, ...(p.fileNote ? [{ text: p.fileNote, author: user.name, at }] : [])];
-    bookingRows.push({ id: bookingId, moduleId: module.id, clientId, coordinatorId: p.coordinatorId, startTime: p.start, endTime: p.end, mode: p.mode, excelRowNumber: last + index + 1, status: bookingStatus, createdBy: 'admin', reminderSent: true, meetLinkFailedNotified: true });
-    ticketRows.push({ id: crypto.randomUUID(), bookingId, moduleId: module.id, clientId, coordinatorId: p.coordinatorId, status: p.status, paymentStatus: p.payment, postConsultationData: p.post, feedbackData: p.feedback, internalNotes: notes });
+    const srNo = (lasts.get(p.module.id) ?? 0) + 1;
+    lasts.set(p.module.id, srNo);
+    bookingRows.push({ id: bookingId, moduleId: p.module.id, clientId, coordinatorId: p.coordinatorId, startTime: p.start, endTime: p.end, mode: p.mode, meetingLink: p.meetLink, recordingLink: p.recordingLink, excelRowNumber: srNo, status: bookingStatusOf(p.status), createdBy: 'admin', reminderSent: true, meetLinkFailedNotified: true });
+    ticketRows.push({ id: crypto.randomUUID(), bookingId, moduleId: p.module.id, clientId, coordinatorId: p.coordinatorId, status: p.status, paymentStatus: p.payment, postConsultationData: p.post, feedbackData: p.feedback, internalNotes: notes, dueDate: p.due });
   });
   const companyNames = [...new Map(clientRows.map((c) => [c.companyName.toLowerCase(), c.companyName])).values()];
+  const ticketIds = ticketRows.map((t) => t.id!);
   const writes = [
     ...(companyNames.length ? [db.insert(companies).values(companyNames.map((name) => ({ name, nameNormalized: sql`normalize_company_name(${name})` }))).onConflictDoNothing()] : []),
     ...(clientRows.length ? [db.insert(clients).values(clientRows)] : []),
     db.insert(bookings).values(bookingRows),
     db.insert(tickets).values(ticketRows).returning({ id: tickets.id, ticketNumber: tickets.ticketNumber }),
   ];
+  const insertAt = writes.length - 1;
+  if (finals) {
+    // The numbers the database gave are replaced by the file's (out of the way first, so no two ever clash on the way).
+    writes.push(
+      db.update(tickets).set({ ticketNumber: sql`'MOVING-' || id::text` }).where(inArray(tickets.id, ticketIds)) as never,
+      db.update(tickets).set({ ticketNumber: sql`case id ${sql.join(ticketIds.map((id, i) => sql`when ${id}::uuid then ${finals[i]}::text`), sql` `)} end` }).where(inArray(tickets.id, ticketIds)) as never,
+    );
+  }
   const results = (await db.batch(writes as unknown as [(typeof writes)[0], ...(typeof writes)[number][]])) as unknown as { id: string; ticketNumber: string }[][];
-  const made = results[results.length - 1];
+  // The counter carries on from the highest number there is, so the next ticket is free.
+  if (finals) await db.execute(sql`select setval('public.ticket_number_seq', greatest(m.n, 1), m.n > 0) from (select coalesce(max(substring(ticket_number from 5)::int), 0) as n from tickets where ticket_number ~ '^TKT-[0-9]+$') m`);
+  const numbers = finals ?? ticketIds.map((id) => results[insertAt].find((t) => t.id === id)?.ticketNumber ?? '');
 
-  report.created = made.length;
-  report.tickets = made.slice(0, 5).map((t) => t.ticketNumber);
-  await audit(user, 'tickets.imported', 'import', null, undefined, { module: module.name, file, tickets: made.length, from: made[0]?.ticketNumber, to: made[made.length - 1]?.ticketNumber, skippedAsDuplicates: report.duplicates });
-  updateSheet(made.map((t) => t.id)); // their rows in the Excel sheet
+  report.created = ticketIds.length;
+  report.tickets = numbers.slice(0, 5);
+  report.meetBookingIds = ok.flatMap((p, i) => (wantsMeet(p) ? [bookingRows[i].id!] : []));
+  await audit(user, 'tickets.imported', 'import', null, undefined, { module: [...new Set(ok.map((p) => p.module.name))].join(', '), file, tickets: ticketIds.length, from: numbers[0], to: numbers[numbers.length - 1], skippedAsDuplicates: report.duplicates });
+  updateSheet(ticketIds); // their rows in the Excel sheet
   return report;
 }

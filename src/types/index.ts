@@ -446,10 +446,14 @@ export interface ImportReport {
   errors: { row: number; message: string }[]; // the first ones only
   warnings: string[];
   tickets: string[]; // the numbers of the first tickets saved
+  upcomingOnline: number; // of the ready rows: online sessions still to come with no Meet link (they can get one)
+  meetBookingIds: string[]; // the same, as the bookings this request saved (so the browser can ask for their links)
 }
 /** The most rows one file may have, and how many go in one request while importing. */
 export const IMPORT_MAX_ROWS = 1500;
 export const IMPORT_CHUNK = 100;
+/** How many Meet links one request creates (each is a call to Google that takes a few seconds). */
+export const MEET_CHUNK = 5;
 
 /** An admin login, as Settings > Team lists it (GET /api/auth/users). */
 export interface AdminUser {

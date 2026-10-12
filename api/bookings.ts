@@ -45,6 +45,28 @@ async function ownBooking(user: AuthUser, bookingId: string) {
   return row;
 }
 
+const MAX_MEET_BATCH = 5; // each is a call to Google that takes a few seconds, and the request must end within its time limit
+
+/**
+ * { action: 'create-meet', bookingIds }: the same for a few sessions in a row (after an import, or from the ticket list): each gets its Calendar event and
+ * Meet link and its client the link by email. A session that cannot (over, offline, already has a link, Google said no) is listed with the reason.
+ */
+async function createMeetLinks(user: AuthUser, ids: unknown[], siteUrl: string) {
+  if (!ids.length || ids.length > MAX_MEET_BATCH) throw new HttpError(400, `Choose between 1 and ${MAX_MEET_BATCH} sessions at a time`);
+  const failed: { bookingId: string; error: string }[] = [];
+  let created = 0;
+  for (const bookingId of ids.map(String)) {
+    try {
+      await createMeetLink(user, { bookingId }, siteUrl);
+      created++;
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      failed.push({ bookingId, error: e.message });
+    }
+  }
+  return { created, failed };
+}
+
 /** Staff ask for the calendar event and Meet link again (it failed or was never set up when the booking was made). Mails the client the link. */
 async function createMeetLink(user: AuthUser, body: Record<string, unknown>, siteUrl: string) {
   const bookingId = needString(body.bookingId, 'Booking');
@@ -168,7 +190,7 @@ export default handler({
     const rescheduleId = url.searchParams.get('reschedule') ?? /^\/api\/bookings\/([^/]+)\/reschedule\/?$/.exec(url.pathname)?.[1];
     if (rescheduleId) return await rescheduleSession(await requireUser(req), rescheduleId, body, siteUrl);
     if (body.action === 'update-meet') return await saveMeetLink(body, siteUrl);
-    if (body.action === 'create-meet') return await createMeetLink(await requireUser(req), body, siteUrl);
+    if (body.action === 'create-meet') return Array.isArray(body.bookingIds) ? await createMeetLinks(await requireUser(req), body.bookingIds, siteUrl) : await createMeetLink(await requireUser(req), body, siteUrl);
     const user = await getUser(req);
     const actor: Actor = user ?? { name: 'Client (booking form)', role: 'client' };
     // The public pages allow 3 bookings per IP per hour; staff booking for clients are not limited.

@@ -82,8 +82,8 @@ const importer = handler({
     const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const module = await moduleOf(body.module);
-    const postQuestions = (await loadPostQuestions())(module.id);
-    const targets = importTargets(postQuestions);
+    const postQuestionsOf = await loadPostQuestions();
+    const targets = importTargets(postQuestionsOf(module.id));
 
     if (body.step === 'read') {
       const { sheets, sheet, table } = await readUpload(needString(body.file, 'File'), needString(body.name, 'File name'), [module.name, SHEETS[module.slug] ?? ''], typeof body.sheet === 'number' ? body.sheet : undefined);
@@ -101,7 +101,7 @@ const importer = handler({
     if (new Set(used).size !== used.length) throw new HttpError(400, 'Each field can be matched to one column only');
     const missing = targets.filter((t) => t.required && !used.includes(t.label));
     if (missing.length) throw new HttpError(400, `Match a column to: ${missing.map((t) => t.label).join(', ')}`);
-    return await importRows({ user, module, postQuestions, rows, mapping, firstRow: count(body.firstRow, 'First row', 1), dryRun, file: optString(body.name).slice(0, 200) });
+    return await importRows({ user, module, modules: await db.select({ id: modules.id, name: modules.name, slug: modules.slug }).from(modules), postQuestionsOf, rows, mapping, firstRow: count(body.firstRow, 'First row', 1), dryRun, file: optString(body.name).slice(0, 200) });
   },
 });
 

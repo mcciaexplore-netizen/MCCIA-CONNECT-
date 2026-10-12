@@ -7,6 +7,8 @@ interface Props {
   onBack?: () => void;
   onRun?: () => void;
   onClose?: () => void;
+  meet?: { on: boolean; onChange: (on: boolean) => void }; // the check: make Meet links for the upcoming online sessions after importing?
+  meetResult?: { created: number; failed: number; reason?: string }; // the result: how that went
 }
 
 const Stat = ({ label, value, tone }: { label: string; value: number; tone?: string }) => (
@@ -17,7 +19,7 @@ const Stat = ({ label, value, tone }: { label: string; value: number; tone?: str
 );
 
 /** Import steps 3 and 4: what the check found (and the button that imports), then what the import did. */
-export default function ImportSummary({ report, done, busy, onBack, onRun, onClose }: Props) {
+export default function ImportSummary({ report, done, busy, onBack, onRun, onClose, meet, meetResult }: Props) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -26,6 +28,19 @@ export default function ImportSummary({ report, done, busy, onBack, onRun, onClo
         <Stat label="Rows with a problem (skipped)" value={report.failed} tone={report.failed ? 'text-danger' : ''} />
       </div>
       {done && report.tickets.length > 0 && <p className="text-ink-2">Starting with {report.tickets.join(', ')}. They are in the Tickets list now and are being added to the Excel sheet.</p>}
+      {!done && meet && report.upcomingOnline > 0 && (
+        <label className="flex items-start gap-2 rounded-md bg-page px-3 py-2">
+          <input type="checkbox" className="mt-1" checked={meet.on} onChange={(e) => meet.onChange(e.target.checked)} />
+          <span>
+            Make a Google Calendar event and Meet link for the {report.upcomingOnline} upcoming online {report.upcomingOnline === 1 ? 'session' : 'sessions'} after importing. Their clients get the Google invitation and the link by email. A session that has already happened never gets one.
+          </span>
+        </label>
+      )}
+      {done && meetResult && (
+        <p className="rounded-md bg-page px-3 py-2 text-ink-2">
+          Google Meet links: {meetResult.created} made{meetResult.failed ? `, ${meetResult.failed} could not be made (${meetResult.reason}). Select those tickets in the list and press "Create Meet links" to try again.` : '.'}
+        </p>
+      )}
       {report.warnings.map((warning) => <p key={warning} className="rounded-md bg-gold-light px-3 py-2 text-[#8a6d1c]">{warning}</p>)}
       {report.errors.length > 0 && (
         <div className="max-h-[30vh] overflow-auto rounded-md border border-line">

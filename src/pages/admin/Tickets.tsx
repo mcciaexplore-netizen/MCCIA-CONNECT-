@@ -15,8 +15,8 @@ import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
 import { useBulk } from '../../lib/useBulk';
-import { confirmCancel, confirmDeleteTickets, formatDate, isOpen, studioDay, ticketSerial } from '../../lib/utils';
-import { BOOKING_MODES, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
+import { confirmCancel, confirmCreateMeetLinks, confirmDeleteTickets, formatDate, isOpen, studioDay, ticketSerial } from '../../lib/utils';
+import { BOOKING_MODES, MEET_CHUNK, STATUS_LABELS, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
 const BULK_SIZE = 100; // the most tickets one bulk request may carry
 const NO_FILTERS = { search: '', status: '', moduleId: '', coordinatorId: '', mode: '', notes: '', dateFrom: '', dateTo: '' };
@@ -84,6 +84,23 @@ export default function Tickets() {
     const message = `${updated} ticket${updated === 1 ? '' : 's'} updated${failed.length ? `, ${failed.length} skipped (${failed[0].error})` : ''}`;
     if (failed.length) toast.error(message);
     else if (results.length) toast.success(message);
+    clearSelection();
+  };
+  // The selected online sessions still to come that have no Meet link: a Calendar event and link are made for them, a few at a time.
+  const createMeetLinks = async () => {
+    const sessions = ids.flatMap((id) => getSession(id)?.booking ?? []).filter((b) => b.mode === 'online' && b.status === 'scheduled' && !b.meetingLink && new Date(b.endTime) > new Date());
+    if (!sessions.length) return toast.error('None of the selected sessions needs a Meet link: it must be online, still to come, and without a link yet');
+    if (!confirmCreateMeetLinks(sessions.length)) return;
+    let created = 0;
+    const failed: string[] = [];
+    for (let i = 0; i < sessions.length; i += MEET_CHUNK) {
+      const part = await mutate<{ created: number; failed: { error: string }[] }>('/api/bookings', 'POST', { action: 'create-meet', bookingIds: sessions.slice(i, i + MEET_CHUNK).map((b) => b.id) });
+      if (!part) break;
+      created += part.created;
+      failed.push(...part.failed.map((f) => f.error));
+    }
+    if (failed.length) toast.error(`${created} Meet link${created === 1 ? '' : 's'} made, ${failed.length} failed (${failed[0]})`);
+    else if (created) toast.success(`${created} Meet link${created === 1 ? '' : 's'} made`);
     clearSelection();
   };
   const deleteSelected = async () => {
@@ -199,6 +216,7 @@ export default function Tickets() {
                 <option value="">Change Status</option>
                 {TICKET_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
               </select>
+              <button className="btn" onClick={createMeetLinks}>Create Meet links</button>
               {admin && (
                 <>
                   <select className="input w-auto" value="" onChange={(e) => e.target.value && bulk({ coordinatorId: e.target.value })}>
