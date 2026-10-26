@@ -1,6 +1,6 @@
-import { and, asc, eq, gt, gte, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, lt, ne } from 'drizzle-orm';
 import { db, HttpError, needString, optString } from './_lib.js';
-import { bookings, clients, coordinators, modules, slotConfig, tickets } from './_schema.js';
+import { appSettings, bookings, clients, coordinators, modules, slotConfig, tickets } from './_schema.js';
 import type { Availability, BookingMode, Closures, CoordinatorSlot, SlotInfo } from '../src/types/index.js';
 
 // Slot config times are in studio time: the time zone in Settings (app_settings.timezone.tz).
@@ -159,22 +159,31 @@ export async function freeCoordinators(start: Date, end: Date, tz: string) {
   return active.filter((c) => !taken.has(c.id) && withinHours(c.availability, start, end, tz));
 }
 
+/** app_settings row that remembers who the last new company went to by turn: { coordinatorId, name }. */
+const TURN_KEY = 'assignment_turn';
+type Turn = { coordinatorId: string; name: string };
+const byName = (a: { id: string; name: string }, b: { id: string; name: string }) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id);
+
 /**
- * Of these coordinators, the one with the fewest sessions in the calendar month (studio time) of `start`, so new clients spread evenly.
- * A tie is settled at random. Cancelled sessions do not count.
+ * Of these coordinators, the one whose turn it is: new companies go round the coordinators in alphabetical order (A, B, C, then A again),
+ * starting after the one who got the last. Someone who cannot take the session (busy, outside their hours, inactive) is not among
+ * these, so they are skipped and wait for the next round.
  */
-export async function leastLoaded<T extends { id: string }>(candidates: T[], start: Date, tz: string): Promise<T> {
-  const [year, month] = studioDate(start, tz).split('-').map(Number);
-  const first = (y: number, m: number) => new Date(studioTime(`${y}-${String(m).padStart(2, '0')}-01`, '00:00', tz));
-  const counts = await db
-    .select({ id: bookings.coordinatorId, n: sql<number>`count(*)::int` })
-    .from(bookings)
-    .where(and(inArray(bookings.coordinatorId, candidates.map((c) => c.id)), ne(bookings.status, 'cancelled'), gte(bookings.startTime, first(year, month)), lt(bookings.startTime, month === 12 ? first(year + 1, 1) : first(year, month + 1))))
-    .groupBy(bookings.coordinatorId);
-  const load = new Map(counts.map((row) => [row.id, row.n]));
-  const fewest = Math.min(...candidates.map((c) => load.get(c.id) ?? 0));
-  const tied = candidates.filter((c) => (load.get(c.id) ?? 0) === fewest);
-  return tied[Math.floor(Math.random() * tied.length)];
+export async function nextInTurn<T extends { id: string; name: string }>(candidates: T[]): Promise<T> {
+  const sorted = [...candidates].sort(byName);
+  const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, TURN_KEY));
+  const last = row?.value as unknown as Turn | undefined;
+  if (!last?.coordinatorId) return sorted[0];
+  // Their name now (they may have been renamed); a coordinator who no longer exists keeps the place their name had.
+  const [now] = await db.select({ name: coordinators.name }).from(coordinators).where(eq(coordinators.id, last.coordinatorId));
+  const after = { id: last.coordinatorId, name: now?.name ?? last.name };
+  return sorted.find((c) => byName(c, after) > 0) ?? sorted[0];
+}
+
+/** Remembers who just got a new company by turn, so the next one goes to whoever follows them. */
+export async function recordTurn(coordinator: { id: string; name: string }) {
+  const value = { coordinatorId: coordinator.id, name: coordinator.name } satisfies Turn as unknown as typeof appSettings.$inferInsert.value;
+  await db.insert(appSettings).values({ key: TURN_KEY, value }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
 }
 
 /**

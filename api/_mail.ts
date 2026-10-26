@@ -214,13 +214,13 @@ export function clientAssigned(m: AssignmentMail) {
   };
 }
 
-/** To the coordinator a brand-new company was given to automatically (they had the fewest sessions that month). */
+/** To the coordinator a brand-new company was given to automatically (it was their turn). */
 export function clientAutoAssigned(m: Pick<AssignmentMail, 'brand' | 'coordinatorName' | 'clientName' | 'companyName' | 'email' | 'phone'>) {
   return {
     subject: `New client auto-assigned to you: ${m.companyName}`,
     text:
       `Hello ${m.coordinatorName},\n\n` +
-      `${m.companyName} booked its first session and was assigned to you automatically, because you had the fewest sessions this month. ` +
+      `${m.companyName} booked its first session and was assigned to you automatically, because it was your turn for a new company.` +
       `From now on every booking from this company comes to you.\n\n` +
       `Contact: ${m.clientName}\nEmail: ${m.email}\nPhone: ${m.phone}\n\n${m.brand}`,
   };
