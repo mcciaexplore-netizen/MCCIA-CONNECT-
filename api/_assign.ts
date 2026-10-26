@@ -29,7 +29,7 @@ async function ensureNoClash(coordinator: { id: string; name: string }, clientId
 }
 
 interface AssignOptions {
-  /** The booking form gave a brand-new company its coordinator (the one with the fewest sessions that month). `firstBooking`: it was the company's first booking. */
+  /** The booking form gave a brand-new company its coordinator (the free one whose turn it was). `firstBooking`: it was the company's first booking. */
   auto?: { firstBooking: boolean };
 }
 
@@ -103,7 +103,7 @@ export async function assignClient(
   const [from] = previous ? await db.select().from(coordinators).where(eq(coordinators.id, previous)) : [];
   if (auto) {
     await audit(actor, 'client.auto_assigned', 'client', clientId, undefined, {
-      message: `Auto-assigned to ${coordinator.name} (least bookings this month)`,
+      message: `Auto-assigned to ${coordinator.name} (next in turn)`,
       company: company.name,
       coordinator: coordinator.name,
     });

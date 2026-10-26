@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { audit, db, getUser, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadSettings, needString, optString, ownedBy, parseClient, readBody, requireUser, siteOrigin, UUID, type Actor, type AuthUser } from './_lib.js';
-import { clashesOf, ensureCoordinatorFree, freeCoordinators, leastLoaded, loadAvailability, openModes, studioDate, takenAround } from './_availability.js';
+import { clashesOf, ensureCoordinatorFree, freeCoordinators, loadAvailability, nextInTurn, openModes, recordTurn, studioDate, takenAround } from './_availability.js';
 import { assignClient } from './_assign.js';
 import { companyIdOf, findCompany } from './_companies.js';
 import { updateSheet } from './_live_excel.js';
@@ -249,7 +249,7 @@ export default handler({
     // or one nobody has yet. On the public page the rules decide:
     //  1. the company's coordinator, if free then;
     //  2. if they are busy: the client is told who else is free and may book with one of them, for this session only;
-    //  3. a company with no coordinator yet gets the free one with the fewest sessions this month, for good.
+    //  3. a company with no coordinator yet gets the free one whose turn it is (alphabetical, in a loop), for good.
     const picked = user?.role === 'super_admin' && typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
     if (user?.role === 'super_admin' && !picked) throw new HttpError(400, 'Choose a coordinator for this booking');
     const own = user?.role === 'coordinator' ? user.coordinatorId : null;
@@ -277,7 +277,7 @@ export default handler({
         standIn = permanent;
       } else {
         if (!free.length) throw new HttpError(409, 'No coordinators are available at this time. Please choose another slot.');
-        coordinator = await leastLoaded(free, start, tz);
+        coordinator = await nextInTurn(free);
         autoAssigned = true;
       }
     }
@@ -333,6 +333,8 @@ export default handler({
       throw new HttpError(409, 'Sorry, that time was just taken. Please pick another.');
     }
 
+    // The booking stands, so the turn moves on to whoever follows this coordinator. A failure here never undoes the booking.
+    if (autoAssigned) await recordTurn(coordinator).catch((e) => console.error('Recording the assignment turn failed:', e));
     await audit(actor, 'booking.created', 'ticket', ticketId, undefined, { ticket: ticketNumber, module: module.name, client: clientInput.personName, startsAt: start.toISOString(), mode });
     if (standIn) {
       await audit(actor, 'booking.temporary_coordinator', 'ticket', ticketId, undefined, {
