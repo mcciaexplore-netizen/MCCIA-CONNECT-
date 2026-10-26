@@ -1,5 +1,8 @@
+import { useState, type FormEvent } from 'react';
 import { useData } from '../../context/DataContext';
-import { FEEDBACK_COMMENTS, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, type Ticket } from '../../types';
+import { cn } from '../../lib/utils';
+import Modal from '../ui/Modal';
+import { FEEDBACK_COMMENTS, FEEDBACK_COMMENTS_HINT, FEEDBACK_COMMENTS_LABEL, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, type Ticket } from '../../types';
 
 const labelOf = (key: string) => (key === FEEDBACK_COMMENTS ? FEEDBACK_COMMENTS_LABEL : (FEEDBACK_FIELDS.find((f) => f.key === key)?.label ?? key));
 
@@ -12,6 +15,7 @@ export default function FeedbackCard({ ticket }: { ticket: Ticket }) {
 
   // Emails the client a one-time link to the feedback page (a new request replaces the earlier link).
   const sendRequest = () => mutate('/api/send-email', 'POST', { ticketId: ticket.id, feedbackRequest: true }, 'Feedback request sent');
+  const [adding, setAdding] = useState(false);
 
   return (
     <section className="card">
@@ -19,7 +23,10 @@ export default function FeedbackCard({ ticket }: { ticket: Ticket }) {
       {entries.length === 0 ? (
         <div className="flex items-center justify-between rounded-md bg-page px-4 py-3">
           <span className="text-ink-2">Awaiting feedback</span>
-          <button className="btn" onClick={sendRequest}>Send Request</button>
+          <div className="flex gap-2">
+            <button className="btn" onClick={() => setAdding(true)}>Add Feedback</button>
+            <button className="btn" onClick={sendRequest}>Send Request</button>
+          </div>
         </div>
       ) : (
         <dl className="space-y-2">
@@ -37,6 +44,58 @@ export default function FeedbackCard({ ticket }: { ticket: Ticket }) {
           })}
         </dl>
       )}
+      {adding && <AddFeedbackModal ticket={ticket} onClose={() => setAdding(false)} />}
     </section>
+  );
+}
+
+/** Staff enter the client's feedback themselves: the same three 1-5 star questions and Additional Suggestions as the client's feedback page. */
+function AddFeedbackModal({ ticket, onClose }: { ticket: Ticket; onClose: () => void }) {
+  const { mutate } = useData();
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [comments, setComments] = useState('');
+  const [sending, setSending] = useState(false);
+  const complete = FEEDBACK_FIELDS.every((f) => ratings[f.key]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSending(true);
+    const saved = await mutate('/api/tickets', 'POST', { action: 'save-feedback', ticketId: ticket.id, ratings, comments }, 'Feedback saved');
+    setSending(false);
+    if (saved) onClose();
+  };
+
+  return (
+    <Modal title="Add Feedback" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-5">
+        {FEEDBACK_FIELDS.map((field) => (
+          <fieldset key={field.key}>
+            <legend className="label">{field.question} *</legend>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  type="button"
+                  key={n}
+                  aria-label={`${n} star${n === 1 ? '' : 's'} for ${field.question}`}
+                  aria-pressed={ratings[field.key] === n}
+                  onClick={() => setRatings({ ...ratings, [field.key]: n })}
+                  className={cn('h-10 w-10 rounded-md text-2xl leading-none transition', (ratings[field.key] ?? 0) >= n ? 'text-gold' : 'text-ink-3 hover:text-gold')}
+                >
+                  {(ratings[field.key] ?? 0) >= n ? '★' : '☆'}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        ))}
+        <div>
+          <label className="label" htmlFor="staff-additional-suggestions">{FEEDBACK_COMMENTS_LABEL}</label>
+          <textarea id="staff-additional-suggestions" className="input" rows={4} maxLength={MAX_FEEDBACK_COMMENTS} placeholder={FEEDBACK_COMMENTS_HINT} value={comments} onChange={(e) => setComments(e.target.value)} />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={!complete || sending}>{sending ? 'Saving…' : 'Save feedback'}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
