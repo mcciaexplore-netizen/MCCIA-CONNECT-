@@ -255,6 +255,32 @@ async function saveFeedback(token: string, body: Record<string, unknown>) {
   return { ok: true };
 }
 
+/**
+ * POST { action: 'save-feedback', ticketId, ratings: { understanding: 1-5, ... }, comments? }: staff enter the client's feedback themselves
+ * (the same questions as the feedback page), for a ticket that has none yet. Admins any ticket, a coordinator only their own.
+ */
+async function saveStaffFeedback(user: AuthUser, body: Record<string, unknown>) {
+  const id = needString(body.ticketId, 'Ticket');
+  const [ticket] = UUID.test(id) ? await db.select({ id: tickets.id, coordinatorId: tickets.coordinatorId, feedbackData: tickets.feedbackData }).from(tickets).where(eq(tickets.id, id)) : [];
+  if (!ticket || (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId)) throw new HttpError(404, 'Ticket not found');
+  if (FEEDBACK_FIELDS.some((f) => ticket.feedbackData[f.key])) throw new HttpError(409, 'This ticket already has feedback');
+  const given = (body.ratings ?? {}) as Record<string, unknown>;
+  const feedback: Record<string, string> = {};
+  for (const field of FEEDBACK_FIELDS) {
+    const stars = Number(given[field.key]);
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5) throw new HttpError(400, `Please rate "${field.question}" from 1 to 5`);
+    feedback[field.key] = String(stars);
+  }
+  const comments = optString(body.comments);
+  if (comments.length > MAX_FEEDBACK_COMMENTS) throw new HttpError(400, `Please keep the comments under ${MAX_FEEDBACK_COMMENTS} characters`);
+  if (comments) feedback[FEEDBACK_COMMENTS] = comments;
+
+  await db.update(tickets).set({ feedbackData: feedback }).where(eq(tickets.id, ticket.id));
+  updateSheet([ticket.id]); // the ratings go to its row in the Excel sheet
+  await audit(user, 'feedback.received', 'ticket', ticket.id, undefined, feedback);
+  return { ok: true };
+}
+
 const feedbackToken = (url: URL) => url.searchParams.get('feedback') ?? /^\/api\/feedback\/([^/]+)\/?$/.exec(url.pathname)?.[1];
 
 export default handler({
@@ -302,6 +328,7 @@ export default handler({
     const user = await requireUser(req);
     const body = await readBody(req);
     if (body.action === 'fetch-recording') return await checkRecording(user, body);
+    if (body.action === 'save-feedback') return await saveStaffFeedback(user, body);
     throw new HttpError(404, 'Not found');
   },
 
