@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { format } from 'date-fns';
 import { usePageData, useData } from '../../context/DataContext';
@@ -16,6 +16,14 @@ import { cn, formatTime, isOpen } from '../../lib/utils';
 import type { Session } from '../../types';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/** The choices of the At a Glance filter: each is the services whose slug or name contains `match` ('' = every service). */
+const CATEGORIES = [
+  { match: '', label: 'All' },
+  { match: 'consult', label: 'Consultations' },
+  { match: 'applet', label: 'Applets' },
+  { match: 'workshop', label: 'Workshop' },
+];
 
 /** The most common value and how many times it appears. */
 function top(values: string[]) {
@@ -39,12 +47,21 @@ export default function Dashboard() {
   const page = usePageData('tickets', 'bookings', 'clients', 'notifications');
   const navigate = useNavigate();
 
+  const [category, setCategory] = useState('');
+
   const now = new Date();
-  const { live, today, tomorrow, pending, completedThisMonth, completedToday, noShowToday, rescheduledToday } = dayStats(sessions, now);
+  const { live, pending } = dayStats(sessions, now);
+  // The At a Glance numbers and Today's Schedule follow the filter; the alerts and the Modules cards always count every service.
+  const inCategory = (s: Session) => {
+    const module = getModule(s.ticket.moduleId);
+    return `${module?.slug ?? ''} ${module?.name ?? ''}`.toLowerCase().includes(category);
+  };
+  const glance = dayStats(category ? sessions.filter(inCategory) : sessions, now);
+  const { today, tomorrow, completedThisMonth, completedToday, noShowToday, rescheduledToday } = glance;
   const at = (s: Session) => new Date(s.booking.startTime);
   const sameAsNow = (s: Session, pattern: string) => format(at(s), pattern) === format(now, pattern);
 
-  const busiestDay = top(live.filter((s) => at(s) <= now && now.getTime() - at(s).getTime() <= 30 * DAY).map((s) => format(at(s), 'EEEE')));
+  const busiestDay = top(glance.live.filter((s) => at(s) <= now && now.getTime() - at(s).getTime() <= 30 * DAY).map((s) => format(at(s), 'EEEE')));
   const unassigned = tickets.filter((t) => !t.coordinatorId && isOpen(t.status)).length;
 
   const scheduleColumns: Column<Session>[] = [
@@ -85,12 +102,17 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      <h2 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-ink-2">At a Glance</h2>
+      <div className="mb-2 mt-5 flex items-center justify-between gap-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-ink-2">At a Glance</h2>
+        <select className="input w-auto" aria-label="Service" value={category} onChange={(e) => setCategory(e.target.value)}>
+          {CATEGORIES.map((c) => <option key={c.label} value={c.match}>{c.label}</option>)}
+        </select>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard icon="clock" label="Today's Sessions" value={today.length} />
         <StatCard icon="calendar" label="Tomorrow's Sessions" value={tomorrow} />
-        <StatCard icon="grid" label="Total This Week" value={live.filter((s) => sameAsNow(s, 'RRRR-II')).length} />
-        <StatCard icon="calendar" label="Total This Month" value={live.filter((s) => sameAsNow(s, 'yyyy-MM')).length} />
+        <StatCard icon="grid" label="Total This Week" value={glance.live.filter((s) => sameAsNow(s, 'RRRR-II')).length} />
+        <StatCard icon="calendar" label="Total This Month" value={glance.live.filter((s) => sameAsNow(s, 'yyyy-MM')).length} />
         <StatCard icon="check" label="Completed This Month" value={completedThisMonth} />
         <StatCard icon="refresh" label="Rescheduled Today" value={rescheduledToday} />
         <StatCard icon="check" label="Completed Today" value={completedToday} />
