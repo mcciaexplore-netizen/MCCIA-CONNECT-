@@ -32,6 +32,7 @@ export default function Tickets() {
   const [params, setParams] = useSearchParams();
   const [filters, setFilters] = useState({ ...NO_FILTERS, coordinatorId: params.get('coordinator') ?? '', notes: params.get('notes') ?? '', dateFrom: params.get('date_from') ?? '', dateTo: params.get('date_to') ?? '' });
   const [showFilters, setShowFilters] = useState(true);
+  const [order, setOrder] = useState<'asc' | 'desc'>('desc'); // by session date: newest first (the default), or oldest first
   const [page, setPage] = useState(1);
   const [importing, setImporting] = useState(false);
   const filter = (patch: Partial<typeof NO_FILTERS>) => {
@@ -71,7 +72,7 @@ export default function Tickets() {
       (!filters.dateTo || (day !== '' && day <= filters.dateTo)) &&
       (!filters.notes || Boolean(session && awaitingNotes(session, now)))
     );
-  }).sort((a, b) => timeOf(a) - timeOf(b) || ticketSerial(a.ticketNumber) - ticketSerial(b.ticketNumber)); // in date order: the earliest session first; the same time: the lower ticket number first
+  }).sort((a, b) => Number(!startOf(a)) - Number(!startOf(b)) || (order === 'asc' ? 1 : -1) * (timeOf(a) - timeOf(b) || ticketSerial(a.ticketNumber) - ticketSerial(b.ticketNumber))); // in date order (the chosen way); the same time: by ticket number; a ticket without a session always last
 
   const { rows: shown, start } = pageOf(rows, page);
   const bulkSel = useBulk(rows, shown, BULK_SIZE);
@@ -209,6 +210,19 @@ export default function Tickets() {
               <select className="input w-auto" value={filters.notes} onChange={(e) => filter({ notes: e.target.value })}>
                 <option value="">All post-consultation</option>
                 <option value="pending">Post-consultation not filled</option>
+              </select>
+              <select
+                className="input w-auto"
+                aria-label="Order"
+                value={order}
+                onChange={(e) => {
+                  setOrder(e.target.value as 'asc' | 'desc');
+                  setPage(1);
+                  clearSelection();
+                }}
+              >
+                <option value="desc">Newest first</option>
+                <option value="asc">Oldest first</option>
               </select>
               {active && <button className="btn" onClick={() => filter({ ...NO_FILTERS })}>Clear</button>}
             </div>
