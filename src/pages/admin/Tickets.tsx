@@ -15,7 +15,7 @@ import ModuleBadge from '../../components/ui/ModuleBadge';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes } from '../../lib/dashboard';
 import { useBulk } from '../../lib/useBulk';
-import { confirmCancel, confirmCreateMeetLinks, confirmDeleteTickets, formatDate, isOpen, studioDay, ticketSerial } from '../../lib/utils';
+import { confirmCancel, confirmCreateMeetLinks, confirmDeleteTickets, formatDate, formatDateTime, isOpen, studioDay, ticketSerial } from '../../lib/utils';
 import { BOOKING_MODES, MEET_CHUNK, statusText, TICKET_STATUSES, type Ticket, type TicketStatus } from '../../types';
 
 const BULK_SIZE = 100; // the most tickets one bulk request may carry
@@ -55,6 +55,7 @@ export default function Tickets() {
   const query = filters.search.trim().toLowerCase();
   const now = new Date();
   const startOf = (t: Ticket) => getSession(t.id)?.booking.startTime ?? '';
+  const timeOf = (t: Ticket) => (startOf(t) ? Date.parse(startOf(t)) : Infinity); // a ticket without a session goes last
   const rows = tickets.filter((t) => {
     const client = getClient(t.clientId);
     const session = getSession(t.id);
@@ -70,7 +71,7 @@ export default function Tickets() {
       (!filters.dateTo || (day !== '' && day <= filters.dateTo)) &&
       (!filters.notes || Boolean(session && awaitingNotes(session, now)))
     );
-  }).sort((a, b) => startOf(b).localeCompare(startOf(a)) || ticketSerial(b.ticketNumber) - ticketSerial(a.ticketNumber)); // latest session on top; the same time: the higher ticket number first
+  }).sort((a, b) => timeOf(a) - timeOf(b) || ticketSerial(a.ticketNumber) - ticketSerial(b.ticketNumber)); // in date order: the earliest session first; the same time: the lower ticket number first
 
   const { rows: shown, start } = pageOf(rows, page);
   const bulkSel = useBulk(rows, shown, BULK_SIZE);
@@ -122,6 +123,7 @@ export default function Tickets() {
   const columns: Column<Ticket>[] = [
     { header: '#', cell: (t) => start + shown.indexOf(t) + 1, className: 'w-10 text-ink-3', desktopOnly: true },
     { header: 'Ticket ID', cell: (t) => t.ticketNumber, isId: true },
+    { header: 'Date', cell: (t) => formatDateTime(getSession(t.id)?.booking.startTime ?? null), className: 'whitespace-nowrap' }, // when the session is (or was)
     { header: 'Company', cell: (t) => getClient(t.clientId)?.companyName ?? '—' },
     { header: 'Person', cell: (t) => getClient(t.clientId)?.personName ?? '—' },
     { header: 'Phone', cell: (t) => getClient(t.clientId)?.phone ?? '—' },
