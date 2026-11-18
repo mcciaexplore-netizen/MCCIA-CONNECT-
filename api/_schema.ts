@@ -265,22 +265,45 @@ export const applets = pgTable('applets', {
   createdAt: createdAt(),
 });
 
-/** One workshop event. ticket_number is set by the generate_workshop_number() trigger: W-0001 for a workshop, M-0001 for a mini session (ticket_counters). */
+/** One workshop batch. `code` is its Workshop ID as the studio writes it (W-Pilot, W-0001, M-0002 ...): W = Workshop (Major), M = Mini Session. */
 export const workshops = pgTable('workshops', {
   id: id(),
-  ticketNumber: text('ticket_number').notNull().default(sql`''`),
-  kind: text('kind').$type<WorkshopKind>().notNull(),
+  code: text('code').notNull().unique(),
+  kind: text('kind').$type<WorkshopKind>().notNull(), // from the code's first letter
   title: text('title').notNull(),
-  heldOn: date('held_on').notNull(), // YYYY-MM-DD, studio time
+  heldOn: date('held_on'), // YYYY-MM-DD, studio time
   startTime: text('start_time'), // HH:mm, studio time
   endTime: text('end_time'),
   mode: text('mode').$type<BookingMode>().notNull().default('offline'),
   venue: text('venue'), // the address, or the meeting link
   trainer: text('trainer'),
   organisation: text('organisation'), // who it is held for / with
-  participants: integer('participants'),
   status: text('status').$type<WorkshopStatus>().notNull().default('scheduled'),
   notes: text('notes'),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+/** A person registered for a workshop: the columns of the studio's workshop sheet. The status columns are free text, as in the sheet. Goes when its workshop is deleted. */
+export const workshopParticipants = pgTable('workshop_participants', {
+  id: id(),
+  workshopId: uuid('workshop_id').notNull().references(() => workshops.id),
+  companyName: text('company_name'),
+  udyamNo: text('udyam_no'),
+  personName: text('person_name').notNull(),
+  phone: text('phone'),
+  email: text('email'),
+  designation: text('designation'),
+  mode: text('mode'),
+  month: text('month'),
+  sessionDate: date('session_date'), // YYYY-MM-DD
+  timeSlot: text('time_slot'),
+  confirmationStatus: text('confirmation_status'),
+  attendance: text('attendance'),
+  deploymentStatus: text('deployment_status'),
+  allocation: text('allocation'),
+  consStatus: text('cons_status'),
+  calling: text('calling'),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

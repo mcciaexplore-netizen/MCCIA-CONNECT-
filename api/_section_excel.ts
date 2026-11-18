@@ -1,23 +1,24 @@
 import ExcelJS from 'exceljs';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { audit, db, HttpError, type AuthUser } from './_lib.js';
 import { norm } from './_excel.js';
 import { addSheet, importTemplate, readUpload } from './_excel_file.js';
-import { parseDate, parseTime, splitTable } from './_import.js';
-import { appletValues, workshopValues } from './_sections.js';
-import { applets, workshops } from './_schema.js';
-import { WORKSHOP_KIND_LABELS, WORKSHOP_STATUS_LABELS, WORKSHOP_STATUSES, type AppSettings, type WorkshopKind } from '../src/types/index.js';
+import { parseDate, splitTable } from './_import.js';
+import { appletValues, participantValues, workshopCode } from './_sections.js';
+import { applets, workshopParticipants, workshops } from './_schema.js';
+import { kindOfCode, WORKSHOP_KIND_LABELS, WORKSHOP_STATUS_LABELS, type AppSettings } from '../src/types/index.js';
 
 /**
- * Excel export and bulk import for the Applets and Workshops pages: one tab with fixed columns. The export file can be filled in, or edited and
- * imported again: an applet with the same company and applet name, or a workshop with its number, is updated; anything else is added.
+ * Excel export and bulk import for the Applets and Workshops pages, with fixed columns (for workshops: the studio's own sheet, one row per participant).
+ * The export can be edited and imported again: an applet with the same company and applet name, or a participant of the same workshop with the
+ * same email (else phone, else name), is updated; anything else is added.
  * A file with a single bad row saves nothing: the answer lists every problem by its Excel row.
  */
 export const EXCEL_SECTIONS = ['applets', 'workshops'] as const;
 export type ExcelSection = (typeof EXCEL_SECTIONS)[number];
 
-const MAX_ROWS = 1000;
-const TAB: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Workshops' };
+const MAX_ROWS = 3000;
+const TAB: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Participants' };
 
 interface Col {
   header: string;
@@ -25,6 +26,7 @@ interface Col {
   required?: boolean;
   width: number;
   hint: string;
+  aliases?: string[]; // other headers a file may use for it
 }
 const COLUMNS: Record<ExcelSection, Col[]> = {
   applets: [
@@ -35,38 +37,54 @@ const COLUMNS: Record<ExcelSection, Col[]> = {
     { header: 'Deployed On', key: 'deployedOn', width: 14, hint: 'A date, e.g. 18/11/2026 (day first).' },
     { header: 'Notes', key: 'notes', width: 40, hint: 'Optional.' },
   ],
+  // The studio's own workshop sheet, column for column (its empty "Column 6" is left out).
   workshops: [
-    { header: 'Number', key: 'number', width: 10, hint: 'Leave empty for a new workshop (it gets the next W- or M- number). An existing number updates that workshop.' },
-    { header: 'Type', key: 'kind', required: true, width: 18, hint: 'Workshop (Major) → W-…, or Mini Session → M-…. "W" and "M" work too.' },
-    { header: 'Title', key: 'title', required: true, width: 34, hint: 'What the workshop was about.' },
-    { header: 'Date', key: 'heldOn', required: true, width: 12, hint: 'e.g. 18/11/2026 (day first).' },
-    { header: 'Start Time', key: 'startTime', width: 11, hint: 'e.g. 10:30 or 10:30 AM. Optional.' },
-    { header: 'End Time', key: 'endTime', width: 11, hint: 'After the start time. Optional.' },
-    { header: 'Mode', key: 'mode', width: 10, hint: 'Online or Offline (empty = Offline).' },
-    { header: 'Venue / Link', key: 'venue', width: 30, hint: 'The address, or the meeting link when online.' },
-    { header: 'Trainer', key: 'trainer', width: 22, hint: 'Optional.' },
-    { header: 'Organisation', key: 'organisation', width: 26, hint: 'Who it was held for or with. Optional.' },
-    { header: 'Participants', key: 'participants', width: 12, hint: 'A whole number. Optional.' },
-    { header: 'Status', key: 'status', width: 12, hint: 'Scheduled, Completed or Cancelled (empty = Scheduled).' },
-    { header: 'Notes', key: 'notes', width: 40, hint: 'Optional.' },
+    { header: 'Company Name', key: 'companyName', width: 28, hint: 'Optional.' },
+    { header: 'UDYAM No', key: 'udyamNo', width: 20, hint: 'Optional.' },
+    { header: 'Name', key: 'personName', required: true, width: 24, hint: 'The participant.' },
+    { header: 'Tel. / Mobile', key: 'phone', width: 16, hint: 'Optional.', aliases: ['Phone', 'Mobile', 'Tel'] },
+    { header: 'Email', key: 'email', width: 28, hint: 'Optional. With the Workshop ID it finds the participant again when a file is imported a second time.' },
+    { header: 'Designation', key: 'designation', width: 18, hint: 'Optional.' },
+    { header: 'Mode', key: 'mode', width: 10, hint: 'Offline or Online.' },
+    { header: 'months', key: 'month', width: 10, hint: 'Optional.', aliases: ['Month'] },
+    { header: 'Date', key: 'sessionDate', width: 12, hint: 'e.g. 02/01/2026 (day first).' },
+    { header: 'Time Slot', key: 'timeSlot', width: 10, hint: 'As you write it, e.g. 3.' },
+    { header: 'Confirmation Status', key: 'confirmationStatus', width: 18, hint: 'e.g. Confirmed / Unconfirmed.' },
+    { header: 'Attendance', key: 'attendance', width: 12, hint: 'e.g. Attended / No Show.' },
+    { header: 'Deployment Status', key: 'deploymentStatus', width: 18, hint: 'e.g. Deployed / Did not try.' },
+    { header: 'Workshop ID', key: 'code', required: true, width: 14, hint: 'W-… (Workshop, Major) or M-… (Mini Session), e.g. W-Pilot. A new ID creates that workshop.' },
+    { header: 'Allocation', key: 'allocation', width: 14, hint: 'Optional.' },
+    { header: 'Cons-Status', key: 'consStatus', width: 14, hint: 'Optional.' },
+    { header: 'Calling', key: 'calling', width: 14, hint: 'Optional.' },
   ],
 };
 
 const ddmmyyyy = (date: string | null) => (date ? date.split('-').reverse().join('/') : '');
 
-/** Every applet or workshop, as a one-tab workbook. */
+/** Every applet, or every workshop participant (with a second tab listing the workshops), as a workbook. */
 export async function exportSection(section: ExcelSection, settings: AppSettings) {
-  const rows =
-    section === 'applets'
-      ? (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.contactName ?? '', a.appletName, a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? ''])
-      : (await db.select().from(workshops).orderBy(asc(workshops.ticketNumber))).map((w) => [
-          w.ticketNumber, WORKSHOP_KIND_LABELS[w.kind], w.title, ddmmyyyy(w.heldOn), w.startTime ?? '', w.endTime ?? '', w.mode === 'online' ? 'Online' : 'Offline',
-          w.venue ?? '', w.trainer ?? '', w.organisation ?? '', w.participants ?? '', WORKSHOP_STATUS_LABELS[w.status], w.notes ?? '',
-        ]);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = settings.brand.name;
-  addSheet(workbook, TAB[section], COLUMNS[section], rows);
-  return { buffer: await workbook.xlsx.writeBuffer(), count: rows.length };
+  let count: number;
+  if (section === 'applets') {
+    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.contactName ?? '', a.appletName, a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
+    addSheet(workbook, TAB.applets, COLUMNS.applets, rows);
+    count = rows.length;
+  } else {
+    const [all, people] = await Promise.all([db.select().from(workshops).orderBy(asc(workshops.code)), db.select().from(workshopParticipants).orderBy(asc(workshopParticipants.personName))]);
+    const codeOf = new Map(all.map((w) => [w.id, w.code]));
+    const rows = people.map((p) => COLUMNS.workshops.map(({ key }) => (key === 'code' ? (codeOf.get(p.workshopId) ?? '') : key === 'sessionDate' ? ddmmyyyy(p.sessionDate) : ((p as Record<string, unknown>)[key] as string | null) ?? '')));
+    addSheet(workbook, TAB.workshops, COLUMNS.workshops, rows);
+    const counted = (id: string) => people.filter((p) => p.workshopId === id).length;
+    addSheet(
+      workbook,
+      'Workshops',
+      ['Workshop ID', 'Type', 'Title', 'Date', 'Start Time', 'End Time', 'Mode', 'Venue / Link', 'Trainer', 'Organisation', 'Participants', 'Status', 'Notes'].map((header) => ({ header, width: header === 'Title' || header === 'Notes' ? 32 : 14 })),
+      all.map((w) => [w.code, WORKSHOP_KIND_LABELS[w.kind], w.title, ddmmyyyy(w.heldOn), w.startTime ?? '', w.endTime ?? '', w.mode === 'online' ? 'Online' : 'Offline', w.venue ?? '', w.trainer ?? '', w.organisation ?? '', counted(w.id), WORKSHOP_STATUS_LABELS[w.status], w.notes ?? '']),
+    );
+    count = rows.length;
+  }
+  return { buffer: await workbook.xlsx.writeBuffer(), count };
 }
 
 /** The empty file to fill in, with a "How to fill" tab. */
@@ -81,22 +99,13 @@ const dateOf = (text: string, label: string) => {
   if (!parsed) throw new HttpError(400, `${label} "${text}" is not a date`);
   return parsed.date;
 };
-const timeOf = (text: string, label: string) => {
-  if (!text) return '';
-  const parsed = parseTime(text);
-  if (!parsed) throw new HttpError(400, `${label} "${text}" is not a time`);
-  return parsed;
-};
-const kindOf = (text: string): WorkshopKind | undefined => (/^m/i.test(text) ? 'mini' : /^(w|major)/i.test(text) ? 'workshop' : undefined);
-const statusOf = (text: string) => (text ? WORKSHOP_STATUSES.find((s) => s === text.toLowerCase() || WORKSHOP_STATUS_LABELS[s].toLowerCase() === text.toLowerCase()) : 'scheduled');
-const modeOf = (text: string) => (text ? text.toLowerCase() : 'offline');
 
 /** Reads, checks and (when every row is fine) saves an uploaded file. */
 export async function importSection(section: ExcelSection, user: AuthUser, base64: string, fileName: string) {
   const { table } = await readUpload(base64, fileName, [TAB[section]]);
   const { headers, rows, firstRow } = splitTable(table);
   const columns = COLUMNS[section];
-  const at = new Map(columns.map((c) => [c.key, headers.findIndex((h) => norm(h) === norm(c.header))]));
+  const at = new Map(columns.map((c) => [c.key, headers.findIndex((h) => [c.header, ...(c.aliases ?? [])].some((name) => norm(name) === norm(h)))]));
   const missing = columns.filter((c) => c.required && at.get(c.key)! < 0);
   if (missing.length) throw new HttpError(400, `The file has no ${missing.map((c) => `"${c.header}"`).join(', ')} column. Download the template to see the columns.`);
   const filled = rows.map((cells, i) => ({ excelRow: firstRow + i, cells })).filter((r) => r.cells.some((cell) => cell.trim()));
@@ -128,7 +137,7 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
         return { values, id: existing.get(key) };
       }),
     );
-    if (errors.length) return { added: 0, updated: 0, errors };
+    if (errors.length) return { added: 0, updated: 0, errors, workshops: 0 };
     const ok = parsed.filter((p) => p !== null);
     const fresh = ok.filter((p) => !p.id).map((p) => p.values);
     const changed = ok.filter((p) => p.id);
@@ -138,42 +147,58 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
       await db.batch([first, ...rest]);
     }
     await audit(user, 'applets.imported', 'applet', null, undefined, { file: fileName.slice(0, 200), added: fresh.length, updated: changed.length });
-    return { added: fresh.length, updated: changed.length, errors };
+    return { added: fresh.length, updated: changed.length, errors, workshops: 0 };
   }
 
-  const numbers = filled.map((r) => cell(r.cells, 'number').toUpperCase()).filter(Boolean);
-  const existing = new Map(numbers.length ? (await db.select({ id: workshops.id, number: workshops.ticketNumber }).from(workshops).where(inArray(workshops.ticketNumber, numbers))).map((w) => [w.number, w.id]) : []);
+  // Workshops: each row is a participant of the workshop in its Workshop ID column; an ID that is not here yet becomes a new workshop.
+  const known = new Map((await db.select({ id: workshops.id, code: workshops.code }).from(workshops)).map((w) => [w.code.toLowerCase(), w.id]));
+  const people = new Map(
+    (await db.select({ id: workshopParticipants.id, workshopId: workshopParticipants.workshopId, email: workshopParticipants.email, phone: workshopParticipants.phone, personName: workshopParticipants.personName }).from(workshopParticipants)).map((p) => [personKey(p.workshopId, p), p.id]),
+  );
   const seen = new Set<string>();
   const parsed = filled.map(({ excelRow, cells }) =>
     check(excelRow, () => {
-      const number = cell(cells, 'number').toUpperCase();
-      const kind = kindOf(cell(cells, 'kind'));
-      if (!number && !kind) throw new HttpError(400, 'Type must be Workshop (Major) or Mini Session');
-      if (number && !existing.has(number)) throw new HttpError(400, `There is no workshop ${number}. Leave Number empty to add a new one.`);
-      if (number && seen.has(number)) throw new HttpError(400, `${number} is in the file twice`);
-      seen.add(number);
-      const status = statusOf(cell(cells, 'status'));
-      if (!status) throw new HttpError(400, 'Status must be Scheduled, Completed or Cancelled');
-      const values = workshopValues({
-        ...Object.fromEntries(columns.map((c) => [c.key, cell(cells, c.key)])),
-        heldOn: dateOf(cell(cells, 'heldOn'), 'Date'),
-        startTime: timeOf(cell(cells, 'startTime'), 'Start Time'),
-        endTime: timeOf(cell(cells, 'endTime'), 'End Time'),
-        mode: modeOf(cell(cells, 'mode')),
-        status,
-      });
-      return { values, kind: kind!, id: number ? existing.get(number) : undefined };
+      const code = workshopCode(cell(cells, 'code'));
+      const values = participantValues({ ...Object.fromEntries(columns.map((c) => [c.key, cell(cells, c.key)])), sessionDate: dateOf(cell(cells, 'sessionDate'), 'Date') });
+      const key = personKey(code.toLowerCase(), values);
+      if (seen.has(key)) throw new HttpError(400, `${values.personName} is in workshop ${code} twice`);
+      seen.add(key);
+      return { code, values };
     }),
   );
-  if (errors.length) return { added: 0, updated: 0, errors };
+  if (errors.length) return { added: 0, updated: 0, errors, workshops: 0 };
   const ok = parsed.filter((p) => p !== null);
-  const fresh = ok.filter((p) => !p.id).map((p) => ({ ...p.values, kind: p.kind }));
-  const changed = ok.filter((p) => p.id);
-  if (fresh.length) await db.insert(workshops).values(fresh); // numbered in file order by the trigger
+
+  // New workshops first: titled by their ID, dated by their earliest participant; the rest is filled in on the page.
+  const newCodes = [...new Map(ok.filter((p) => !known.has(p.code.toLowerCase())).map((p) => [p.code.toLowerCase(), p.code])).values()];
+  if (newCodes.length) {
+    const created = await db
+      .insert(workshops)
+      .values(newCodes.map((code) => {
+        const rows = ok.filter((p) => p.code.toLowerCase() === code.toLowerCase());
+        const dates = rows.map((p) => p.values.sessionDate).filter((d): d is string => Boolean(d)).sort();
+        return { code, kind: kindOfCode(code), title: code, heldOn: dates[0] ?? null, mode: /^online$/i.test(rows[0].values.mode ?? '') ? ('online' as const) : ('offline' as const) };
+      }))
+      .returning({ id: workshops.id, code: workshops.code });
+    for (const w of created) known.set(w.code.toLowerCase(), w.id);
+  }
+
+  const placed = ok.map((p) => {
+    const workshopId = known.get(p.code.toLowerCase())!;
+    return { values: { ...p.values, workshopId }, id: people.get(personKey(workshopId, p.values)) };
+  });
+  const fresh = placed.filter((p) => !p.id).map((p) => p.values);
+  const changed = placed.filter((p) => p.id);
+  for (let i = 0; i < fresh.length; i += 500) await db.insert(workshopParticipants).values(fresh.slice(i, i + 500));
   for (let i = 0; i < changed.length; i += 100) {
-    const [first, ...rest] = changed.slice(i, i + 100).map((p) => db.update(workshops).set(p.values).where(eq(workshops.id, p.id!)));
+    const [first, ...rest] = changed.slice(i, i + 100).map((p) => db.update(workshopParticipants).set(p.values).where(eq(workshopParticipants.id, p.id!)));
     await db.batch([first, ...rest]);
   }
-  await audit(user, 'workshops.imported', 'workshop', null, undefined, { file: fileName.slice(0, 200), added: fresh.length, updated: changed.length });
-  return { added: fresh.length, updated: changed.length, errors };
+  await audit(user, 'workshops.imported', 'workshop', null, undefined, { file: fileName.slice(0, 200), added: fresh.length, updated: changed.length, newWorkshops: newCodes });
+  return { added: fresh.length, updated: changed.length, errors, workshops: newCodes.length };
+}
+
+/** Who a participant is within a workshop: their email, else their phone, else their name. */
+function personKey(workshop: string, p: { email: string | null; phone: string | null; personName: string }) {
+  return `${workshop}|${(p.email || p.phone || p.personName).trim().toLowerCase()}`;
 }

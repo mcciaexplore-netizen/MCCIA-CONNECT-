@@ -1,13 +1,13 @@
 import { asc, desc, eq, sql } from 'drizzle-orm';
-import { audit, db, HttpError, needString, optString, readBody, requireUser, UUID } from './_lib.js';
-import { applets, applications, workshops } from './_schema.js';
-import { BOOKING_MODES, WORKSHOP_KINDS, WORKSHOP_STATUSES, type BookingMode, type WorkshopKind, type WorkshopStatus } from '../src/types/index.js';
+import { audit, db, HttpError, isUniqueViolation, needString, optString, readBody, requireUser, UUID } from './_lib.js';
+import { applets, applications, workshopParticipants, workshops } from './_schema.js';
+import { BOOKING_MODES, kindOfCode, WORKSHOP_CODE, WORKSHOP_STATUSES, type BookingMode, type WorkshopStatus } from '../src/types/index.js';
 
 /**
  * The Applications, Applets and Workshops pages. They have no function of their own (Vercel Hobby allows 12): /api/applications,
- * /api/applets and /api/workshops are rewrites onto /api/modules?section=..., which hands the request to these.
+ * /api/applets, /api/workshops and /api/participants are rewrites onto /api/modules?section=..., which hands the request to these.
  */
-export const SECTIONS = ['applications', 'applets', 'workshops'] as const;
+export const SECTIONS = ['applications', 'applets', 'workshops', 'participants'] as const;
 export type Section = (typeof SECTIONS)[number];
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -104,56 +104,99 @@ async function appletsApi(req: Request, method: Method) {
   return row;
 }
 
-// ---------- Workshops: one row per event, admins only ----------
+// ---------- Workshops (batches) and their participants: admins only ----------
 
-/** A checked workshop (everything but its kind) from the form or from a row of an imported file. */
+/** A Workshop ID: W-… or M-… (its first letter is the type). */
+export function workshopCode(value: unknown) {
+  const code = needString(value, 'Workshop ID').replace(/\s+/g, ' ');
+  if (!WORKSHOP_CODE.test(code)) throw new HttpError(400, `Workshop ID "${code}" must start with W- (Workshop) or M- (Mini Session)`);
+  return code[0].toUpperCase() + code.slice(1);
+}
+
+/** A checked workshop from the form (or made up from an imported file). */
 export function workshopValues(body: Record<string, unknown>) {
   if (!BOOKING_MODES.includes(body.mode as BookingMode)) throw new HttpError(400, 'Mode must be online or offline');
   if (!WORKSHOP_STATUSES.includes(body.status as WorkshopStatus)) throw new HttpError(400, 'Choose a status');
-  const heldOn = day(body.heldOn, 'Date');
-  if (!heldOn) throw new HttpError(400, 'Date is required');
   const startTime = time(body.startTime, 'Start time');
   const endTime = time(body.endTime, 'End time');
   if (startTime && endTime && endTime <= startTime) throw new HttpError(400, 'The end time must be after the start time');
-  const count = optString(String(body.participants ?? ''));
-  if (count && !/^\d{1,6}$/.test(count)) throw new HttpError(400, 'Participants must be a whole number');
+  const code = workshopCode(body.code);
   return {
-    title: needString(body.title, 'Title'),
-    heldOn,
+    code,
+    kind: kindOfCode(code),
+    title: optString(body.title) || code,
+    heldOn: day(body.heldOn, 'Date'),
     startTime,
     endTime,
     mode: body.mode as BookingMode,
     venue: optString(body.venue) || null,
     trainer: optString(body.trainer) || null,
     organisation: optString(body.organisation) || null,
-    participants: count ? Number(count) : null,
     status: body.status as WorkshopStatus,
     notes: optString(body.notes) || null,
   };
 }
 
+/** The participant's columns that are plain text, as the form and the file send them. */
+export const PARTICIPANT_TEXT = ['companyName', 'udyamNo', 'phone', 'email', 'designation', 'mode', 'month', 'timeSlot', 'confirmationStatus', 'attendance', 'deploymentStatus', 'allocation', 'consStatus', 'calling'] as const;
+
+/** A checked participant (everything but the workshop it belongs to). */
+export const participantValues = (body: Record<string, unknown>) => ({
+  ...(Object.fromEntries(PARTICIPANT_TEXT.map((key) => [key, optString(body[key]) || null])) as Record<(typeof PARTICIPANT_TEXT)[number], string | null>),
+  personName: needString(body.personName, 'Name'),
+  sessionDate: day(body.sessionDate, 'Date'),
+});
+
+const saveError = (e: unknown, code: string): never => {
+  throw isUniqueViolation(e) ? new HttpError(409, `There is already a workshop ${code}`) : e;
+};
+
 async function workshopsApi(req: Request, method: Method) {
   const user = await requireUser(req, 'super_admin');
-  if (method === 'GET') return await db.select().from(workshops).orderBy(desc(workshops.heldOn), desc(workshops.startTime));
+  if (method === 'GET') return await db.select().from(workshops).orderBy(sql`${workshops.heldOn} desc nulls last`, asc(workshops.code));
   const body = await readBody(req);
   if (method === 'DELETE') {
-    const [gone] = await db.delete(workshops).where(eq(workshops.id, idOf(body, 'Workshop'))).returning();
+    const [gone] = await db.delete(workshops).where(eq(workshops.id, idOf(body, 'Workshop'))).returning(); // its participants go with it (on delete cascade)
     if (!gone) throw new HttpError(404, 'Workshop not found');
-    await audit(user, 'workshop.deleted', 'workshop', gone.id, { number: gone.ticketNumber, title: gone.title });
+    await audit(user, 'workshop.deleted', 'workshop', gone.id, { code: gone.code, title: gone.title });
     return gone;
   }
   const values = workshopValues(body);
   if (method === 'POST') {
-    // The kind decides the number series (W- or M-), so it is chosen once, here.
-    if (!WORKSHOP_KINDS.includes(body.kind as WorkshopKind)) throw new HttpError(400, 'Choose Workshop or Mini Session');
-    const [row] = await db.insert(workshops).values({ ...values, kind: body.kind as WorkshopKind }).returning();
-    await audit(user, 'workshop.created', 'workshop', row.id, undefined, { number: row.ticketNumber, ...values });
+    const [row] = await db.insert(workshops).values(values).returning().catch((e) => saveError(e, values.code));
+    await audit(user, 'workshop.created', 'workshop', row.id, undefined, values);
     return row;
   }
   if (method !== 'PATCH') throw new HttpError(405, 'Method not allowed');
-  const [row] = await db.update(workshops).set(values).where(eq(workshops.id, idOf(body, 'Workshop'))).returning();
+  const [row] = await db.update(workshops).set(values).where(eq(workshops.id, idOf(body, 'Workshop'))).returning().catch((e) => saveError(e, values.code));
   if (!row) throw new HttpError(404, 'Workshop not found');
-  await audit(user, 'workshop.updated', 'workshop', row.id, undefined, { number: row.ticketNumber, ...values });
+  await audit(user, 'workshop.updated', 'workshop', row.id, undefined, values);
+  return row;
+}
+
+async function participantsApi(req: Request, method: Method) {
+  const user = await requireUser(req, 'super_admin');
+  if (method === 'GET') return await db.select().from(workshopParticipants).orderBy(asc(workshopParticipants.personName));
+  const body = await readBody(req);
+  if (method === 'DELETE') {
+    const [gone] = await db.delete(workshopParticipants).where(eq(workshopParticipants.id, idOf(body, 'Participant'))).returning();
+    if (!gone) throw new HttpError(404, 'Participant not found');
+    await audit(user, 'participant.deleted', 'workshop', gone.workshopId, { name: gone.personName, company: gone.companyName });
+    return gone;
+  }
+  const values = participantValues(body);
+  if (method === 'POST') {
+    const workshopId = needString(body.workshopId, 'Workshop');
+    const [workshop] = UUID.test(workshopId) ? await db.select({ id: workshops.id }).from(workshops).where(eq(workshops.id, workshopId)) : [];
+    if (!workshop) throw new HttpError(404, 'Workshop not found');
+    const [row] = await db.insert(workshopParticipants).values({ ...values, workshopId }).returning();
+    await audit(user, 'participant.added', 'workshop', workshopId, undefined, values);
+    return row;
+  }
+  if (method !== 'PATCH') throw new HttpError(405, 'Method not allowed');
+  const [row] = await db.update(workshopParticipants).set(values).where(eq(workshopParticipants.id, idOf(body, 'Participant'))).returning();
+  if (!row) throw new HttpError(404, 'Participant not found');
+  await audit(user, 'participant.updated', 'workshop', row.workshopId, undefined, values);
   return row;
 }
 
@@ -164,5 +207,6 @@ export function sectionOf(url: URL): Section | undefined {
 }
 
 export function sectionApi(section: Section, req: Request, method: Method) {
-  return section === 'applications' ? applicationsApi(req, method) : section === 'applets' ? appletsApi(req, method) : workshopsApi(req, method);
+  const run = { applications: applicationsApi, applets: appletsApi, workshops: workshopsApi, participants: participantsApi }[section];
+  return run(req, method);
 }

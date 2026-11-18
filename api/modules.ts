@@ -28,7 +28,7 @@ async function saveQuestions(moduleId: string, formType: string, questions: Form
 }
 
 export default handler({
-  // /api/applications, /api/applets and /api/workshops arrive here too (vercel.json rewrites, ?section=): see _sections.ts.
+  // /api/applications, /api/applets, /api/workshops and /api/participants arrive here too (vercel.json rewrites, ?section=): see _sections.ts.
   // ?slug=... (one booking page) and ?public=1 (the live ones, for the landing page) are public; without either, staff get every module.
   GET: async (req, url) => {
     const section = sectionOf(url);

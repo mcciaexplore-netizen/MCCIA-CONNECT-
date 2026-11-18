@@ -36,6 +36,7 @@ const s = {
   Applications: screen('Applications', () => import('../pages/admin/Applications')),
   Applets: screen('Applets', () => import('../pages/admin/Applets')),
   Workshops: screen('Workshops', () => import('../pages/admin/Workshops')),
+  WorkshopDetail: screen('WorkshopDetail', () => import('../pages/admin/WorkshopDetail')),
   MyDashboard: screen('MyDashboard', () => import('../pages/coordinator/MyDashboard')),
   MyTickets: screen('MyTickets', () => import('../pages/coordinator/MyTickets')),
   MyClients: screen('MyClients', () => import('../pages/coordinator/MyClients')),
@@ -61,6 +62,7 @@ export const Settings = s.Settings.Screen;
 export const Applications = s.Applications.Screen;
 export const Applets = s.Applets.Screen;
 export const Workshops = s.Workshops.Screen;
+export const WorkshopDetail = s.WorkshopDetail.Screen;
 export const MyDashboard = s.MyDashboard.Screen;
 export const MyTickets = s.MyTickets.Screen;
 export const MyClients = s.MyClients.Screen;
@@ -90,6 +92,7 @@ const ROUTES: [RegExp, Name[]][] = [
   [/^\/admin\/settings/, ['Settings']],
   [/^\/(admin|coordinator)\/applications/, ['Applications']],
   [/^\/admin\/applets/, ['Applets']],
+  [/^\/admin\/workshops\/./, ['WorkshopDetail']],
   [/^\/admin\/workshops/, ['Workshops']],
   [/^\/coordinator\/dashboard/, ['MyDashboard']],
   [/^\/coordinator\/tickets\/./, ['TicketDetail']],
@@ -106,7 +109,7 @@ export function preloadRoute(pathname: string) {
 }
 
 const GROUPS: Record<'super_admin' | 'coordinator', Name[]> = {
-  super_admin: ['Dashboard', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Companies', 'CompanyDetail', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs', 'Applications', 'Applets', 'Workshops'],
+  super_admin: ['Dashboard', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Companies', 'CompanyDetail', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs', 'Applications', 'Applets', 'Workshops', 'WorkshopDetail'],
   coordinator: ['MyDashboard', 'MyTickets', 'TicketDetail', 'MyClients', 'ClientProfile', 'MySchedule', 'MySlots', 'CreateBooking', 'MyAccount', 'Applications'],
 };
 

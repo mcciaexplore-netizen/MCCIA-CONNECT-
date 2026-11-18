@@ -1,5 +1,5 @@
 import type { InferSelectModel } from 'drizzle-orm';
-import type { adminNotifications, applets, applications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets, workshops } from '../../api/_schema';
+import type { adminNotifications, applets, applications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets, workshopParticipants, workshops } from '../../api/_schema';
 
 // ---------- constants shared by the browser and the API ----------
 
@@ -44,10 +44,19 @@ export const PAYMENT_LABELS: Record<PaymentStatus, string> = { paid: 'Paid', unp
 export const BOOKING_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
-/** A workshop is numbered W-0001..., a mini session M-0001... (each its own series). */
+/** A Workshop ID starts with W (Workshop, Major) or M (Mini Session): W-Pilot, W-0001, M-0002 ... */
 export const WORKSHOP_KINDS = ['workshop', 'mini'] as const;
 export type WorkshopKind = (typeof WORKSHOP_KINDS)[number];
 export const WORKSHOP_KIND_LABELS: Record<WorkshopKind, string> = { workshop: 'Workshop (Major)', mini: 'Mini Session' };
+export const WORKSHOP_CODE = /^[WM]-\S.*$/i;
+export const kindOfCode = (code: string): WorkshopKind => (code.trim().toUpperCase().startsWith('M') ? 'mini' : 'workshop');
+/** Suggestions for the participant's free-text status columns (anything else may be typed). */
+export const PARTICIPANT_SUGGESTIONS = {
+  mode: ['Offline', 'Online'],
+  confirmationStatus: ['Confirmed', 'Unconfirmed'],
+  attendance: ['Attended', 'No Show'],
+  deploymentStatus: ['Deployed', 'In progress', 'Did not try'],
+} as const;
 export const WORKSHOP_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;
 export type WorkshopStatus = (typeof WORKSHOP_STATUSES)[number];
 export const WORKSHOP_STATUS_LABELS: Record<WorkshopStatus, string> = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
@@ -285,6 +294,7 @@ export type AuditLog = Wire<InferSelectModel<typeof auditLogs>>;
 export type SlotConfig = Wire<InferSelectModel<typeof slotConfig>>;
 export type Application = Wire<InferSelectModel<typeof applications>>;
 export type Workshop = Wire<InferSelectModel<typeof workshops>>;
+export type Participant = Wire<InferSelectModel<typeof workshopParticipants>>;
 export type Applet = Wire<InferSelectModel<typeof applets>>;
 /** questions = the booking form, postQuestions = the post-consultation form (defaults when not customised). */
 export type Module = Wire<InferSelectModel<typeof modules>> & { questions: FormField[]; postQuestions: FormField[] };

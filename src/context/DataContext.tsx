@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { api, ApiError, errorMessage, setStudioZone } from '../lib/utils';
-import { DEFAULT_SETTINGS, type AdminNotification, type Applet, type Application, type AppSettings, type Booking, type Client, type CompanyRow, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket, type Workshop } from '../types';
+import { DEFAULT_SETTINGS, type AdminNotification, type Applet, type Application, type AppSettings, type Booking, type Client, type CompanyRow, type Coordinator, type Module, type Role, type Session, type Participant, type SlotConfig, type Ticket, type Workshop } from '../types';
 
 /** Loaded for everyone as soon as they sign in. */
 interface Base {
@@ -21,10 +21,11 @@ interface Records {
   notifications: AdminNotification[]; // admin only: the dashboard's messages
   applications: Application[]; // links to the studio's applications (everyone reads, admins edit)
   applets: Applet[]; // admin only: deployed applets, entered by hand
-  workshops: Workshop[]; // admin only
+  workshops: Workshop[]; // admin only: the workshop batches (W-…, M-…)
+  participants: Participant[]; // admin only: everyone registered for a workshop
 }
 
-const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', clients: '/api/clients', bookings: '/api/bookings', slotConfigs: '/api/slots', companies: '/api/clients?companies=1', notifications: '/api/audit-logs?notifications=1', applications: '/api/applications', applets: '/api/applets', workshops: '/api/workshops' };
+const RECORD_PATHS: Record<keyof Records, string> = { tickets: '/api/tickets', clients: '/api/clients', bookings: '/api/bookings', slotConfigs: '/api/slots', companies: '/api/clients?companies=1', notifications: '/api/audit-logs?notifications=1', applications: '/api/applications', applets: '/api/applets', workshops: '/api/workshops', participants: '/api/participants' };
 export type Slice = keyof Records;
 
 const EMPTY_BASE: Base = { modules: [], coordinators: [], settings: DEFAULT_SETTINGS };
@@ -41,8 +42,9 @@ const AFTER: Record<string, { slices: Slice[]; base?: boolean }> = {
   '/api/audit-logs': { slices: ['notifications'] },
   '/api/applications': { slices: ['applications'] },
   '/api/applets': { slices: ['applets'] },
-  '/api/workshops': { slices: ['workshops'] },
-  '/api/excel': { slices: ['applets', 'workshops'] }, // an Applets or Workshops import
+  '/api/workshops': { slices: ['workshops', 'participants'] },
+  '/api/participants': { slices: ['participants'] },
+  '/api/excel': { slices: ['applets', 'workshops', 'participants'] }, // an Applets or Workshops import
 };
 
 // A person who was signed in last time has a hint kept here (never a secret). It lets the app ask for their data at the same moment
@@ -388,6 +390,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       applications: records.applications ?? NONE,
       applets: records.applets ?? NONE,
       workshops: records.workshops ?? NONE,
+      participants: records.participants ?? NONE,
       authLoading,
       user,
       role,

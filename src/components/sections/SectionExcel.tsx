@@ -9,8 +9,12 @@ interface Result {
   added: number;
   updated: number;
   errors: string[];
+  workshops: number; // new workshops the file's Workshop IDs created
 }
-const KEYS: Record<Section, string> = { applets: 'the same Company + Applet Name', workshops: 'its Number' };
+const KEYS: Record<Section, string> = {
+  applets: 'A row with the same Company + Applet Name as one already here updates it; every other row is added.',
+  workshops: 'One row per participant, in the columns of your workshop sheet. A Workshop ID that is not here yet creates that workshop. The same person (email, else phone, else name) in the same workshop is updated; everyone else is added.',
+};
 
 /** "Export to Excel" and "Import from Excel" for the Applets and Workshops pages. */
 export default function SectionExcel({ section, noun }: { section: Section; noun: string }) {
@@ -34,7 +38,7 @@ export default function SectionExcel({ section, noun }: { section: Section; noun
     setBusy(false);
     if (!result) return;
     if (result.errors.length) return setErrors(result.errors);
-    toast.success(`${result.added} added, ${result.updated} updated`);
+    toast.success(`${result.added} added, ${result.updated} updated${result.workshops ? `, ${result.workshops} new workshop${result.workshops === 1 ? '' : 's'}` : ''}`);
     close();
   };
 
@@ -46,8 +50,7 @@ export default function SectionExcel({ section, noun }: { section: Section; noun
         <Modal title={`Import ${noun}`} onClose={close}>
           <div className="space-y-4">
             <p className="text-ink-2">
-              Fill in the template (or edit an export) and upload it. A row with {KEYS[section]} as one already here updates it; every other row is added.
-              If any row has a problem, nothing is saved and the problems are listed here.
+              Fill in the template (or edit an export) and upload it. {KEYS[section]} If any row has a problem, nothing is saved and the problems are listed here.
             </p>
             <button type="button" className="btn" onClick={() => exportExcel({ section, blank: true })}>Download template</button>
             <div>
