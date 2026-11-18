@@ -29,7 +29,7 @@ export const NAV: Record<Role, NavSection[]> = {
     },
     { title: 'Team', icon: 'user-group', items: [{ to: '/admin/coordinators', label: 'Coordinators' }] },
     { title: 'Applications', icon: 'apps', items: [{ to: '/admin/applications', label: 'Applications' }] },
-    { title: 'Applets', icon: 'package', items: [{ to: '/admin/applets', label: 'Deployed applets' }] },
+    { title: 'Applets', icon: 'package', items: [{ to: '/admin/applets', label: 'Applets' }] },
     { title: 'Workshops', icon: 'presentation', items: [{ to: '/admin/workshops', label: 'Workshops' }] },
     {
       title: 'Settings',

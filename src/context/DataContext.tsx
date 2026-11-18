@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { api, ApiError, errorMessage, setStudioZone } from '../lib/utils';
-import { DEFAULT_SETTINGS, type AdminNotification, type AppletRow, type Application, type AppSettings, type Booking, type Client, type CompanyRow, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket, type Workshop } from '../types';
+import { DEFAULT_SETTINGS, type AdminNotification, type Applet, type Application, type AppSettings, type Booking, type Client, type CompanyRow, type Coordinator, type Module, type Role, type Session, type SlotConfig, type Ticket, type Workshop } from '../types';
 
 /** Loaded for everyone as soon as they sign in. */
 interface Base {
@@ -20,7 +20,7 @@ interface Records {
   companies: CompanyRow[]; // admin only
   notifications: AdminNotification[]; // admin only: the dashboard's messages
   applications: Application[]; // links to the studio's applications (everyone reads, admins edit)
-  applets: AppletRow[]; // admin only: completed Applet Setup tickets with their deployment details
+  applets: Applet[]; // admin only: deployed applets, entered by hand
   workshops: Workshop[]; // admin only
 }
 
@@ -31,8 +31,8 @@ const EMPTY_BASE: Base = { modules: [], coordinators: [], settings: DEFAULT_SETT
 
 /** What each kind of write can change besides its own answer: reloaded quietly afterwards, and only what is already on screen. */
 const AFTER: Record<string, { slices: Slice[]; base?: boolean }> = {
-  '/api/tickets': { slices: ['tickets', 'bookings', 'clients', 'applets'] },
-  '/api/clients': { slices: ['clients', 'tickets', 'bookings', 'companies', 'applets'] },
+  '/api/tickets': { slices: ['tickets', 'bookings', 'clients'] },
+  '/api/clients': { slices: ['clients', 'tickets', 'bookings', 'companies'] },
   '/api/bookings': { slices: ['bookings', 'tickets', 'clients', 'companies', 'notifications'] },
   '/api/coordinators': { slices: [], base: true },
   '/api/modules': { slices: [], base: true },

@@ -1,7 +1,7 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import { audit, db, HttpError, needString, optString, readBody, requireUser, UUID } from './_lib.js';
-import { appletDeployments, applications, bookings, clients, modules, tickets, workshops } from './_schema.js';
-import { BOOKING_MODES, WORKSHOP_KINDS, WORKSHOP_STATUSES, type AppletRow, type BookingMode, type WorkshopKind, type WorkshopStatus } from '../src/types/index.js';
+import { applets, applications, workshops } from './_schema.js';
+import { BOOKING_MODES, WORKSHOP_KINDS, WORKSHOP_STATUSES, type BookingMode, type WorkshopKind, type WorkshopStatus } from '../src/types/index.js';
 
 /**
  * The Applications, Applets and Workshops pages. They have no function of their own (Vercel Hobby allows 12): /api/applications,
@@ -10,9 +10,6 @@ import { BOOKING_MODES, WORKSHOP_KINDS, WORKSHOP_STATUSES, type AppletRow, type 
 export const SECTIONS = ['applications', 'applets', 'workshops'] as const;
 export type Section = (typeof SECTIONS)[number];
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
-
-/** The Applet Setup module (its slug never changes), whose completed tickets are the deployed applets. */
-const APPLET_MODULE = 'applet-setup';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -72,45 +69,35 @@ async function applicationsApi(req: Request, method: Method) {
   return row;
 }
 
-// ---------- Applets: every completed Applet Setup ticket, with the deployment details admins add ----------
+// ---------- Applets: deployed applets, entered by hand (admins only) ----------
 
 async function appletsApi(req: Request, method: Method) {
   const user = await requireUser(req, 'super_admin');
-  if (method === 'GET') {
-    const rows: AppletRow[] = (
-      await db
-        .select({ ticket: tickets, client: clients, start: bookings.startTime, deployment: appletDeployments })
-        .from(tickets)
-        .innerJoin(modules, eq(modules.id, tickets.moduleId))
-        .innerJoin(clients, eq(clients.id, tickets.clientId))
-        .leftJoin(bookings, eq(bookings.id, tickets.bookingId))
-        .leftJoin(appletDeployments, eq(appletDeployments.ticketId, tickets.id))
-        .where(and(eq(modules.slug, APPLET_MODULE), eq(tickets.status, 'completed')))
-        .orderBy(desc(bookings.startTime))
-    ).map(({ ticket, client, start, deployment }) => ({
-      ticketId: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      companyName: client.companyName,
-      personName: client.personName,
-      sessionAt: start?.toISOString() ?? null,
-      coordinatorId: ticket.coordinatorId,
-      appletName: deployment?.appletName ?? null,
-      liveLink: deployment?.liveLink ?? null,
-      deployedOn: deployment?.deployedOn ?? null,
-      notes: deployment?.notes ?? null,
-    }));
-    return rows;
-  }
-  if (method !== 'PUT') throw new HttpError(405, 'Method not allowed');
+  if (method === 'GET') return await db.select().from(applets).orderBy(sql`${applets.deployedOn} desc nulls last`, desc(applets.createdAt));
   const body = await readBody(req);
-  const ticketId = needString(body.ticketId, 'Ticket');
-  const [ticket] = UUID.test(ticketId)
-    ? await db.select({ id: tickets.id }).from(tickets).innerJoin(modules, eq(modules.id, tickets.moduleId)).where(and(eq(tickets.id, ticketId), eq(modules.slug, APPLET_MODULE)))
-    : [];
-  if (!ticket) throw new HttpError(404, 'Applet Setup ticket not found');
-  const values = { appletName: optString(body.appletName) || null, liveLink: link(body.liveLink, 'Live link', false), deployedOn: day(body.deployedOn, 'Deployed on'), notes: optString(body.notes) || null, updatedAt: new Date() };
-  const [row] = await db.insert(appletDeployments).values({ ticketId, ...values }).onConflictDoUpdate({ target: appletDeployments.ticketId, set: values }).returning();
-  await audit(user, 'applet.updated', 'ticket', ticketId, undefined, { ...values, updatedAt: undefined });
+  if (method === 'DELETE') {
+    const [gone] = await db.delete(applets).where(eq(applets.id, idOf(body, 'Applet'))).returning();
+    if (!gone) throw new HttpError(404, 'Applet not found');
+    await audit(user, 'applet.deleted', 'applet', gone.id, { company: gone.companyName, applet: gone.appletName });
+    return gone;
+  }
+  const values = {
+    companyName: needString(body.companyName, 'Company name'),
+    contactName: optString(body.contactName) || null,
+    appletName: needString(body.appletName, 'Applet name'),
+    liveLink: link(body.liveLink, 'Live link', false),
+    deployedOn: day(body.deployedOn, 'Deployed on'),
+    notes: optString(body.notes) || null,
+  };
+  if (method === 'POST') {
+    const [row] = await db.insert(applets).values(values).returning();
+    await audit(user, 'applet.created', 'applet', row.id, undefined, values);
+    return row;
+  }
+  if (method !== 'PATCH') throw new HttpError(405, 'Method not allowed');
+  const [row] = await db.update(applets).set(values).where(eq(applets.id, idOf(body, 'Applet'))).returning();
+  if (!row) throw new HttpError(404, 'Applet not found');
+  await audit(user, 'applet.updated', 'applet', row.id, undefined, values);
   return row;
 }
 

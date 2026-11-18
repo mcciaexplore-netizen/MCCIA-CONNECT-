@@ -253,14 +253,16 @@ export const applications = pgTable('applications', {
   createdAt: createdAt(),
 });
 
-/** The deployment details an admin adds to a completed Applet Setup ticket (Applets page). Goes when the ticket is deleted. */
-export const appletDeployments = pgTable('applet_deployments', {
-  ticketId: uuid('ticket_id').primaryKey().references(() => tickets.id),
-  appletName: text('applet_name'),
+/** Applets that have been built and deployed for a company, entered by hand by an admin (Applets page). */
+export const applets = pgTable('applets', {
+  id: id(),
+  companyName: text('company_name').notNull(),
+  contactName: text('contact_name'),
+  appletName: text('applet_name').notNull(),
   liveLink: text('live_link'),
   deployedOn: date('deployed_on'), // YYYY-MM-DD
   notes: text('notes'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: createdAt(),
 });
 
 /** One workshop event. ticket_number is set by the generate_workshop_number() trigger: W-0001 for a workshop, M-0001 for a mini session (ticket_counters). */

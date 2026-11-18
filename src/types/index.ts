@@ -1,5 +1,5 @@
 import type { InferSelectModel } from 'drizzle-orm';
-import type { adminNotifications, applications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets, workshops } from '../../api/_schema';
+import type { adminNotifications, applets, applications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets, workshops } from '../../api/_schema';
 
 // ---------- constants shared by the browser and the API ----------
 
@@ -285,19 +285,7 @@ export type AuditLog = Wire<InferSelectModel<typeof auditLogs>>;
 export type SlotConfig = Wire<InferSelectModel<typeof slotConfig>>;
 export type Application = Wire<InferSelectModel<typeof applications>>;
 export type Workshop = Wire<InferSelectModel<typeof workshops>>;
-/** A completed Applet Setup ticket with its deployment details (GET /api/applets); the details are null until an admin adds them. */
-export interface AppletRow {
-  ticketId: string;
-  ticketNumber: string;
-  companyName: string;
-  personName: string;
-  sessionAt: string | null;
-  coordinatorId: string | null;
-  appletName: string | null;
-  liveLink: string | null;
-  deployedOn: string | null;
-  notes: string | null;
-}
+export type Applet = Wire<InferSelectModel<typeof applets>>;
 /** questions = the booking form, postQuestions = the post-consultation form (defaults when not customised). */
 export type Module = Wire<InferSelectModel<typeof modules>> & { questions: FormField[]; postQuestions: FormField[] };
 
