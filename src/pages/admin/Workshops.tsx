@@ -9,7 +9,7 @@ import Pager, { pageOf } from '../../components/ui/Pager';
 import StatCard from '../../components/ui/StatCard';
 import { workshopDate, WorkshopStatusPill } from '../../lib/workshops';
 import { cn } from '../../lib/utils';
-import { WORKSHOP_KIND_LABELS, type Workshop } from '../../types';
+import { WORKSHOP_KIND_LABELS, WORKSHOP_STATUS_LABELS, type Workshop } from '../../types';
 
 const TABS = { all: 'All', workshop: 'Workshops (W)', mini: 'Mini Sessions (M)' } as const;
 const dash = <span className="text-ink-3">—</span>;
@@ -54,7 +54,11 @@ export default function Workshops() {
           <p className="page-sub">W = Workshop (Major), M = Mini Session. Click a Workshop ID to see who registered and who attended.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <SectionExcel section="workshops" noun="workshop participants" />
+          <SectionExcel
+            section="workshops"
+            noun="workshop participants"
+            pdf={() => ({ title: 'Workshops', subtitle: TABS[tab], headers: ['Workshop ID', 'Type', 'Title', 'Date', 'Trainer', 'Mode', 'Venue / link', 'Status'], rows: rows.map((w) => [w.code, WORKSHOP_KIND_LABELS[w.kind], w.title, workshopDate(w), w.trainer, w.mode === 'online' ? 'Online' : 'Offline', w.venue, WORKSHOP_STATUS_LABELS[w.status]]) })}
+          />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add workshop</button>
         </div>
       </div>

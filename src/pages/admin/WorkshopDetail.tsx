@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { Link, useParams } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
 import ParticipantForm from '../../components/sections/ParticipantForm';
@@ -8,6 +9,7 @@ import DataTable, { type Column } from '../../components/ui/DataTable';
 import EmptyState from '../../components/ui/EmptyState';
 import Pager, { pageOf } from '../../components/ui/Pager';
 import StatCard from '../../components/ui/StatCard';
+import { exportPdf } from '../../lib/pdf';
 import { attended, dayText, workshopDate, WorkshopStatusPill } from '../../lib/workshops';
 import { WORKSHOP_KIND_LABELS, type Participant } from '../../types';
 
@@ -53,6 +55,13 @@ export default function WorkshopDetail() {
   ];
 
   const remove = (p: Participant) => window.confirm(`Remove ${p.personName} from ${workshop.code}?`) && mutate('/api/participants', 'DELETE', { id: p.id }, 'Participant removed');
+  const exportParticipants = () =>
+    exportPdf({
+      title: `${workshop.code} · ${workshop.title}`,
+      subtitle: `Registered ${people.length} · Attended ${people.filter(attended).length}`,
+      headers: columns.map((c) => c.header),
+      rows: rows.map((p) => [p.personName, p.companyName, p.udyamNo, p.phone, p.email, p.designation, p.mode, p.month, dayText(p.sessionDate), p.timeSlot, p.confirmationStatus, p.attendance, p.deploymentStatus, p.allocation, p.consStatus, p.calling]),
+    }) || toast.error('Allow pop-ups for this site to export a PDF');
   const details = [workshopDate(workshop), workshop.mode === 'online' ? 'Online' : 'Offline', workshop.venue, workshop.trainer && `Trainer: ${workshop.trainer}`, workshop.organisation].filter(Boolean);
 
   return (
@@ -65,6 +74,7 @@ export default function WorkshopDetail() {
           {workshop.notes && <p className="mt-1 whitespace-pre-line text-ink-2">{workshop.notes}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={exportParticipants}>Export PDF</button>
           <button className="btn" onClick={() => setEditingWorkshop(true)}>Edit workshop</button>
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add participant</button>
         </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useData } from '../../context/DataContext';
+import { exportPdf, type PdfTable } from '../../lib/pdf';
 import { MAX_FILE_BYTES, toBase64 } from '../../lib/utils';
 import Modal from '../ui/Modal';
 
@@ -16,8 +17,8 @@ const KEYS: Record<Section, string> = {
   workshops: 'One row per participant, in the columns of your workshop sheet. A Workshop ID that is not here yet creates that workshop. The same person (email, else phone, else name) in the same workshop is updated; everyone else is added.',
 };
 
-/** "Export to Excel" and "Import from Excel" for the Applets and Workshops pages. */
-export default function SectionExcel({ section, noun }: { section: Section; noun: string }) {
+/** Export (Excel .xlsx, PDF) and Import (Excel .xlsx / .csv) for the Applets and Workshops pages. `pdf` builds the table the PDF shows (what is on screen). */
+export default function SectionExcel({ section, noun, pdf }: { section: Section; noun: string; pdf: () => PdfTable }) {
   const { exportExcel, mutate } = useData();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -44,8 +45,9 @@ export default function SectionExcel({ section, noun }: { section: Section; noun
 
   return (
     <>
-      <button className="btn" onClick={() => exportExcel({ section })}>Export to Excel</button>
-      <button className="btn" onClick={() => setOpen(true)}>Import from Excel</button>
+      <button className="btn" onClick={() => exportExcel({ section })}>Export Excel</button>
+      <button className="btn" onClick={() => exportPdf(pdf()) || toast.error('Allow pop-ups for this site to export a PDF')}>Export PDF</button>
+      <button className="btn" onClick={() => setOpen(true)}>Import Excel</button>
       {open && (
         <Modal title={`Import ${noun}`} onClose={close}>
           <div className="space-y-4">

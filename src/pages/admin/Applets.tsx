@@ -47,7 +47,11 @@ export default function Applets() {
           <p className="page-sub">Companies whose applet is completed and deployed.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <SectionExcel section="applets" noun="applets" />
+          <SectionExcel
+            section="applets"
+            noun="applets"
+            pdf={() => ({ title: 'Applets', subtitle: query ? `Search: ${search.trim()}` : 'Deployed applets', headers: ['Company', 'Contact', 'Applet', 'Live link', 'Deployed on', 'Notes'], rows: rows.map((a) => [a.companyName, a.contactName, a.appletName, a.liveLink, a.deployedOn && formatDate(`${a.deployedOn}T12:00:00Z`), a.notes]) })}
+          />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add applet</button>
         </div>
       </div>
