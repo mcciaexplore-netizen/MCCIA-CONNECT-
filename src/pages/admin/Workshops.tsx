@@ -27,17 +27,18 @@ export default function Workshops() {
   const query = search.trim().toLowerCase();
   const rows = workshops
     .filter((w) => tab === 'all' || w.kind === tab)
-    .filter((w) => !query || `${w.code} ${w.title} ${w.trainer ?? ''} ${w.organisation ?? ''} ${w.venue ?? ''}`.toLowerCase().includes(query));
+    .filter((w) => !query || `${w.code} ${w.title}`.toLowerCase().includes(query));
   const { rows: shown } = pageOf(rows, pageNo);
 
   const columns: Column<Workshop>[] = [
     { header: 'Workshop ID', isId: true, cell: (w) => <Link to={`/admin/workshops/${w.id}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>{w.code}</Link> },
     { header: 'Type', cell: (w) => WORKSHOP_KIND_LABELS[w.kind] },
-    { header: 'Title', cell: (w) => <span className="font-medium">{w.title}</span> },
+    {
+      header: 'Workshop Name',
+      cell: (w) => (w.title ? <span className="font-medium">{w.title}</span> : <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); setEditing(w); }}>+ Add name</button>),
+    },
     { header: 'Date', cell: (w) => workshopDate(w) || dash },
-    { header: 'Trainer', cell: (w) => w.trainer || dash },
     { header: 'Mode', cell: (w) => (w.mode === 'online' ? 'Online' : 'Offline') },
-    { header: 'Venue / link', cell: (w) => w.venue || dash },
     { header: 'Status', cell: (w) => <WorkshopStatusPill status={w.status} /> },
   ];
 
@@ -57,7 +58,7 @@ export default function Workshops() {
           <SectionExcel
             section="workshops"
             noun="workshop participants"
-            pdf={() => ({ title: 'Workshops', subtitle: TABS[tab], headers: ['Workshop ID', 'Type', 'Title', 'Date', 'Trainer', 'Mode', 'Venue / link', 'Status'], rows: rows.map((w) => [w.code, WORKSHOP_KIND_LABELS[w.kind], w.title, workshopDate(w), w.trainer, w.mode === 'online' ? 'Online' : 'Offline', w.venue, WORKSHOP_STATUS_LABELS[w.status]]) })}
+            pdf={() => ({ title: 'Workshops', subtitle: TABS[tab], headers: ['Workshop ID', 'Type', 'Workshop Name', 'Date', 'Mode', 'Status'], rows: rows.map((w) => [w.code, WORKSHOP_KIND_LABELS[w.kind], w.title, workshopDate(w), w.mode === 'online' ? 'Online' : 'Offline', WORKSHOP_STATUS_LABELS[w.status]]) })}
           />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add workshop</button>
         </div>
@@ -71,7 +72,7 @@ export default function Workshops() {
         {(Object.keys(TABS) as (keyof typeof TABS)[]).map((key) => (
           <button key={key} className={cn('btn', tab === key && 'border-primary bg-primary-light text-primary-dark')} onClick={() => { setTab(key); setPageNo(1); }}>{TABS[key]}</button>
         ))}
-        <input className="input ml-auto max-w-xs" placeholder="Search ID, title, trainer…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
+        <input className="input ml-auto max-w-xs" placeholder="Search ID or name…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
       </div>
       <DataTable columns={columns} data={shown} rowKey={(w) => w.id} onRowClick={(w) => navigate(`/admin/workshops/${w.id}`)} onEdit={setEditing} onDelete={remove} empty="No workshops yet. Add one, or import your workshop sheet." emptyIcon="presentation" />
       <Pager total={rows.length} page={pageNo} onPage={setPageNo} />

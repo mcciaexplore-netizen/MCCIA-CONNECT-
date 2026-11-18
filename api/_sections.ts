@@ -124,7 +124,7 @@ export function workshopValues(body: Record<string, unknown>) {
   return {
     code,
     kind: kindOfCode(code),
-    title: optString(body.title) || code,
+    title: optString(body.title), // the workshop's name; empty until someone gives it one
     heldOn: day(body.heldOn, 'Date'),
     startTime,
     endTime,

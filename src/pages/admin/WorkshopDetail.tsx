@@ -58,7 +58,7 @@ export default function WorkshopDetail() {
   const remove = (p: Participant) => window.confirm(`Remove ${p.personName} from ${workshop.code}?`) && mutate('/api/participants', 'DELETE', { id: p.id }, 'Participant removed');
   const exportParticipants = () =>
     exportPdf({
-      title: `${workshop.code} · ${workshop.title}`,
+      title: [workshop.code, workshop.title].filter(Boolean).join(' · '),
       subtitle: `Registered ${people.length} · Attended ${people.filter(attended).length}`,
       headers: columns.map((c) => c.header),
       rows: rows.map((p) => [p.personName, p.companyName, p.membershipNo, p.udyamNo, p.phone, p.email, p.designation, p.mode, p.month, dayText(p.sessionDate), p.timeSlot, p.confirmationStatus, p.attendance, p.deploymentStatus, p.allocation, p.consStatus, p.calling]),
@@ -70,7 +70,7 @@ export default function WorkshopDetail() {
       <Link to="/admin/workshops" className="mb-3 inline-block text-primary hover:underline">← All workshops</Link>
       <div className="page-header">
         <div>
-          <h1 className="page-title flex flex-wrap items-center gap-2">{workshop.code} · {workshop.title} <WorkshopStatusPill status={workshop.status} /></h1>
+          <h1 className="page-title flex flex-wrap items-center gap-2">{[workshop.code, workshop.title].filter(Boolean).join(' · ')} <WorkshopStatusPill status={workshop.status} /></h1>
           <p className="page-sub">{WORKSHOP_KIND_LABELS[workshop.kind]}{details.length ? ` · ${details.join(' · ')}` : ''}</p>
           {workshop.notes && <p className="mt-1 whitespace-pre-line text-ink-2">{workshop.notes}</p>}
         </div>

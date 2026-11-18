@@ -80,7 +80,7 @@ export async function exportSection(section: ExcelSection, settings: AppSettings
     addSheet(
       workbook,
       'Workshops',
-      ['Workshop ID', 'Type', 'Title', 'Date', 'Start Time', 'End Time', 'Mode', 'Venue / Link', 'Trainer', 'Organisation', 'Participants', 'Status', 'Notes'].map((header) => ({ header, width: header === 'Title' || header === 'Notes' ? 32 : 14 })),
+      ['Workshop ID', 'Type', 'Workshop Name', 'Date', 'Start Time', 'End Time', 'Mode', 'Venue / Link', 'Trainer', 'Organisation', 'Participants', 'Status', 'Notes'].map((header) => ({ header, width: header === 'Workshop Name' || header === 'Notes' ? 32 : 14 })),
       all.map((w) => [w.code, WORKSHOP_KIND_LABELS[w.kind], w.title, ddmmyyyy(w.heldOn), w.startTime ?? '', w.endTime ?? '', w.mode === 'online' ? 'Online' : 'Offline', w.venue ?? '', w.trainer ?? '', w.organisation ?? '', counted(w.id), WORKSHOP_STATUS_LABELS[w.status], w.notes ?? '']),
     );
     count = rows.length;
@@ -170,7 +170,7 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
   if (errors.length) return { added: 0, updated: 0, errors, workshops: 0 };
   const ok = parsed.filter((p) => p !== null);
 
-  // New workshops first: titled by their ID, dated by their earliest participant; the rest is filled in on the page.
+  // New workshops first, dated by their earliest participant; the name and the rest are filled in on the page.
   const newCodes = [...new Map(ok.filter((p) => !known.has(p.code.toLowerCase())).map((p) => [p.code.toLowerCase(), p.code])).values()];
   if (newCodes.length) {
     const created = await db
@@ -178,7 +178,7 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
       .values(newCodes.map((code) => {
         const rows = ok.filter((p) => p.code.toLowerCase() === code.toLowerCase());
         const dates = rows.map((p) => p.values.sessionDate).filter((d): d is string => Boolean(d)).sort();
-        return { code, kind: kindOfCode(code), title: code, heldOn: dates[0] ?? null, mode: /^online$/i.test(rows[0].values.mode ?? '') ? ('online' as const) : ('offline' as const) };
+        return { code, kind: kindOfCode(code), title: '', heldOn: dates[0] ?? null, mode: /^online$/i.test(rows[0].values.mode ?? '') ? ('online' as const) : ('offline' as const) };
       }))
       .returning({ id: workshops.id, code: workshops.code });
     for (const w of created) known.set(w.code.toLowerCase(), w.id);
