@@ -48,7 +48,7 @@ export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 export const WORKSHOP_KINDS = ['workshop', 'mini'] as const;
 export type WorkshopKind = (typeof WORKSHOP_KINDS)[number];
 export const WORKSHOP_KIND_LABELS: Record<WorkshopKind, string> = { workshop: 'Workshop (Major)', mini: 'Mini Session' };
-export const WORKSHOP_CODE = /^[WM]-\S.*$/i;
+export const WORKSHOP_CODE = /^[WM]-?[A-Za-z0-9]\S*$/i; // W21, W-0001, W-Pilot, M01
 export const kindOfCode = (code: string): WorkshopKind => (code.trim().toUpperCase().startsWith('M') ? 'mini' : 'workshop');
 /** Suggestions for the participant's free-text status columns (anything else may be typed). */
 export const PARTICIPANT_SUGGESTIONS = {

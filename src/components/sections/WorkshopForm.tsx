@@ -35,7 +35,7 @@ export default function WorkshopForm({ workshop, onClose }: { workshop?: Worksho
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             {field('code', 'Workshop ID *', { required: true, placeholder: 'W-0001 or M-0001' })}
-            <p className="mt-1 text-xs text-ink-3">{codeOk ? WORKSHOP_KIND_LABELS[kindOfCode(value.code)] : 'Starts with W- (Workshop, Major) or M- (Mini Session)'}</p>
+            <p className="mt-1 text-xs text-ink-3">{codeOk ? WORKSHOP_KIND_LABELS[kindOfCode(value.code)] : 'Starts with W (Workshop, Major) or M (Mini Session), e.g. W21 or M-01'}</p>
           </div>
           <div className="sm:col-span-2">{field('title', 'Workshop name', { placeholder: 'e.g. AI for MSMEs' })}</div>
         </div>

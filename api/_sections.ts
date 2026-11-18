@@ -106,10 +106,10 @@ async function appletsApi(req: Request, method: Method) {
 
 // ---------- Workshops (batches) and their participants: admins only ----------
 
-/** A Workshop ID: W-… or M-… (its first letter is the type). */
+/** A Workshop ID: W21, W-Pilot, M01 ... (its first letter is the type). */
 export function workshopCode(value: unknown) {
   const code = needString(value, 'Workshop ID').replace(/\s+/g, ' ');
-  if (!WORKSHOP_CODE.test(code)) throw new HttpError(400, `Workshop ID "${code}" must start with W- (Workshop) or M- (Mini Session)`);
+  if (!WORKSHOP_CODE.test(code)) throw new HttpError(400, `Workshop ID "${code}" must start with W (Workshop) or M (Mini Session), e.g. W21 or M-01`);
   return code[0].toUpperCase() + code.slice(1);
 }
 
