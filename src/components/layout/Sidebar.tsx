@@ -28,14 +28,16 @@ export default function Sidebar({ open, onClose }: Props) {
               key={section.title}
               title={section.title}
               onClick={() => navigate(section.items[0].to)}
-              className={cn('flex h-8 w-8 items-center justify-center rounded-full transition', section === active ? 'text-accent' : 'text-white/80 hover:bg-white/10 hover:text-white')}
+              className={cn('flex w-16 flex-col items-center gap-1 rounded-lg py-1.5 transition', section === active ? 'text-accent' : 'text-white/80 hover:bg-white/10 hover:text-white')}
               style={section === active ? { background: 'var(--bg-sidebar-active)' } : undefined}
             >
               <Icon name={section.icon} />
+              <span className="text-[10px] font-medium leading-none">{section.title}</span>
             </button>
           ))}
-          <button title="Sign out" onClick={signOut} className="mt-auto flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white">
+          <button title="Sign out" onClick={signOut} className="mt-auto flex w-16 flex-col items-center gap-1 rounded-lg py-1.5 text-white/70 transition hover:bg-white/10 hover:text-white">
             <Icon name="logout" />
+            <span className="text-[10px] font-medium leading-none">Sign out</span>
           </button>
         </div>
 
