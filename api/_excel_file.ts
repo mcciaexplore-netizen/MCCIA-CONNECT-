@@ -13,7 +13,7 @@ const BORDER = { style: 'thin', color: { argb: 'FFE5E7EB' } } as const;
 const PREFERRED_ORDER = ['ai-consultation', 'applet-setup', 'cluster-development'];
 
 /** One styled tab: a blue header (frozen, filterable), then one row per entry. */
-function addSheet(workbook: ExcelJS.Workbook, name: string, columns: { header: string; width: number; fill?: string }[], rows: (string | number)[][]) {
+export function addSheet(workbook: ExcelJS.Workbook, name: string, columns: { header: string; width: number; fill?: string }[], rows: (string | number)[][]) {
   const sheet = workbook.addWorksheet(name.replace(/[\\/?*:[\]]/g, '-').slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
   sheet.columns = columns.map(({ header, width }) => ({ header, width }));
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };

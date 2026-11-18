@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
 import AppletForm from '../../components/sections/AppletForm';
+import SectionExcel from '../../components/sections/SectionExcel';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import Pager, { pageOf } from '../../components/ui/Pager';
@@ -45,7 +46,10 @@ export default function Applets() {
           <h1 className="page-title">Applets</h1>
           <p className="page-sub">Companies whose applet is completed and deployed.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add applet</button>
+        <div className="flex flex-wrap gap-2">
+          <SectionExcel section="applets" noun="applets" />
+          <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add applet</button>
+        </div>
       </div>
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
         <StatCard icon="package" label="Applets deployed" value={applets.length} />

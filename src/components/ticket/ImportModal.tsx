@@ -2,19 +2,11 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useData } from '../../context/DataContext';
 import { IMPORT_CHUNK, MEET_CHUNK, type ImportRead, type ImportReport } from '../../types';
+import { MAX_FILE_BYTES, toBase64 } from '../../lib/utils';
 import Modal from '../ui/Modal';
 import ImportMatch from './ImportMatch';
 import ImportPick from './ImportPick';
 import ImportSummary from './ImportSummary';
-
-const MAX_FILE_BYTES = 3 * 1024 * 1024; // it travels as text inside a request of at most 4.5 MB
-
-async function toBase64(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let text = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(text);
-}
 
 /** Tickets > Import tickets: pick a file, match its columns, check it, then import it. Nothing is saved before the last button. */
 export default function ImportModal({ onClose }: { onClose: () => void }) {

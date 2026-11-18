@@ -71,6 +71,16 @@ async function applicationsApi(req: Request, method: Method) {
 
 // ---------- Applets: deployed applets, entered by hand (admins only) ----------
 
+/** A checked applet from the form or from a row of an imported file (throws an HttpError naming the problem). */
+export const appletValues = (body: Record<string, unknown>) => ({
+  companyName: needString(body.companyName, 'Company name'),
+  contactName: optString(body.contactName) || null,
+  appletName: needString(body.appletName, 'Applet name'),
+  liveLink: link(body.liveLink, 'Live link', false),
+  deployedOn: day(body.deployedOn, 'Deployed on'),
+  notes: optString(body.notes) || null,
+});
+
 async function appletsApi(req: Request, method: Method) {
   const user = await requireUser(req, 'super_admin');
   if (method === 'GET') return await db.select().from(applets).orderBy(sql`${applets.deployedOn} desc nulls last`, desc(applets.createdAt));
@@ -81,14 +91,7 @@ async function appletsApi(req: Request, method: Method) {
     await audit(user, 'applet.deleted', 'applet', gone.id, { company: gone.companyName, applet: gone.appletName });
     return gone;
   }
-  const values = {
-    companyName: needString(body.companyName, 'Company name'),
-    contactName: optString(body.contactName) || null,
-    appletName: needString(body.appletName, 'Applet name'),
-    liveLink: link(body.liveLink, 'Live link', false),
-    deployedOn: day(body.deployedOn, 'Deployed on'),
-    notes: optString(body.notes) || null,
-  };
+  const values = appletValues(body);
   if (method === 'POST') {
     const [row] = await db.insert(applets).values(values).returning();
     await audit(user, 'applet.created', 'applet', row.id, undefined, values);
@@ -103,7 +106,8 @@ async function appletsApi(req: Request, method: Method) {
 
 // ---------- Workshops: one row per event, admins only ----------
 
-function workshopValues(body: Record<string, unknown>) {
+/** A checked workshop (everything but its kind) from the form or from a row of an imported file. */
+export function workshopValues(body: Record<string, unknown>) {
   if (!BOOKING_MODES.includes(body.mode as BookingMode)) throw new HttpError(400, 'Mode must be online or offline');
   if (!WORKSHOP_STATUSES.includes(body.status as WorkshopStatus)) throw new HttpError(400, 'Choose a status');
   const heldOn = day(body.heldOn, 'Date');

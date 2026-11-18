@@ -193,3 +193,14 @@ export const confirmDeleteCompanies = (count: number, clients: number, tickets: 
 
 export const confirmCancel = (count = 1) =>
   window.confirm(count === 1 ? 'Cancel this session? The calendar event is deleted and the client is emailed. This cannot be undone.' : `Cancel ${count} sessions? Their calendar events are deleted and the clients are emailed. This cannot be undone.`);
+
+/** The largest file an import takes: it travels as base64 text inside a request of at most 4.5 MB. */
+export const MAX_FILE_BYTES = 3 * 1024 * 1024;
+
+/** A picked file's content as base64, for the import requests. */
+export async function toBase64(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}

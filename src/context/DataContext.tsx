@@ -42,6 +42,7 @@ const AFTER: Record<string, { slices: Slice[]; base?: boolean }> = {
   '/api/applications': { slices: ['applications'] },
   '/api/applets': { slices: ['applets'] },
   '/api/workshops': { slices: ['workshops'] },
+  '/api/excel': { slices: ['applets', 'workshops'] }, // an Applets or Workshops import
 };
 
 // A person who was signed in last time has a hint kept here (never a secret). It lets the app ask for their data at the same moment
@@ -109,8 +110,11 @@ interface DataContextValue extends Base, Records {
   get: <T = unknown>(path: string) => Promise<T>;
   /** Calls a write endpoint, toasts the outcome and shows the saved result straight away (the rest reloads quietly). Resolves to null when it failed. */
   mutate: <T = unknown>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown, success?: string) => Promise<T | null>;
-  /** Downloads an Excel file, generated fresh: every module's tab, just the given tickets, the audit log, or the empty import file of a module (`template` = its id). */
-  exportExcel: (options?: { ids?: string[]; audit?: boolean; template?: string }) => Promise<void>;
+  /**
+   * Downloads an Excel file, generated fresh: every module's tab, just the given tickets, the audit log, the empty import file of a module (`template` = its id),
+   * or the Applets / Workshops list (`section`; with `blank`, its empty import file).
+   */
+  exportExcel: (options?: { ids?: string[]; audit?: boolean; template?: string; section?: 'applets' | 'workshops'; blank?: boolean }) => Promise<void>;
   // used by usePageData
   want: (slices: Slice[]) => void;
   ready: Slice[];
@@ -333,18 +337,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const brandName = base.settings.brand.name;
   const exportExcel: DataContextValue['exportExcel'] = useCallback(
-    async ({ ids, audit, template } = {}) => {
+    async ({ ids, audit, template, section, blank } = {}) => {
       try {
-        const query = template ? `template?module=${template}` : audit ? 'download?audit=1' : `download?modules=all${ids ? `&ids=${ids.join(',')}` : ''}`;
+        const sectionName = section && section[0].toUpperCase() + section.slice(1);
+        const query = section ? `${blank ? 'template' : 'download'}?section=${section}` : template ? `template?module=${template}` : audit ? 'download?audit=1' : `download?modules=all${ids ? `&ids=${ids.join(',')}` : ''}`;
         const file = await api<Blob>(`/api/excel/${query}`, { blob: true });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(file);
         const brand = brandName.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'Studio';
-        const kind = template ? `Import-${base.modules.find((m) => m.id === template)?.slug ?? 'tickets'}` : audit ? 'Audit-Logs' : 'Bookings';
+        const kind = section ? `${blank ? 'Import-' : ''}${sectionName}` : template ? `Import-${base.modules.find((m) => m.id === template)?.slug ?? 'tickets'}` : audit ? 'Audit-Logs' : 'Bookings';
         link.download = `${brand}-${kind}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
         link.click();
         URL.revokeObjectURL(link.href);
-        toast.success(template ? 'Import file downloaded' : audit ? 'Audit log downloaded' : 'Excel downloaded');
+        toast.success(template || blank ? 'Import file downloaded' : audit ? 'Audit log downloaded' : 'Excel downloaded');
       } catch (e) {
         if (!sessionEnded(e)) toast.error(errorMessage(e));
       }

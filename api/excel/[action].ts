@@ -2,12 +2,17 @@ import { eq } from 'drizzle-orm';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser, UUID } from '../_lib.js';
 import { count, studioDate } from '../_availability.js';
 import { exportAuditExcel, exportFilteredExcel, importTemplate, readUpload } from '../_excel_file.js';
+import { EXCEL_SECTIONS, exportSection, importSection, sectionTemplate, type ExcelSection } from '../_section_excel.js';
 import { guideRows, importRows, importTargets, splitTable, suggestMapping } from '../_import.js';
 import { SHEETS } from '../_live_excel.js';
 import { modules } from '../_schema.js';
 import { IMPORT_CHUNK, IMPORT_MAX_ROWS, type ImportRead } from '../../src/types/index.js';
 
 const MAX_IDS = 100;
+
+/** ?section= / body.section: the Applets or Workshops page instead of the tickets (see _section_excel.ts). */
+const sectionParam = (value: unknown) => EXCEL_SECTIONS.find((s) => s === value) as ExcelSection | undefined;
+const sectionFile: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Workshops' };
 
 const workbook = (buffer: ArrayBuffer | Buffer, filename: string) =>
   new Response(buffer as ArrayBuffer, {
@@ -39,6 +44,13 @@ const download = handler({
     const user = await requireUser(req, 'super_admin');
     const { settings, brand, today } = await fileParts();
 
+    const section = sectionParam(url.searchParams.get('section'));
+    if (section) {
+      const { buffer, count } = await exportSection(section, settings);
+      await audit(user, 'export.excel', 'export', null, undefined, { section, rows: count });
+      return workbook(buffer, `${brand}-${sectionFile[section]}-${today}.xlsx`);
+    }
+
     if (url.searchParams.get('audit')) {
       const { buffer, entries } = await exportAuditExcel(settings);
       await audit(user, 'export.excel', 'export', null, undefined, { audit: true, entries });
@@ -61,6 +73,11 @@ const download = handler({
 const template = handler({
   GET: async (req, url) => {
     await requireUser(req, 'super_admin');
+    const section = sectionParam(url.searchParams.get('section'));
+    if (section) {
+      const { settings, brand } = await fileParts();
+      return workbook(await sectionTemplate(section, settings), `${brand}-Import-${sectionFile[section]}.xlsx`);
+    }
     const module = await moduleOf(url.searchParams.get('module'));
     const postQuestions = (await loadPostQuestions())(module.id);
     const { settings, brand } = await fileParts();
@@ -81,6 +98,9 @@ const importer = handler({
   POST: async (req) => {
     const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
+    // { section, name, file (base64) }: an Applets or Workshops file, checked and saved in one go -> { added, updated, errors }.
+    const section = sectionParam(body.section);
+    if (section) return await importSection(section, user, needString(body.file, 'File'), needString(body.name, 'File name'));
     const module = await moduleOf(body.module);
     const postQuestionsOf = await loadPostQuestions();
     const targets = importTargets(postQuestionsOf(module.id));

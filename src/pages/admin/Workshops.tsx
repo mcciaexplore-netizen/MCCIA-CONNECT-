@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
 import WorkshopForm from '../../components/sections/WorkshopForm';
+import SectionExcel from '../../components/sections/SectionExcel';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import Pager, { pageOf } from '../../components/ui/Pager';
@@ -60,7 +61,10 @@ export default function Workshops() {
           <h1 className="page-title">Workshops</h1>
           <p className="page-sub">W = Workshop (Major), M = Mini Session. Each has its own number series.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add workshop</button>
+        <div className="flex flex-wrap gap-2">
+          <SectionExcel section="workshops" noun="workshops" />
+          <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add workshop</button>
+        </div>
       </div>
       <div className="mb-4 grid gap-4 sm:grid-cols-4">
         <StatCard icon="presentation" label="Workshops (W)" value={workshops.filter((w) => w.kind === 'workshop').length} />
