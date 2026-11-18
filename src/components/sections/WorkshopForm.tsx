@@ -5,7 +5,7 @@ import Modal from '../ui/Modal';
 
 const blank = { code: '', title: '', heldOn: '', startTime: '', endTime: '', mode: 'offline', venue: '', trainer: '', organisation: '', status: 'scheduled', notes: '' };
 
-/** Adds a workshop (its Workshop ID: W-… for a Workshop, M-… for a Mini Session) or edits one. */
+/** Adds a workshop (its Workshop ID: W… for a Workshop, E… for a Mini Session) or edits one. */
 export default function WorkshopForm({ workshop, onClose }: { workshop?: Workshop; onClose: () => void }) {
   const { mutate } = useData();
   const [value, setValue] = useState(() =>
@@ -34,8 +34,8 @@ export default function WorkshopForm({ workshop, onClose }: { workshop?: Worksho
       <form onSubmit={save} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
-            {field('code', 'Workshop ID *', { required: true, placeholder: 'W-0001 or M-0001' })}
-            <p className="mt-1 text-xs text-ink-3">{codeOk ? WORKSHOP_KIND_LABELS[kindOfCode(value.code)] : 'Starts with W (Workshop, Major) or M (Mini Session), e.g. W21 or M-01'}</p>
+            {field('code', 'Workshop ID *', { required: true, placeholder: 'W21 or E01' })}
+            <p className="mt-1 text-xs text-ink-3">{codeOk ? WORKSHOP_KIND_LABELS[kindOfCode(value.code)] : 'Starts with W (Workshop, Major) or E (Mini Session), e.g. W21 or E01'}</p>
           </div>
           <div className="sm:col-span-2">{field('title', 'Workshop name', { placeholder: 'e.g. AI for MSMEs' })}</div>
         </div>

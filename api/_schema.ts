@@ -265,7 +265,7 @@ export const applets = pgTable('applets', {
   createdAt: createdAt(),
 });
 
-/** One workshop batch. `code` is its Workshop ID as the studio writes it (W-Pilot, W-0001, M-0002 ...): W = Workshop (Major), M = Mini Session. */
+/** One workshop batch. `code` is its Workshop ID as the studio writes it (W21, W-Pilot, E01 ...): W = Workshop (Major), E = Mini Session. */
 export const workshops = pgTable('workshops', {
   id: id(),
   code: text('code').notNull().unique(),

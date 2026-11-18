@@ -21,7 +21,7 @@ interface Records {
   notifications: AdminNotification[]; // admin only: the dashboard's messages
   applications: Application[]; // links to the studio's applications (everyone reads, admins edit)
   applets: Applet[]; // admin only: deployed applets, entered by hand
-  workshops: Workshop[]; // admin only: the workshop batches (W-…, M-…)
+  workshops: Workshop[]; // admin only: the workshop batches (W… Workshop, E… Mini Session)
   participants: Participant[]; // admin only: everyone registered for a workshop
 }
 

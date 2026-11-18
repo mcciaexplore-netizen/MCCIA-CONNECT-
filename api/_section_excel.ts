@@ -53,7 +53,7 @@ const COLUMNS: Record<ExcelSection, Col[]> = {
     { header: 'Confirmation Status', key: 'confirmationStatus', width: 18, hint: 'e.g. Confirmed / Unconfirmed.' },
     { header: 'Attendance', key: 'attendance', width: 12, hint: 'e.g. Attended / No Show.' },
     { header: 'Deployment Status', key: 'deploymentStatus', width: 18, hint: 'e.g. Deployed / Did not try.' },
-    { header: 'Workshop ID', key: 'code', required: true, width: 14, hint: 'W-… (Workshop, Major) or M-… (Mini Session), e.g. W-Pilot. A new ID creates that workshop.' },
+    { header: 'Workshop ID', key: 'code', required: true, width: 14, hint: 'W… (Workshop, Major) or E… (Mini Session), e.g. W21 or E01. A new ID creates that workshop.' },
     { header: 'Allocation', key: 'allocation', width: 14, hint: 'Optional.' },
     { header: 'Cons-Status', key: 'consStatus', width: 14, hint: 'Optional.' },
     { header: 'Calling', key: 'calling', width: 14, hint: 'Optional.' },

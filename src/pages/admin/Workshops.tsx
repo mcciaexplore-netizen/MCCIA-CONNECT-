@@ -9,12 +9,12 @@ import Pager, { pageOf } from '../../components/ui/Pager';
 import StatCard from '../../components/ui/StatCard';
 import { workshopDate, WorkshopStatusPill } from '../../lib/workshops';
 import { cn } from '../../lib/utils';
-import { WORKSHOP_KIND_LABELS, WORKSHOP_STATUS_LABELS, type Workshop } from '../../types';
+import { WORKSHOP_STATUS_LABELS, type Workshop } from '../../types';
 
-const TABS = { all: 'All', workshop: 'Workshops (W)', mini: 'Mini Sessions (M)' } as const;
+const TABS = { all: 'All', workshop: 'Workshops (W)', mini: 'Mini Sessions (E)' } as const;
 const dash = <span className="text-ink-3">—</span>;
 
-/** Every workshop batch (W-… Workshop, M-… Mini Session). Its participants are on its own page (click the Workshop ID). */
+/** Every workshop batch (W… Workshop, E… Mini Session). Its participants are on its own page (click the Workshop ID). */
 export default function Workshops() {
   const { workshops, mutate } = useData();
   const page = usePageData('workshops');
@@ -32,7 +32,6 @@ export default function Workshops() {
 
   const columns: Column<Workshop>[] = [
     { header: 'Workshop ID', isId: true, cell: (w) => <Link to={`/admin/workshops/${w.id}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>{w.code}</Link> },
-    { header: 'Type', cell: (w) => WORKSHOP_KIND_LABELS[w.kind] },
     {
       header: 'Workshop Name',
       cell: (w) => (w.title ? <span className="font-medium">{w.title}</span> : <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); setEditing(w); }}>+ Add name</button>),
@@ -52,20 +51,20 @@ export default function Workshops() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Workshops</h1>
-          <p className="page-sub">W = Workshop (Major), M = Mini Session. Click a Workshop ID to see who registered and who attended.</p>
+          <p className="page-sub">W = Workshop (Major), E = Mini Session. Click a Workshop ID to see who registered and who attended.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <SectionExcel
             section="workshops"
             noun="workshop participants"
-            pdf={() => ({ title: 'Workshops', subtitle: TABS[tab], headers: ['Workshop ID', 'Type', 'Workshop Name', 'Date', 'Mode', 'Status'], rows: rows.map((w) => [w.code, WORKSHOP_KIND_LABELS[w.kind], w.title, workshopDate(w), w.mode === 'online' ? 'Online' : 'Offline', WORKSHOP_STATUS_LABELS[w.status]]) })}
+            pdf={() => ({ title: 'Workshops', subtitle: TABS[tab], headers: ['Workshop ID', 'Workshop Name', 'Date', 'Mode', 'Status'], rows: rows.map((w) => [w.code, w.title, workshopDate(w), w.mode === 'online' ? 'Online' : 'Offline', WORKSHOP_STATUS_LABELS[w.status]]) })}
           />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add workshop</button>
         </div>
       </div>
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
         <StatCard icon="presentation" label="Workshops (W)" value={workshops.filter((w) => w.kind === 'workshop').length} />
-        <StatCard icon="presentation" label="Mini Sessions (M)" value={workshops.filter((w) => w.kind === 'mini').length} />
+        <StatCard icon="presentation" label="Mini Sessions (E)" value={workshops.filter((w) => w.kind === 'mini').length} />
         <StatCard icon="check" label="Completed" value={workshops.filter((w) => w.status === 'completed').length} />
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
