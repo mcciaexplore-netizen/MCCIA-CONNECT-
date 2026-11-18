@@ -8,7 +8,7 @@ import DataTable, { type Column } from '../../components/ui/DataTable';
 import EmptyState from '../../components/ui/EmptyState';
 import Pager, { pageOf } from '../../components/ui/Pager';
 import StatCard from '../../components/ui/StatCard';
-import { attended, confirmed, dayText, workshopDate, WorkshopStatusPill } from '../../lib/workshops';
+import { attended, dayText, workshopDate, WorkshopStatusPill } from '../../lib/workshops';
 import { WORKSHOP_KIND_LABELS, type Participant } from '../../types';
 
 const dash = <span className="text-ink-3">—</span>;
@@ -70,9 +70,9 @@ export default function WorkshopDetail() {
         </div>
       </div>
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
-        <StatCard icon="users" label="Participants" value={people.length} />
-        <StatCard icon="check" label="Confirmed" value={people.filter(confirmed).length} />
+        <StatCard icon="users" label="Registered" value={people.length} />
         <StatCard icon="check" label="Attended" value={people.filter(attended).length} />
+        <StatCard icon="user-x" label="Did not attend" value={people.length - people.filter(attended).length} />
       </div>
       <input className="input mb-4 max-w-xs" placeholder="Search name, company, email…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
       <DataTable columns={columns} data={shown} rowKey={(p) => p.id} onRowClick={setEditing} onEdit={setEditing} onDelete={remove} empty="No participants yet." emptyIcon="users" emptyAction={people.length ? undefined : { label: '+ Add participant', onClick: () => setEditing('new') }} />
