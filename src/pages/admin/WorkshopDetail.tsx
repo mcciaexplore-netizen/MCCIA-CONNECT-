@@ -32,12 +32,13 @@ export default function WorkshopDetail() {
 
   const people = participants.filter((p) => p.workshopId === workshop.id);
   const query = search.trim().toLowerCase();
-  const rows = people.filter((p) => !query || `${p.personName} ${p.companyName ?? ''} ${p.email ?? ''} ${p.phone ?? ''} ${p.udyamNo ?? ''}`.toLowerCase().includes(query));
+  const rows = people.filter((p) => !query || `${p.personName} ${p.companyName ?? ''} ${p.email ?? ''} ${p.phone ?? ''} ${p.udyamNo ?? ''} ${p.membershipNo ?? ''}`.toLowerCase().includes(query));
   const { rows: shown } = pageOf(rows, pageNo);
 
   const columns: Column<Participant>[] = [
     { header: 'Name', cell: (p) => <span className="font-medium">{p.personName}</span> },
     { header: 'Company Name', cell: (p) => text(p.companyName) },
+    { header: 'Membership No', cell: (p) => text(p.membershipNo) },
     { header: 'UDYAM No', cell: (p) => text(p.udyamNo) },
     { header: 'Tel. / Mobile', cell: (p) => text(p.phone) },
     { header: 'Email', cell: (p) => text(p.email) },
@@ -60,7 +61,7 @@ export default function WorkshopDetail() {
       title: `${workshop.code} · ${workshop.title}`,
       subtitle: `Registered ${people.length} · Attended ${people.filter(attended).length}`,
       headers: columns.map((c) => c.header),
-      rows: rows.map((p) => [p.personName, p.companyName, p.udyamNo, p.phone, p.email, p.designation, p.mode, p.month, dayText(p.sessionDate), p.timeSlot, p.confirmationStatus, p.attendance, p.deploymentStatus, p.allocation, p.consStatus, p.calling]),
+      rows: rows.map((p) => [p.personName, p.companyName, p.membershipNo, p.udyamNo, p.phone, p.email, p.designation, p.mode, p.month, dayText(p.sessionDate), p.timeSlot, p.confirmationStatus, p.attendance, p.deploymentStatus, p.allocation, p.consStatus, p.calling]),
     }) || toast.error('Allow pop-ups for this site to export a PDF');
   const details = [workshopDate(workshop), workshop.mode === 'online' ? 'Online' : 'Offline', workshop.venue, workshop.trainer && `Trainer: ${workshop.trainer}`, workshop.organisation].filter(Boolean);
 

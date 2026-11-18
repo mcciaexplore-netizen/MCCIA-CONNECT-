@@ -11,7 +11,7 @@ import { kindOfCode, WORKSHOP_KIND_LABELS, WORKSHOP_STATUS_LABELS, type AppSetti
 /**
  * Excel export and bulk import for the Applets and Workshops pages, with fixed columns (for workshops: the studio's own sheet, one row per participant).
  * The export can be edited and imported again: an applet with the same company and applet name, or a participant of the same workshop with the
- * same email (else phone, else name), is updated; anything else is added.
+ * same name with the same phone (else email), is updated; anything else is added.
  * A file with a single bad row saves nothing: the answer lists every problem by its Excel row.
  */
 export const EXCEL_SECTIONS = ['applets', 'workshops'] as const;
@@ -37,13 +37,14 @@ const COLUMNS: Record<ExcelSection, Col[]> = {
     { header: 'Deployed On', key: 'deployedOn', width: 14, hint: 'A date, e.g. 18/11/2026 (day first).' },
     { header: 'Notes', key: 'notes', width: 40, hint: 'Optional.' },
   ],
-  // The studio's own workshop sheet, column for column (its empty "Column 6" is left out).
+  // The studio's own workshop sheet, column for column (its "Column 6" is the membership number).
   workshops: [
     { header: 'Company Name', key: 'companyName', width: 28, hint: 'Optional.' },
     { header: 'UDYAM No', key: 'udyamNo', width: 20, hint: 'Optional.' },
     { header: 'Name', key: 'personName', required: true, width: 24, hint: 'The participant.' },
     { header: 'Tel. / Mobile', key: 'phone', width: 16, hint: 'Optional.', aliases: ['Phone', 'Mobile', 'Tel'] },
-    { header: 'Email', key: 'email', width: 28, hint: 'Optional. With the Workshop ID it finds the participant again when a file is imported a second time.' },
+    { header: 'Email', key: 'email', width: 28, hint: 'Optional.' },
+    { header: 'Membership No', key: 'membershipNo', width: 14, hint: 'The MCCIA membership number, e.g. IA-14984. Optional.', aliases: ['Column 6', 'Membership', 'Member ID'] },
     { header: 'Designation', key: 'designation', width: 18, hint: 'Optional.' },
     { header: 'Mode', key: 'mode', width: 10, hint: 'Offline or Online.' },
     { header: 'months', key: 'month', width: 10, hint: 'Optional.', aliases: ['Month'] },
@@ -198,7 +199,7 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
   return { added: fresh.length, updated: changed.length, errors, workshops: newCodes.length };
 }
 
-/** Who a participant is within a workshop: their email, else their phone, else their name. */
+/** Who a participant is within a workshop: their name with their phone, else their email (colleagues often share a company email). */
 function personKey(workshop: string, p: { email: string | null; phone: string | null; personName: string }) {
-  return `${workshop}|${(p.email || p.phone || p.personName).trim().toLowerCase()}`;
+  return `${workshop}|${p.personName.trim().toLowerCase()}|${(p.phone || p.email || '').trim().toLowerCase()}`;
 }

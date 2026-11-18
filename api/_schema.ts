@@ -290,6 +290,7 @@ export const workshopParticipants = pgTable('workshop_participants', {
   workshopId: uuid('workshop_id').notNull().references(() => workshops.id),
   companyName: text('company_name'),
   udyamNo: text('udyam_no'),
+  membershipNo: text('membership_no'), // the sheet's "Column 6": IA-14984, NM-3489 ...
   personName: text('person_name').notNull(),
   phone: text('phone'),
   email: text('email'),

@@ -14,7 +14,7 @@ interface Result {
 }
 const KEYS: Record<Section, string> = {
   applets: 'A row with the same Company + Applet Name as one already here updates it; every other row is added.',
-  workshops: 'One row per participant, in the columns of your workshop sheet. A Workshop ID that is not here yet creates that workshop. The same person (email, else phone, else name) in the same workshop is updated; everyone else is added.',
+  workshops: 'One row per participant, in the columns of your workshop sheet. A Workshop ID that is not here yet creates that workshop. The same person (name with phone, else email) in the same workshop is updated; everyone else is added.',
 };
 
 /** Export (Excel .xlsx, PDF) and Import (Excel .xlsx / .csv) for the Applets and Workshops pages. `pdf` builds the table the PDF shows (what is on screen). */
