@@ -28,6 +28,9 @@ export const NAV: Record<Role, NavSection[]> = {
       ],
     },
     { title: 'Team', icon: 'user-group', items: [{ to: '/admin/coordinators', label: 'Coordinators' }] },
+    { title: 'Applications', icon: 'apps', items: [{ to: '/admin/applications', label: 'Applications' }] },
+    { title: 'Applets', icon: 'package', items: [{ to: '/admin/applets', label: 'Deployed applets' }] },
+    { title: 'Workshops', icon: 'presentation', items: [{ to: '/admin/workshops', label: 'Workshops' }] },
     {
       title: 'Settings',
       icon: 'settings',
@@ -58,6 +61,7 @@ export const NAV: Record<Role, NavSection[]> = {
       ],
     },
     { title: 'Clients', icon: 'users', items: [{ to: '/coordinator/clients', label: 'My clients' }] },
+    { title: 'Applications', icon: 'apps', items: [{ to: '/coordinator/applications', label: 'Applications' }] },
     { title: 'Account', icon: 'settings', items: [{ to: '/coordinator/account', label: 'Change password' }] },
   ],
 };

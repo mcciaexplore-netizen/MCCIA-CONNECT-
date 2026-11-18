@@ -176,9 +176,9 @@ export async function audit(actor: Actor, action: string, entityType: string, en
   await db.insert(auditLogs).values({ entityType, entityId, action, oldValue: oldValue ?? null, newValue: newValue ?? null, doneByName: actor.name, role: actor.role });
 }
 
-/** With no ticket left at all every number series begins again (TKT-0001, APP-0001 ...). Called after anything that deletes tickets. */
+/** With no ticket left at all every ticket number series begins again (TKT-0001, APP-0001 ...). Called after anything that deletes tickets. Workshops (W-, M-) keep counting. */
 export async function restartTicketNumbersIfNone() {
-  await db.execute(sql`update public.ticket_counters set last_number = 0 where not exists (select 1 from tickets)`);
+  await db.execute(sql`update public.ticket_counters set last_number = 0 where prefix not in ('W', 'M') and not exists (select 1 from tickets)`);
 }
 
 /** app_settings merged over the defaults, so every key is always present. */

@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { audit, cached, db, handler, HttpError, isUniqueViolation, loadBookingQuestions, loadPostQuestions, loadSettings, needString, optString, readBody, requireUser } from './_lib.js';
 import { formQuestions, modules } from './_schema.js';
+import { sectionApi, sectionOf } from './_sections.js';
 import { BOOKING_FORM, CHOICE_TYPES, defaultPostQuestions, FIELD_TYPES, POST_CONSULTATION_FORM, type DisabledModule, type FieldType, type FormField } from '../src/types/index.js';
 
 const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -27,8 +28,11 @@ async function saveQuestions(moduleId: string, formType: string, questions: Form
 }
 
 export default handler({
+  // /api/applications, /api/applets and /api/workshops arrive here too (vercel.json rewrites, ?section=): see _sections.ts.
   // ?slug=... (one booking page) and ?public=1 (the live ones, for the landing page) are public; without either, staff get every module.
   GET: async (req, url) => {
+    const section = sectionOf(url);
+    if (section) return sectionApi(section, req, 'GET');
     if (url.searchParams.has('public')) {
       const live = await db
         .select({ id: modules.id, slug: modules.slug, name: modules.name, description: modules.description, color: modules.color })
@@ -54,7 +58,9 @@ export default handler({
     return rows.map((module) => ({ ...module, questions: questions.get(module.id) ?? [], postQuestions: postQuestions(module.id) }));
   },
 
-  POST: async (req) => {
+  POST: async (req, url) => {
+    const section = sectionOf(url);
+    if (section) return sectionApi(section, req, 'POST');
     const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const name = needString(body.name, 'Name');
@@ -73,7 +79,9 @@ export default handler({
   },
 
   // Saves whichever of the module's details (name, description, colour, live) and forms (booking questions, post-consultation questions) are sent.
-  PATCH: async (req) => {
+  PATCH: async (req, url) => {
+    const section = sectionOf(url);
+    if (section) return sectionApi(section, req, 'PATCH');
     const user = await requireUser(req, 'super_admin');
     const body = await readBody(req);
     const id = needString(body.id, 'Module');
@@ -102,5 +110,17 @@ export default handler({
 
     await audit(user, 'module.updated', 'module', id, undefined, { name: module.name, isActive: module.isActive, questions: questions.length, postQuestions: postQuestions.length });
     return { ...module, questions, postQuestions };
+  },
+
+  PUT: async (req, url) => {
+    const section = sectionOf(url);
+    if (!section) throw new HttpError(405, 'Method not allowed');
+    return sectionApi(section, req, 'PUT');
+  },
+
+  DELETE: async (req, url) => {
+    const section = sectionOf(url);
+    if (!section) throw new HttpError(405, 'Method not allowed');
+    return sectionApi(section, req, 'DELETE');
   },
 });

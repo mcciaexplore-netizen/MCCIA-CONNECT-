@@ -5,7 +5,7 @@ import { useData } from './context/DataContext';
 import { homeFor, usePublicSettings } from './lib/utils';
 import type { Role } from './types';
 import Layout from './components/layout/Layout';
-import { AuditLogs, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets } from './lib/pages';
+import { Applets, Applications, AuditLogs, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets, Workshops } from './lib/pages';
 import BookingPage from './pages/public/BookingPage';
 import ConfirmationPage from './pages/public/ConfirmationPage';
 import FeedbackPage from './pages/public/FeedbackPage';
@@ -57,6 +57,9 @@ export default function App() {
           <Route path="slot-manager" element={<SlotManager />} />
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="applications" element={<Applications />} />
+          <Route path="applets" element={<Applets />} />
+          <Route path="workshops" element={<Workshops />} />
         </Route>
 
         <Route path="/coordinator" element={<ProtectedRoute role="coordinator" />}>
@@ -69,6 +72,7 @@ export default function App() {
           <Route path="slots" element={<MySlots />} />
           <Route path="create-booking" element={<CreateBooking />} />
           <Route path="account" element={<MyAccount />} />
+          <Route path="applications" element={<Applications />} />
         </Route>
 
         <Route path="/book/:moduleSlug" element={<BookingPage />} />

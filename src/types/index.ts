@@ -1,5 +1,5 @@
 import type { InferSelectModel } from 'drizzle-orm';
-import type { adminNotifications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets } from '../../api/_schema';
+import type { adminNotifications, applications, auditLogs, bookings, clients, companies, coordinators, modules, slotConfig, tickets, workshops } from '../../api/_schema';
 
 // ---------- constants shared by the browser and the API ----------
 
@@ -43,6 +43,14 @@ export const PAYMENT_LABELS: Record<PaymentStatus, string> = { paid: 'Paid', unp
 
 export const BOOKING_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+/** A workshop is numbered W-0001..., a mini session M-0001... (each its own series). */
+export const WORKSHOP_KINDS = ['workshop', 'mini'] as const;
+export type WorkshopKind = (typeof WORKSHOP_KINDS)[number];
+export const WORKSHOP_KIND_LABELS: Record<WorkshopKind, string> = { workshop: 'Workshop (Major)', mini: 'Mini Session' };
+export const WORKSHOP_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;
+export type WorkshopStatus = (typeof WORKSHOP_STATUSES)[number];
+export const WORKSHOP_STATUS_LABELS: Record<WorkshopStatus, string> = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
 
 /** checkbox = several choices (saved as "A, B"), url = a web address. */
 export const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'radio', 'checkbox', 'url'] as const;
@@ -275,6 +283,21 @@ export type CompanyRow = Company & { clientCount: number; bookingCount: number; 
 export type AdminNotification = Wire<InferSelectModel<typeof adminNotifications>>;
 export type AuditLog = Wire<InferSelectModel<typeof auditLogs>>;
 export type SlotConfig = Wire<InferSelectModel<typeof slotConfig>>;
+export type Application = Wire<InferSelectModel<typeof applications>>;
+export type Workshop = Wire<InferSelectModel<typeof workshops>>;
+/** A completed Applet Setup ticket with its deployment details (GET /api/applets); the details are null until an admin adds them. */
+export interface AppletRow {
+  ticketId: string;
+  ticketNumber: string;
+  companyName: string;
+  personName: string;
+  sessionAt: string | null;
+  coordinatorId: string | null;
+  appletName: string | null;
+  liveLink: string | null;
+  deployedOn: string | null;
+  notes: string | null;
+}
 /** questions = the booking form, postQuestions = the post-consultation form (defaults when not customised). */
 export type Module = Wire<InferSelectModel<typeof modules>> & { questions: FormField[]; postQuestions: FormField[] };
 

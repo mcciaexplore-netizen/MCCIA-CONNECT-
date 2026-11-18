@@ -13,6 +13,10 @@
       "destination": "/api/coordinators?password=:id"
     },
     {
+      "source": "/api/:section(applications|applets|workshops)",
+      "destination": "/api/modules?section=:section"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

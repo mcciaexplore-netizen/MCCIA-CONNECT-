@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type {
   AppSettings,
   Availability,
@@ -12,6 +12,8 @@ import type {
   Role,
   TicketStatus,
   WeeklyRule,
+  WorkshopKind,
+  WorkshopStatus,
 } from '../src/types/index.js';
 
 /**
@@ -240,4 +242,43 @@ export const feedbackTokens = pgTable('feedback_tokens', {
   used: boolean('used').notNull().default(false),
   createdAt: createdAt(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+/** Links to the studio's applications, for staff to open (Applications page). Admins keep the list. */
+export const applications = pgTable('applications', {
+  id: id(),
+  name: text('name').notNull(),
+  url: text('url').notNull(),
+  description: text('description'),
+  createdAt: createdAt(),
+});
+
+/** The deployment details an admin adds to a completed Applet Setup ticket (Applets page). Goes when the ticket is deleted. */
+export const appletDeployments = pgTable('applet_deployments', {
+  ticketId: uuid('ticket_id').primaryKey().references(() => tickets.id),
+  appletName: text('applet_name'),
+  liveLink: text('live_link'),
+  deployedOn: date('deployed_on'), // YYYY-MM-DD
+  notes: text('notes'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One workshop event. ticket_number is set by the generate_workshop_number() trigger: W-0001 for a workshop, M-0001 for a mini session (ticket_counters). */
+export const workshops = pgTable('workshops', {
+  id: id(),
+  ticketNumber: text('ticket_number').notNull().default(sql`''`),
+  kind: text('kind').$type<WorkshopKind>().notNull(),
+  title: text('title').notNull(),
+  heldOn: date('held_on').notNull(), // YYYY-MM-DD, studio time
+  startTime: text('start_time'), // HH:mm, studio time
+  endTime: text('end_time'),
+  mode: text('mode').$type<BookingMode>().notNull().default('offline'),
+  venue: text('venue'), // the address, or the meeting link
+  trainer: text('trainer'),
+  organisation: text('organisation'), // who it is held for / with
+  participants: integer('participants'),
+  status: text('status').$type<WorkshopStatus>().notNull().default('scheduled'),
+  notes: text('notes'),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
