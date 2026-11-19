@@ -257,8 +257,11 @@ export const applications = pgTable('applications', {
 export const applets = pgTable('applets', {
   id: id(),
   companyName: text('company_name').notNull(),
+  membership: text('membership'), // 'Member' / 'Non Member', as the studio writes it
   contactName: text('contact_name'),
-  appletName: text('applet_name').notNull(),
+  phone: text('phone'), // one or more numbers, '; ' between them
+  email: text('email'), // one or more addresses, '; ' between them
+  appletName: text('applet_name'),
   liveLink: text('live_link'),
   deployedOn: date('deployed_on'), // YYYY-MM-DD
   notes: text('notes'),

@@ -31,8 +31,11 @@ interface Col {
 const COLUMNS: Record<ExcelSection, Col[]> = {
   applets: [
     { header: 'Company', key: 'companyName', required: true, width: 30, hint: 'The company the applet was built for.' },
-    { header: 'Contact Person', key: 'contactName', width: 24, hint: 'Optional.' },
-    { header: 'Applet Name', key: 'appletName', required: true, width: 30, hint: 'A company can have several applets: one row each. The same company + applet name again updates that applet.' },
+    { header: 'Membership', key: 'membership', width: 14, hint: 'Member or Non Member (optional).', aliases: ['Member', 'Member / Non Member'] },
+    { header: 'Contact Person', key: 'contactName', width: 24, hint: 'Optional. Several names: separate with ;', aliases: ['Name'] },
+    { header: 'Phone', key: 'phone', width: 22, hint: 'Optional. Several numbers: separate with ;', aliases: ['Mobile', 'Tel. / Mobile', 'Contact No'] },
+    { header: 'Email', key: 'email', width: 32, hint: 'Optional. Several addresses: separate with ;', aliases: ['Email ID', 'E-mail'] },
+    { header: 'Applet Name', key: 'appletName', width: 30, hint: 'Optional. A company can have several applets: one row each. The same company + applet name again updates that applet.' },
     { header: 'Live Link', key: 'liveLink', width: 40, hint: 'The web address of the deployed applet (https://…).' },
     { header: 'Deployed On', key: 'deployedOn', width: 14, hint: 'A date, e.g. 18/11/2026 (day first).' },
     { header: 'Notes', key: 'notes', width: 40, hint: 'Optional.' },
@@ -68,7 +71,7 @@ export async function exportSection(section: ExcelSection, settings: AppSettings
   workbook.creator = settings.brand.name;
   let count: number;
   if (section === 'applets') {
-    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.contactName ?? '', a.appletName, a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
+    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.membership ?? '', a.contactName ?? '', a.phone ?? '', a.email ?? '', a.appletName ?? '', a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
     addSheet(workbook, TAB.applets, COLUMNS.applets, rows);
     count = rows.length;
   } else {
@@ -126,14 +129,14 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
   };
 
   if (section === 'applets') {
-    const keyOf = (company: string, applet: string) => `${company.toLowerCase()}|${applet.toLowerCase()}`;
+    const keyOf = (company: string, applet: string | null) => `${company.trim().toLowerCase()}|${(applet ?? '').trim().toLowerCase()}`;
     const existing = new Map((await db.select({ id: applets.id, companyName: applets.companyName, appletName: applets.appletName }).from(applets)).map((a) => [keyOf(a.companyName, a.appletName), a.id]));
     const seen = new Set<string>();
     const parsed = filled.map(({ excelRow, cells }) =>
       check(excelRow, () => {
         const values = appletValues({ ...Object.fromEntries(columns.map((c) => [c.key, cell(cells, c.key)])), deployedOn: dateOf(cell(cells, 'deployedOn'), 'Deployed On') });
         const key = keyOf(values.companyName, values.appletName);
-        if (seen.has(key)) throw new HttpError(400, `${values.companyName} / ${values.appletName} is in the file twice`);
+        if (seen.has(key)) throw new HttpError(400, `${values.companyName}${values.appletName ? ` / ${values.appletName}` : ''} is in the file twice`);
         seen.add(key);
         return { values, id: existing.get(key) };
       }),

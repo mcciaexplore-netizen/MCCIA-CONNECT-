@@ -74,8 +74,11 @@ async function applicationsApi(req: Request, method: Method) {
 /** A checked applet from the form or from a row of an imported file (throws an HttpError naming the problem). */
 export const appletValues = (body: Record<string, unknown>) => ({
   companyName: needString(body.companyName, 'Company name'),
+  membership: optString(body.membership) || null,
   contactName: optString(body.contactName) || null,
-  appletName: needString(body.appletName, 'Applet name'),
+  phone: optString(body.phone) || null,
+  email: optString(body.email) || null,
+  appletName: optString(body.appletName) || null,
   liveLink: link(body.liveLink, 'Live link', false),
   deployedOn: day(body.deployedOn, 'Deployed on'),
   notes: optString(body.notes) || null,

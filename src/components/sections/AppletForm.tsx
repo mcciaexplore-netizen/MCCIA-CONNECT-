@@ -3,9 +3,9 @@ import { useData } from '../../context/DataContext';
 import type { Applet } from '../../types';
 import Modal from '../ui/Modal';
 
-const FIELDS = ['companyName', 'contactName', 'appletName', 'liveLink', 'deployedOn', 'notes'] as const;
+const FIELDS = ['companyName', 'membership', 'contactName', 'phone', 'email', 'appletName', 'liveLink', 'deployedOn', 'notes'] as const;
 
-/** Adds a deployed applet, or edits one: company, contact, applet name, live link, date deployed, notes. */
+/** Adds a deployed applet, or edits one: company, membership, contact (name, phone, email), applet name, live link, date deployed, notes. */
 export default function AppletForm({ applet, onClose }: { applet?: Applet; onClose: () => void }) {
   const { mutate } = useData();
   const [value, setValue] = useState(() => Object.fromEntries(FIELDS.map((key) => [key, applet?.[key] ?? ''])) as Record<(typeof FIELDS)[number], string>);
@@ -26,13 +26,24 @@ export default function AppletForm({ applet, onClose }: { applet?: Applet; onClo
   };
 
   return (
-    <Modal title={applet ? `Edit ${applet.appletName}` : 'Add applet'} onClose={onClose}>
+    <Modal title={applet ? `Edit ${applet.appletName || applet.companyName}` : 'Add applet'} onClose={onClose}>
       <form onSubmit={save} className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          {field('companyName', 'Company *', { required: true })}
-          {field('contactName', 'Contact person')}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="sm:col-span-2">{field('companyName', 'Company *', { required: true })}</div>
+          <div>
+            <label className="label" htmlFor="applet-membership">Membership</label>
+            <select id="applet-membership" className="input" value={value.membership} onChange={(e) => setValue({ ...value, membership: e.target.value })}>
+              <option value="">—</option>
+              {['Member', 'Non Member'].concat(value.membership && !['Member', 'Non Member'].includes(value.membership) ? [value.membership] : []).map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </div>
         </div>
-        {field('appletName', 'Applet name *', { required: true, placeholder: 'e.g. Quotation generator' })}
+        <div className="grid gap-4 sm:grid-cols-3">
+          {field('contactName', 'Contact person')}
+          {field('phone', 'Phone', { type: 'tel' })}
+          {field('email', 'Email')}
+        </div>
+        {field('appletName', 'Applet name', { placeholder: 'e.g. Quotation generator' })}
         <div className="grid gap-4 sm:grid-cols-2">
           {field('liveLink', 'Live link', { placeholder: 'https://…' })}
           {field('deployedOn', 'Deployed on', { type: 'date' })}
