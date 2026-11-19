@@ -75,6 +75,7 @@ async function applicationsApi(req: Request, method: Method) {
 export const appletValues = (body: Record<string, unknown>) => ({
   companyName: needString(body.companyName, 'Company name'),
   membership: optString(body.membership) || null,
+  membershipNo: optString(body.membershipNo) || null,
   contactName: optString(body.contactName) || null,
   phone: optString(body.phone) || null,
   email: optString(body.email) || null,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { usePageData, useData } from '../../context/DataContext';
+import AppletDetail from '../../components/sections/AppletDetail';
 import AppletForm from '../../components/sections/AppletForm';
 import SectionExcel from '../../components/sections/SectionExcel';
 import DataState from '../../components/ui/DataState';
@@ -18,14 +19,15 @@ export default function Applets() {
   const [search, setSearch] = useState('');
   const [pageNo, setPageNo] = useState(1);
   const [editing, setEditing] = useState<Applet | 'new' | null>(null);
+  const [viewing, setViewing] = useState<Applet | null>(null);
 
   const query = search.trim().toLowerCase();
-  const rows = applets.filter((a) => !query || `${a.companyName} ${a.contactName ?? ''} ${a.phone ?? ''} ${a.email ?? ''} ${a.appletName ?? ''} ${a.liveLink ?? ''}`.toLowerCase().includes(query));
+  const rows = applets.filter((a) => !query || `${a.companyName} ${a.contactName ?? ''} ${a.membershipNo ?? ''} ${a.phone ?? ''} ${a.email ?? ''} ${a.appletName ?? ''} ${a.liveLink ?? ''}`.toLowerCase().includes(query));
   const { rows: shown } = pageOf(rows, pageNo);
 
   const columns: Column<Applet>[] = [
     { header: 'Company', cell: (a) => <span className="font-medium">{a.companyName}</span> },
-    { header: 'Membership', cell: (a) => a.membership || dash },
+    { header: 'Membership', cell: (a) => (a.membership || a.membershipNo ? <span>{a.membership}{a.membershipNo && <span className="block text-xs text-ink-3">{a.membershipNo}</span>}</span> : dash) },
     { header: 'Contact', cell: (a) => a.contactName || dash },
     { header: 'Phone', cell: (a) => a.phone || dash },
     { header: 'Email', cell: (a) => (a.email ? <span className="break-all">{a.email}</span> : dash) },
@@ -52,7 +54,7 @@ export default function Applets() {
           <SectionExcel
             section="applets"
             noun="applets"
-            pdf={() => ({ title: 'Applets', subtitle: query ? `Search: ${search.trim()}` : 'Deployed applets', headers: ['Company', 'Membership', 'Contact', 'Phone', 'Email', 'Applet', 'Live link', 'Deployed on', 'Notes'], rows: rows.map((a) => [a.companyName, a.membership, a.contactName, a.phone, a.email, a.appletName, a.liveLink, a.deployedOn && formatDate(`${a.deployedOn}T12:00:00Z`), a.notes]) })}
+            pdf={() => ({ title: 'Applets', subtitle: query ? `Search: ${search.trim()}` : 'Deployed applets', headers: ['Company', 'Membership', 'Membership ID', 'Contact', 'Phone', 'Email', 'Applet', 'Live link', 'Deployed on', 'Notes'], rows: rows.map((a) => [a.companyName, a.membership, a.membershipNo, a.contactName, a.phone, a.email, a.appletName, a.liveLink, a.deployedOn && formatDate(`${a.deployedOn}T12:00:00Z`), a.notes]) })}
           />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add applet</button>
         </div>
@@ -63,8 +65,9 @@ export default function Applets() {
         <StatCard icon="check" label="Members" value={applets.filter((a) => a.membership?.trim().toLowerCase() === 'member').length} />
       </div>
       <input className="input mb-4 max-w-xs" placeholder="Search company, contact, applet…" value={search} onChange={(e) => { setSearch(e.target.value); setPageNo(1); }} />
-      <DataTable columns={columns} data={shown} rowKey={(a) => a.id} onRowClick={setEditing} onEdit={setEditing} onDelete={remove} empty="No applets added yet." emptyIcon="package" emptyAction={applets.length ? undefined : { label: '+ Add applet', onClick: () => setEditing('new') }} />
+      <DataTable columns={columns} data={shown} rowKey={(a) => a.id} onRowClick={setViewing} onEdit={setEditing} onDelete={remove} empty="No applets added yet." emptyIcon="package" emptyAction={applets.length ? undefined : { label: '+ Add applet', onClick: () => setEditing('new') }} />
       <Pager total={rows.length} page={pageNo} onPage={setPageNo} />
+      {viewing && <AppletDetail applet={applets.find((x) => x.id === viewing.id) ?? viewing} onClose={() => setViewing(null)} onEdit={() => { setEditing(applets.find((x) => x.id === viewing.id) ?? viewing); setViewing(null); }} />}
       {editing && <AppletForm applet={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
     </div>
   );

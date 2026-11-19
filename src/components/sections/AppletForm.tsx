@@ -3,7 +3,7 @@ import { useData } from '../../context/DataContext';
 import type { Applet } from '../../types';
 import Modal from '../ui/Modal';
 
-const FIELDS = ['companyName', 'membership', 'contactName', 'phone', 'email', 'appletName', 'liveLink', 'deployedOn', 'notes'] as const;
+const FIELDS = ['companyName', 'membership', 'membershipNo', 'contactName', 'phone', 'email', 'appletName', 'liveLink', 'deployedOn', 'notes'] as const;
 
 /** Adds a deployed applet, or edits one: company, membership, contact (name, phone, email), applet name, live link, date deployed, notes. */
 export default function AppletForm({ applet, onClose }: { applet?: Applet; onClose: () => void }) {
@@ -28,8 +28,8 @@ export default function AppletForm({ applet, onClose }: { applet?: Applet; onClo
   return (
     <Modal title={applet ? `Edit ${applet.appletName || applet.companyName}` : 'Add applet'} onClose={onClose}>
       <form onSubmit={save} className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="sm:col-span-2">{field('companyName', 'Company *', { required: true })}</div>
+        {field('companyName', 'Company *', { required: true })}
+        <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="applet-membership">Membership</label>
             <select id="applet-membership" className="input" value={value.membership} onChange={(e) => setValue({ ...value, membership: e.target.value })}>
@@ -37,6 +37,7 @@ export default function AppletForm({ applet, onClose }: { applet?: Applet; onClo
               {['Member', 'Non Member'].concat(value.membership && !['Member', 'Non Member'].includes(value.membership) ? [value.membership] : []).map((m) => <option key={m}>{m}</option>)}
             </select>
           </div>
+          {field('membershipNo', 'Membership ID', { placeholder: 'e.g. IA-14984' })}
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           {field('contactName', 'Contact person')}

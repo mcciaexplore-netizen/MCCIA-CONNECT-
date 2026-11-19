@@ -258,6 +258,7 @@ export const applets = pgTable('applets', {
   id: id(),
   companyName: text('company_name').notNull(),
   membership: text('membership'), // 'Member' / 'Non Member', as the studio writes it
+  membershipNo: text('membership_no'), // the MCCIA membership ID, e.g. IA-14984
   contactName: text('contact_name'),
   phone: text('phone'), // one or more numbers, '; ' between them
   email: text('email'), // one or more addresses, '; ' between them

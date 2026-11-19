@@ -32,6 +32,7 @@ const COLUMNS: Record<ExcelSection, Col[]> = {
   applets: [
     { header: 'Company', key: 'companyName', required: true, width: 30, hint: 'The company the applet was built for.' },
     { header: 'Membership', key: 'membership', width: 14, hint: 'Member or Non Member (optional).', aliases: ['Member', 'Member / Non Member'] },
+    { header: 'Membership ID', key: 'membershipNo', width: 16, hint: 'The MCCIA membership ID, e.g. IA-14984. Optional.', aliases: ['Membership No', 'Membership Number', 'Member ID'] },
     { header: 'Contact Person', key: 'contactName', width: 24, hint: 'Optional. Several names: separate with ;', aliases: ['Name'] },
     { header: 'Phone', key: 'phone', width: 22, hint: 'Optional. Several numbers: separate with ;', aliases: ['Mobile', 'Tel. / Mobile', 'Contact No'] },
     { header: 'Email', key: 'email', width: 32, hint: 'Optional. Several addresses: separate with ;', aliases: ['Email ID', 'E-mail'] },
@@ -71,7 +72,7 @@ export async function exportSection(section: ExcelSection, settings: AppSettings
   workbook.creator = settings.brand.name;
   let count: number;
   if (section === 'applets') {
-    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.membership ?? '', a.contactName ?? '', a.phone ?? '', a.email ?? '', a.appletName ?? '', a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
+    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.membership ?? '', a.membershipNo ?? '', a.contactName ?? '', a.phone ?? '', a.email ?? '', a.appletName ?? '', a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
     addSheet(workbook, TAB.applets, COLUMNS.applets, rows);
     count = rows.length;
   } else {
