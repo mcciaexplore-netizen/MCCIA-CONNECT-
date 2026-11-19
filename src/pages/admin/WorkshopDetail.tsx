@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Link, useParams } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
 import ParticipantForm from '../../components/sections/ParticipantForm';
+import SectionExcel from '../../components/sections/SectionExcel';
 import WorkshopForm from '../../components/sections/WorkshopForm';
 import DataState from '../../components/ui/DataState';
 import DataTable, { type Column } from '../../components/ui/DataTable';
@@ -38,7 +39,8 @@ export default function WorkshopDetail() {
   const columns: Column<Participant>[] = [
     { header: 'Name', cell: (p) => <span className="font-medium">{p.personName}</span> },
     { header: 'Company Name', cell: (p) => text(p.companyName) },
-    { header: 'Membership No', cell: (p) => text(p.membershipNo) },
+    { header: 'Member', cell: (p) => text(p.membership) },
+    { header: 'Membership ID', cell: (p) => text(p.membershipNo) },
     { header: 'UDYAM No', cell: (p) => text(p.udyamNo) },
     { header: 'Tel. / Mobile', cell: (p) => text(p.phone) },
     { header: 'Email', cell: (p) => text(p.email) },
@@ -61,7 +63,7 @@ export default function WorkshopDetail() {
       title: [workshop.code, workshop.title].filter(Boolean).join(' · '),
       subtitle: `Registered ${people.length} · Attended ${people.filter(attended).length}`,
       headers: columns.map((c) => c.header),
-      rows: rows.map((p) => [p.personName, p.companyName, p.membershipNo, p.udyamNo, p.phone, p.email, p.designation, p.mode, p.month, dayText(p.sessionDate), p.timeSlot, p.confirmationStatus, p.attendance, p.deploymentStatus, p.allocation, p.consStatus, p.calling]),
+      rows: rows.map((p) => [p.personName, p.companyName, p.membership, p.membershipNo, p.udyamNo, p.phone, p.email, p.designation, p.mode, p.month, dayText(p.sessionDate), p.timeSlot, p.confirmationStatus, p.attendance, p.deploymentStatus, p.allocation, p.consStatus, p.calling]),
     }) || toast.error('Allow pop-ups for this site to export a PDF');
   const details = [workshopDate(workshop), workshop.mode === 'online' ? 'Online' : 'Offline', workshop.venue, workshop.trainer && `Trainer: ${workshop.trainer}`, workshop.organisation].filter(Boolean);
 
@@ -77,6 +79,7 @@ export default function WorkshopDetail() {
         <div className="flex flex-wrap gap-2">
           <button className="btn" onClick={exportParticipants}>Export PDF</button>
           <button className="btn" onClick={() => setEditingWorkshop(true)}>Edit workshop</button>
+          <SectionExcel section="participants" noun={`participants into ${workshop.code}`} workshopId={workshop.id} />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add participant</button>
         </div>
       </div>

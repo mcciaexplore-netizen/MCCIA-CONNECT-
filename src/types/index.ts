@@ -54,7 +54,8 @@ export const kindOfCode = (code: string): WorkshopKind => (code.trim().toUpperCa
 export const PARTICIPANT_SUGGESTIONS = {
   mode: ['Offline', 'Online'],
   confirmationStatus: ['Confirmed', 'Unconfirmed'],
-  attendance: ['Attended', 'No Show'],
+  attendance: ['Present', 'Not Present', 'Attended', 'No Show'],
+  membership: ['Member', 'Non Member'],
   deploymentStatus: ['Deployed', 'In progress', 'Did not try'],
 } as const;
 export const WORKSHOP_STATUSES = ['scheduled', 'completed', 'cancelled'] as const;

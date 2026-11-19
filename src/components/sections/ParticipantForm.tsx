@@ -7,7 +7,8 @@ import Modal from '../ui/Modal';
 const FIELDS: { key: Exclude<keyof Participant, 'id' | 'workshopId' | 'createdAt' | 'updatedAt'>; label: string; type?: string }[] = [
   { key: 'companyName', label: 'Company Name' },
   { key: 'udyamNo', label: 'UDYAM No' },
-  { key: 'membershipNo', label: 'Membership No' },
+  { key: 'membership', label: 'Member / Non Member' },
+  { key: 'membershipNo', label: 'Membership ID' },
   { key: 'personName', label: 'Name *' },
   { key: 'phone', label: 'Tel. / Mobile', type: 'tel' },
   { key: 'email', label: 'Email', type: 'email' },

@@ -5,7 +5,7 @@ import { exportPdf, type PdfTable } from '../../lib/pdf';
 import { MAX_FILE_BYTES, toBase64 } from '../../lib/utils';
 import Modal from '../ui/Modal';
 
-type Section = 'applets' | 'workshops';
+type Section = 'applets' | 'workshops' | 'participants';
 interface Result {
   added: number;
   updated: number;
@@ -14,11 +14,15 @@ interface Result {
 }
 const KEYS: Record<Section, string> = {
   applets: 'A row with the same Company + Applet Name as one already here updates it; every other row is added.',
+  participants: 'One row per participant: Name, Email, Phone, Member / Non Member, Membership ID (members), Attendance (Present / Not Present). Everyone joins this workshop. The same person (name with phone, else email) already here is updated; everyone else is added.',
   workshops: 'One row per participant, in the columns of your workshop sheet. A Workshop ID that is not here yet creates that workshop. The same person (name with phone, else email) in the same workshop is updated; everyone else is added.',
 };
 
-/** Export (Excel .xlsx, PDF) and Import (Excel .xlsx / .csv) for the Applets and Workshops pages. `pdf` builds the table the PDF shows (what is on screen). */
-export default function SectionExcel({ section, noun, pdf }: { section: Section; noun: string; pdf: () => PdfTable }) {
+/**
+ * Export (Excel .xlsx, PDF) and Import (Excel .xlsx / .csv) for the Applets and Workshops pages. `pdf` builds the table the PDF shows (what is on
+ * screen). section "participants" (one workshop's page, `workshopId`) has the Import button only.
+ */
+export default function SectionExcel({ section, noun, pdf, workshopId }: { section: Section; noun: string; pdf?: () => PdfTable; workshopId?: string }) {
   const { exportExcel, mutate } = useData();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -35,7 +39,7 @@ export default function SectionExcel({ section, noun, pdf }: { section: Section;
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) return toast.error('This file is bigger than 3 MB. Split it into parts and import them one after the other.');
     setBusy(true);
-    const result = await mutate<Result>('/api/excel/import', 'POST', { section, name: file.name, file: await toBase64(file) });
+    const result = await mutate<Result>('/api/excel/import', 'POST', { section, workshopId, name: file.name, file: await toBase64(file) });
     setBusy(false);
     if (!result) return;
     if (result.errors.length) return setErrors(result.errors);
@@ -45,9 +49,9 @@ export default function SectionExcel({ section, noun, pdf }: { section: Section;
 
   return (
     <>
-      <button className="btn" onClick={() => exportExcel({ section })}>Export Excel</button>
-      <button className="btn" onClick={() => exportPdf(pdf()) || toast.error('Allow pop-ups for this site to export a PDF')}>Export PDF</button>
-      <button className="btn" onClick={() => setOpen(true)}>Import Excel</button>
+      {section !== 'participants' && <button className="btn" onClick={() => exportExcel({ section })}>Export Excel</button>}
+      {pdf && <button className="btn" onClick={() => exportPdf(pdf()) || toast.error('Allow pop-ups for this site to export a PDF')}>Export PDF</button>}
+      <button className="btn" onClick={() => setOpen(true)}>{section === 'participants' ? 'Import participants' : 'Import Excel'}</button>
       {open && (
         <Modal title={`Import ${noun}`} onClose={close}>
           <div className="space-y-4">

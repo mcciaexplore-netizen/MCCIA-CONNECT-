@@ -14,11 +14,11 @@ import { kindOfCode, WORKSHOP_KIND_LABELS, WORKSHOP_STATUS_LABELS, type AppSetti
  * same name with the same phone (else email), is updated; anything else is added.
  * A file with a single bad row saves nothing: the answer lists every problem by its Excel row.
  */
-export const EXCEL_SECTIONS = ['applets', 'workshops'] as const;
+export const EXCEL_SECTIONS = ['applets', 'workshops', 'participants'] as const;
 export type ExcelSection = (typeof EXCEL_SECTIONS)[number];
 
 const MAX_ROWS = 3000;
-const TAB: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Participants' };
+const TAB: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Participants', participants: 'Participants' };
 
 interface Col {
   header: string;
@@ -62,7 +62,23 @@ const COLUMNS: Record<ExcelSection, Col[]> = {
     { header: 'Cons-Status', key: 'consStatus', width: 14, hint: 'Optional.' },
     { header: 'Calling', key: 'calling', width: 14, hint: 'Optional.' },
   ],
+  // "Import participants" on one workshop's page: every row joins that workshop.
+  participants: [
+    { header: 'Name', key: 'personName', required: true, width: 26, hint: 'The participant.', aliases: ['Participant Name', 'Full Name', 'Participant'] },
+    { header: 'Email', key: 'email', width: 30, hint: 'Optional.', aliases: ['Email ID', 'E-mail', 'Mail'] },
+    { header: 'Phone', key: 'phone', width: 16, hint: 'Optional.', aliases: ['Ph Number', 'Ph No', 'Phone Number', 'Mobile', 'Mobile No', 'Tel. / Mobile', 'Contact No', 'Contact'] },
+    { header: 'Member / Non Member', key: 'membership', width: 20, hint: 'Member or Non Member.', aliases: ['Member', 'Membership', 'Member/Non-Member', 'Member Type'] },
+    { header: 'Membership ID', key: 'membershipNo', width: 16, hint: 'For members, e.g. IA-14984. Optional.', aliases: ['Membership No', 'Membership Number', 'Member ID', 'Column 6'] },
+    { header: 'Attendance', key: 'attendance', width: 14, hint: 'Present or Not Present.', aliases: ['Attended', 'Present'] },
+  ],
 };
+
+/** "member", "M", "yes" -> Member; "non member", "non-member", "NM", "no" -> Non Member; anything else as written. */
+const membershipOf = (text: string | null) =>
+  !text ? null : /^(non|nm$|no$|n$)/i.test(text) ? 'Non Member' : /^(member|m$|yes|y$)/i.test(text) ? 'Member' : text;
+/** "present", "P", "yes" -> Present; "not present", "absent", "A", "no" -> Not Present; anything else as written. */
+const attendanceOf = (text: string | null) =>
+  !text ? null : /^(not|absent|a$|no$|n$)/i.test(text) ? 'Not Present' : /^(present|p$|yes|y$)/i.test(text) ? 'Present' : text;
 
 const ddmmyyyy = (date: string | null) => (date ? date.split('-').reverse().join('/') : '');
 
@@ -75,6 +91,8 @@ export async function exportSection(section: ExcelSection, settings: AppSettings
     const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.membership ?? '', a.membershipNo ?? '', a.contactName ?? '', a.phone ?? '', a.email ?? '', a.appletName ?? '', a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
     addSheet(workbook, TAB.applets, COLUMNS.applets, rows);
     count = rows.length;
+  } else if (section === 'participants') {
+    throw new HttpError(400, 'Export participants from the Workshops page');
   } else {
     const [all, people] = await Promise.all([db.select().from(workshops).orderBy(asc(workshops.code)), db.select().from(workshopParticipants).orderBy(asc(workshopParticipants.personName))]);
     const codeOf = new Map(all.map((w) => [w.id, w.code]));
@@ -106,7 +124,7 @@ const dateOf = (text: string, label: string) => {
 };
 
 /** Reads, checks and (when every row is fine) saves an uploaded file. */
-export async function importSection(section: ExcelSection, user: AuthUser, base64: string, fileName: string) {
+export async function importSection(section: ExcelSection, user: AuthUser, base64: string, fileName: string, workshopId?: string) {
   const { table } = await readUpload(base64, fileName, [TAB[section]]);
   const { headers, rows, firstRow } = splitTable(table);
   const columns = COLUMNS[section];
@@ -152,6 +170,37 @@ export async function importSection(section: ExcelSection, user: AuthUser, base6
       await db.batch([first, ...rest]);
     }
     await audit(user, 'applets.imported', 'applet', null, undefined, { file: fileName.slice(0, 200), added: fresh.length, updated: changed.length });
+    return { added: fresh.length, updated: changed.length, errors, workshops: 0 };
+  }
+
+  if (section === 'participants') {
+    const [workshop] = workshopId ? await db.select({ id: workshops.id, code: workshops.code }).from(workshops).where(eq(workshops.id, workshopId)) : [];
+    if (!workshop) throw new HttpError(404, 'Workshop not found');
+    const keys = columns.filter((c) => at.get(c.key)! >= 0).map((c) => c.key); // an update changes only the columns the file has
+    const people = new Map(
+      (await db.select({ id: workshopParticipants.id, email: workshopParticipants.email, phone: workshopParticipants.phone, personName: workshopParticipants.personName }).from(workshopParticipants).where(eq(workshopParticipants.workshopId, workshop.id))).map((p) => [personKey(workshop.id, p), p.id]),
+    );
+    const seen = new Set<string>();
+    const parsed = filled.map(({ excelRow, cells }) =>
+      check(excelRow, () => {
+        const read = participantValues(Object.fromEntries(columns.map((c) => [c.key, cell(cells, c.key)])));
+        const values = { ...read, membership: membershipOf(read.membership), attendance: attendanceOf(read.attendance) };
+        const key = personKey(workshop.id, values);
+        if (seen.has(key)) throw new HttpError(400, `${values.personName} is in the file twice`);
+        seen.add(key);
+        return { values, id: people.get(key) };
+      }),
+    );
+    if (errors.length) return { added: 0, updated: 0, errors, workshops: 0 };
+    const ok = parsed.filter((p) => p !== null);
+    const fresh = ok.filter((p) => !p.id).map((p) => ({ ...p.values, workshopId: workshop.id }));
+    const changed = ok.filter((p) => p.id);
+    for (let i = 0; i < fresh.length; i += 500) await db.insert(workshopParticipants).values(fresh.slice(i, i + 500));
+    for (let i = 0; i < changed.length; i += 100) {
+      const [first, ...rest] = changed.slice(i, i + 100).map((p) => db.update(workshopParticipants).set(Object.fromEntries(keys.map((k) => [k, p.values[k as keyof typeof p.values]]))).where(eq(workshopParticipants.id, p.id!)));
+      await db.batch([first, ...rest]);
+    }
+    await audit(user, 'participants.imported', 'workshop', workshop.id, undefined, { file: fileName.slice(0, 200), workshop: workshop.code, added: fresh.length, updated: changed.length });
     return { added: fresh.length, updated: changed.length, errors, workshops: 0 };
   }
 

@@ -116,7 +116,7 @@ interface DataContextValue extends Base, Records {
    * Downloads an Excel file, generated fresh: every module's tab, just the given tickets, the audit log, the empty import file of a module (`template` = its id),
    * or the Applets / Workshops list (`section`; with `blank`, its empty import file).
    */
-  exportExcel: (options?: { ids?: string[]; audit?: boolean; template?: string; section?: 'applets' | 'workshops'; blank?: boolean }) => Promise<void>;
+  exportExcel: (options?: { ids?: string[]; audit?: boolean; template?: string; section?: 'applets' | 'workshops' | 'participants'; blank?: boolean }) => Promise<void>;
   // used by usePageData
   want: (slices: Slice[]) => void;
   ready: Slice[];

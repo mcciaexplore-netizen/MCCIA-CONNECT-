@@ -12,7 +12,7 @@ const MAX_IDS = 100;
 
 /** ?section= / body.section: the Applets or Workshops page instead of the tickets (see _section_excel.ts). */
 const sectionParam = (value: unknown) => EXCEL_SECTIONS.find((s) => s === value) as ExcelSection | undefined;
-const sectionFile: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Workshops' };
+const sectionFile: Record<ExcelSection, string> = { applets: 'Applets', workshops: 'Workshops', participants: 'Participants' };
 
 const workbook = (buffer: ArrayBuffer | Buffer, filename: string) =>
   new Response(buffer as ArrayBuffer, {
@@ -100,7 +100,7 @@ const importer = handler({
     const body = await readBody(req);
     // { section, name, file (base64) }: an Applets or Workshops file, checked and saved in one go -> { added, updated, errors }.
     const section = sectionParam(body.section);
-    if (section) return await importSection(section, user, needString(body.file, 'File'), needString(body.name, 'File name'));
+    if (section) return await importSection(section, user, needString(body.file, 'File'), needString(body.name, 'File name'), typeof body.workshopId === 'string' && UUID.test(body.workshopId) ? body.workshopId : undefined);
     const module = await moduleOf(body.module);
     const postQuestionsOf = await loadPostQuestions();
     const targets = importTargets(postQuestionsOf(module.id));

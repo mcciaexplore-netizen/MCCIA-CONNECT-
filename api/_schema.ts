@@ -295,6 +295,7 @@ export const workshopParticipants = pgTable('workshop_participants', {
   companyName: text('company_name'),
   udyamNo: text('udyam_no'),
   membershipNo: text('membership_no'), // the sheet's "Column 6": IA-14984, NM-3489 ...
+  membership: text('membership'), // 'Member' / 'Non Member'
   personName: text('person_name').notNull(),
   phone: text('phone'),
   email: text('email'),

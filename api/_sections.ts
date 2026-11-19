@@ -142,7 +142,7 @@ export function workshopValues(body: Record<string, unknown>) {
 }
 
 /** The participant's columns that are plain text, as the form and the file send them. */
-export const PARTICIPANT_TEXT = ['companyName', 'udyamNo', 'membershipNo', 'phone', 'email', 'designation', 'mode', 'month', 'timeSlot', 'confirmationStatus', 'attendance', 'deploymentStatus', 'allocation', 'consStatus', 'calling'] as const;
+export const PARTICIPANT_TEXT = ['companyName', 'udyamNo', 'membershipNo', 'membership', 'phone', 'email', 'designation', 'mode', 'month', 'timeSlot', 'confirmationStatus', 'attendance', 'deploymentStatus', 'allocation', 'consStatus', 'calling'] as const;
 
 /** A checked participant (everything but the workshop it belongs to). */
 export const participantValues = (body: Record<string, unknown>) => ({
