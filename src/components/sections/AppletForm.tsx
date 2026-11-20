@@ -3,9 +3,9 @@ import { useData } from '../../context/DataContext';
 import type { Applet } from '../../types';
 import Modal from '../ui/Modal';
 
-const FIELDS = ['companyName', 'membership', 'membershipNo', 'contactName', 'phone', 'email', 'appletName', 'liveLink', 'deployedOn', 'notes'] as const;
+const FIELDS = ['companyName', 'membership', 'membershipNo', 'contactName', 'phone', 'email', 'appletName', 'caseStudy', 'liveLink', 'deployedOn', 'notes'] as const;
 
-/** Adds a deployed applet, or edits one: company, membership, contact (name, phone, email), applet name, live link, date deployed, notes. */
+/** Adds a deployed applet, or edits one: company, membership, contact (name, phone, email), applet name, case study done, live link, date deployed, notes. */
 export default function AppletForm({ applet, onClose }: { applet?: Applet; onClose: () => void }) {
   const { mutate } = useData();
   const [value, setValue] = useState(() => Object.fromEntries(FIELDS.map((key) => [key, applet?.[key] ?? ''])) as Record<(typeof FIELDS)[number], string>);
@@ -44,7 +44,17 @@ export default function AppletForm({ applet, onClose }: { applet?: Applet; onClo
           {field('phone', 'Phone', { type: 'tel' })}
           {field('email', 'Email')}
         </div>
-        {field('appletName', 'Applet name', { placeholder: 'e.g. Quotation generator' })}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="sm:col-span-2">{field('appletName', 'Applet name', { placeholder: 'e.g. Quotation generator' })}</div>
+          <div>
+            <label className="label" htmlFor="applet-caseStudy">Case study done</label>
+            <select id="applet-caseStudy" className="input" value={value.caseStudy} onChange={(e) => setValue({ ...value, caseStudy: e.target.value })}>
+              <option value="">—</option>
+              <option>Yes</option>
+              <option>No</option>
+            </select>
+          </div>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {field('liveLink', 'Live link', { placeholder: 'https://…' })}
           {field('deployedOn', 'Deployed on', { type: 'date' })}

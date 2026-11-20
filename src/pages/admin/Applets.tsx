@@ -32,6 +32,7 @@ export default function Applets() {
     { header: 'Phone', cell: (a) => a.phone || dash },
     { header: 'Email', cell: (a) => (a.email ? <span className="break-all">{a.email}</span> : dash) },
     { header: 'Applet', cell: (a) => a.appletName || dash },
+    { header: 'Case study', cell: (a) => (a.caseStudy ? <span className={a.caseStudy === 'Yes' ? 'font-medium text-primary' : 'text-ink-2'}>{a.caseStudy}</span> : dash) },
     {
       header: 'Live link',
       cell: (a) => (a.liveLink ? <a className="text-primary hover:underline" href={a.liveLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{a.liveLink.replace(/^https?:\/\//, '')}</a> : dash),
@@ -54,7 +55,7 @@ export default function Applets() {
           <SectionExcel
             section="applets"
             noun="applets"
-            pdf={() => ({ title: 'Applets', subtitle: query ? `Search: ${search.trim()}` : 'Deployed applets', headers: ['Company', 'Membership', 'Membership ID', 'Contact', 'Phone', 'Email', 'Applet', 'Live link', 'Deployed on', 'Notes'], rows: rows.map((a) => [a.companyName, a.membership, a.membershipNo, a.contactName, a.phone, a.email, a.appletName, a.liveLink, a.deployedOn && formatDate(`${a.deployedOn}T12:00:00Z`), a.notes]) })}
+            pdf={() => ({ title: 'Applets', subtitle: query ? `Search: ${search.trim()}` : 'Deployed applets', headers: ['Company', 'Membership', 'Membership ID', 'Contact', 'Phone', 'Email', 'Applet', 'Case study done', 'Live link', 'Deployed on', 'Notes'], rows: rows.map((a) => [a.companyName, a.membership, a.membershipNo, a.contactName, a.phone, a.email, a.appletName, a.caseStudy, a.liveLink, a.deployedOn && formatDate(`${a.deployedOn}T12:00:00Z`), a.notes]) })}
           />
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Add applet</button>
         </div>

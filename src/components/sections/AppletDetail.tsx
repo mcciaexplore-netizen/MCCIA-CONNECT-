@@ -31,6 +31,7 @@ export default function AppletDetail({ applet: a, onEdit, onClose }: { applet: A
         <Item label="Phone">{list(a.phone, (v) => <a className="text-primary hover:underline" href={`tel:${v.replace(/\s/g, '')}`}>{v}</a>)}</Item>
         <Item label="Email" full>{list(a.email, (v) => <a className="text-primary hover:underline" href={`mailto:${v}`}>{v}</a>)}</Item>
         <Item label="Applet name">{a.appletName || dash}</Item>
+        <Item label="Case study done">{a.caseStudy || dash}</Item>
         <Item label="Deployed on">{a.deployedOn ? formatDate(`${a.deployedOn}T12:00:00Z`) : dash}</Item>
         <Item label="Live link" full>{a.liveLink ? <a className="text-primary hover:underline" href={a.liveLink} target="_blank" rel="noreferrer">{a.liveLink}</a> : dash}</Item>
         <Item label="Notes" full>{a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : dash}</Item>

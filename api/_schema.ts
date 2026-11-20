@@ -263,6 +263,7 @@ export const applets = pgTable('applets', {
   phone: text('phone'), // one or more numbers, '; ' between them
   email: text('email'), // one or more addresses, '; ' between them
   appletName: text('applet_name'),
+  caseStudy: text('case_study'), // case study done: 'Yes' / 'No' (null: not said)
   liveLink: text('live_link'),
   deployedOn: date('deployed_on'), // YYYY-MM-DD
   notes: text('notes'),

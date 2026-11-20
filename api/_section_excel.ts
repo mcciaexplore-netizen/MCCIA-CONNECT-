@@ -37,6 +37,7 @@ const COLUMNS: Record<ExcelSection, Col[]> = {
     { header: 'Phone', key: 'phone', width: 22, hint: 'Optional. Several numbers: separate with ;', aliases: ['Mobile', 'Tel. / Mobile', 'Contact No'] },
     { header: 'Email', key: 'email', width: 32, hint: 'Optional. Several addresses: separate with ;', aliases: ['Email ID', 'E-mail'] },
     { header: 'Applet Name', key: 'appletName', width: 30, hint: 'Optional. A company can have several applets: one row each. The same company + applet name again updates that applet.' },
+    { header: 'Case Study Done', key: 'caseStudy', width: 16, hint: 'Yes or No. Optional.', aliases: ['Case Study', 'Case Study Done?'] },
     { header: 'Live Link', key: 'liveLink', width: 40, hint: 'The web address of the deployed applet (https://…).' },
     { header: 'Deployed On', key: 'deployedOn', width: 14, hint: 'A date, e.g. 18/11/2026 (day first).' },
     { header: 'Notes', key: 'notes', width: 40, hint: 'Optional.' },
@@ -88,7 +89,7 @@ export async function exportSection(section: ExcelSection, settings: AppSettings
   workbook.creator = settings.brand.name;
   let count: number;
   if (section === 'applets') {
-    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.membership ?? '', a.membershipNo ?? '', a.contactName ?? '', a.phone ?? '', a.email ?? '', a.appletName ?? '', a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
+    const rows = (await db.select().from(applets).orderBy(asc(applets.companyName))).map((a) => [a.companyName, a.membership ?? '', a.membershipNo ?? '', a.contactName ?? '', a.phone ?? '', a.email ?? '', a.appletName ?? '', a.caseStudy ?? '', a.liveLink ?? '', ddmmyyyy(a.deployedOn), a.notes ?? '']);
     addSheet(workbook, TAB.applets, COLUMNS.applets, rows);
     count = rows.length;
   } else if (section === 'participants') {

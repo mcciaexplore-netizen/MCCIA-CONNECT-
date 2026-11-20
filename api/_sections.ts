@@ -71,6 +71,15 @@ async function applicationsApi(req: Request, method: Method) {
 
 // ---------- Applets: deployed applets, entered by hand (admins only) ----------
 
+/** 'Yes' / 'No' (also y, n, true, false, done, not done), or null when empty. */
+const yesNo = (value: unknown, label: string) => {
+  const text = optString(value).toLowerCase();
+  if (!text) return null;
+  if (/^(y|yes|true|done|1)$/.test(text)) return 'Yes';
+  if (/^(n|no|false|not done|0)$/.test(text)) return 'No';
+  throw new HttpError(400, `${label} must be Yes or No`);
+};
+
 /** A checked applet from the form or from a row of an imported file (throws an HttpError naming the problem). */
 export const appletValues = (body: Record<string, unknown>) => ({
   companyName: needString(body.companyName, 'Company name'),
@@ -80,6 +89,7 @@ export const appletValues = (body: Record<string, unknown>) => ({
   phone: optString(body.phone) || null,
   email: optString(body.email) || null,
   appletName: optString(body.appletName) || null,
+  caseStudy: yesNo(body.caseStudy, 'Case study done'),
   liveLink: link(body.liveLink, 'Live link', false),
   deployedOn: day(body.deployedOn, 'Deployed on'),
   notes: optString(body.notes) || null,
