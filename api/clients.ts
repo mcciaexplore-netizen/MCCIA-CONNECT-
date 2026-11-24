@@ -4,8 +4,8 @@ import { assignClient } from './_assign.js';
 import { companyOf, returnFollowUps } from './_companies.js';
 import { clearSheetRows, updateSheet } from './_live_excel.js';
 import { inBackground, removeCalendarEvents } from './_sessions.js';
-import { adminNotifications, auditLogs, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, modules, tickets, users } from './_schema.js';
-import type { CoordinatorHistoryEntry } from '../src/types/index.js';
+import { adminNotifications, auditLogs, bookings, clients, companies, coordinatorAssignments, coordinatorReassignments, coordinators, feedbackTokens, modules, preDevBriefTokens, tickets, users } from './_schema.js';
+import { preDevBriefDone, type CoordinatorHistoryEntry } from '../src/types/index.js';
 
 /**
  * Every coordinator change for one client, newest first, from coordinator_assignments and
@@ -102,7 +102,7 @@ async function deleteClients(user: AuthUser, clientIds: string[], companyIds: st
   if (!found.length && !asked.length) return undefined;
   const memberIds = found.map((c) => c.id);
   const sessions = memberIds.length
-    ? await db.select({ clientId: bookings.clientId, bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId, moduleSlug: modules.slug }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).innerJoin(modules, eq(bookings.moduleId, modules.id)).where(inArray(bookings.clientId, memberIds))
+    ? await db.select({ clientId: bookings.clientId, bookingId: bookings.id, ticketId: tickets.id, ticketNumber: tickets.ticketNumber, eventId: bookings.googleEventId, moduleSlug: modules.slug, preDevBriefData: tickets.preDevBriefData }).from(bookings).innerJoin(tickets, eq(tickets.bookingId, bookings.id)).innerJoin(modules, eq(bookings.moduleId, modules.id)).where(inArray(bookings.clientId, memberIds))
     : [];
   const ticketIds = sessions.map((s) => s.ticketId);
 
@@ -113,7 +113,9 @@ async function deleteClients(user: AuthUser, clientIds: string[], companyIds: st
 
   // One transaction: everything of the clients, then the companies that are empty.
   const writes = [
-    ...(ticketIds.length ? [db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, ticketIds))] : []),
+    ...(ticketIds.length
+      ? [db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, ticketIds)), db.delete(preDevBriefTokens).where(inArray(preDevBriefTokens.ticketId, ticketIds))]
+      : []),
     ...(memberIds.length
       ? [
           db.delete(tickets).where(inArray(tickets.clientId, memberIds)),
@@ -139,7 +141,7 @@ async function deleteClients(user: AuthUser, clientIds: string[], companyIds: st
     ...found.map((c) => ({ entityType: 'client', entityId: c.id, action: 'client.deleted', oldValue: { company: c.companyName, contact: c.personName, email: c.email, tickets: numbersOf([c.id]) }, doneByName: user.name, role: user.role })),
     ...goneCompanies.map((id) => ({ entityType: 'company', entityId: id, action: 'company.deleted', oldValue: { company: names.get(id) ?? '', contacts: found.filter((c) => c.companyId === id).length, tickets: numbersOf(found.filter((c) => c.companyId === id).map((c) => c.id)) }, doneByName: user.name, role: user.role })),
   ]);
-  clearSheetRows(sessions); // their rows leave the Excel sheet
+  clearSheetRows(sessions.map((s) => ({ ticketNumber: s.ticketNumber, moduleSlug: s.moduleSlug, hadPreDevBrief: preDevBriefDone(s.preDevBriefData) }))); // their rows leave the Excel sheet(s)
   const eventIds = sessions.flatMap((s) => (s.eventId ? [s.eventId] : []));
   if (eventIds.length) inBackground(found.length === 1 ? `Removing the Google Calendar events of the deleted client ${found[0].personName} (${found[0].companyName})` : `Removing the Google Calendar events of ${found.length} deleted clients`, () => removeCalendarEvents(eventIds));
   await restartTicketNumbersIfNone();

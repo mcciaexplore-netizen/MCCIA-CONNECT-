@@ -5,10 +5,11 @@ import { useData } from './context/DataContext';
 import { homeFor, usePublicSettings } from './lib/utils';
 import type { Role } from './types';
 import Layout from './components/layout/Layout';
-import { Applets, Applications, AuditLogs, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, Settings, SlotManager, TicketDetail, Tickets, WorkshopDetail, Workshops } from './lib/pages';
+import { Applets, Applications, AuditLogs, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, PreDevBriefs, Settings, SlotManager, TicketDetail, Tickets, WorkshopDetail, Workshops } from './lib/pages';
 import BookingPage from './pages/public/BookingPage';
 import ConfirmationPage from './pages/public/ConfirmationPage';
 import FeedbackPage from './pages/public/FeedbackPage';
+import PreDevBriefPage from './pages/public/PreDevBriefPage';
 import Landing from './pages/public/Landing';
 import Login from './pages/Login';
 
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="applets" element={<Applets />} />
           <Route path="workshops" element={<Workshops />} />
           <Route path="workshops/:workshopId" element={<WorkshopDetail />} />
+          <Route path="predev-briefs" element={<PreDevBriefs />} />
         </Route>
 
         <Route path="/coordinator" element={<ProtectedRoute role="coordinator" />}>
@@ -74,11 +76,13 @@ export default function App() {
           <Route path="create-booking" element={<CreateBooking />} />
           <Route path="account" element={<MyAccount />} />
           <Route path="applications" element={<Applications />} />
+          <Route path="predev-briefs" element={<PreDevBriefs />} />
         </Route>
 
         <Route path="/book/:moduleSlug" element={<BookingPage />} />
         <Route path="/confirmed/:bookingId" element={<ConfirmationPage />} />
         <Route path="/feedback/:token" element={<FeedbackPage />} />
+        <Route path="/predev/:token" element={<PreDevBriefPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </Suspense>

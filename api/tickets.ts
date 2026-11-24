@@ -4,12 +4,30 @@ import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { saveRecordings } from './_fireflies.js';
 import { ticketRows } from './_excel.js';
-import { clearSheetRows, updateSheet } from './_live_excel.js';
+import { clearSheetRows, updatePreDevSheet, updateSheet } from './_live_excel.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, restartTicketNumbersIfNone, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
 import { awaitLink, cancelSession, inBackground, removeCalendarEvents, syncCalendar } from './_sessions.js';
-import { auditLogs, bookings, clients, companies, coordinators, feedbackTokens, modules, tickets } from './_schema.js';
-import { answerProblem, BOOKING_MODES, FEEDBACK_COMMENTS, FEEDBACK_FIELDS, MAX_FEEDBACK_COMMENTS, MIN_REASON_LENGTH, PAYMENT_STATUSES, TICKET_FIELDS, TICKET_STATUSES, type BookingMode, type FeedbackForm, type PaymentStatus, type TicketStatus } from '../src/types/index.js';
+import { auditLogs, bookings, clients, companies, coordinators, feedbackTokens, modules, preDevBriefTokens, tickets } from './_schema.js';
+import {
+  answerProblem,
+  BOOKING_MODES,
+  FEEDBACK_COMMENTS,
+  FEEDBACK_FIELDS,
+  MAX_FEEDBACK_COMMENTS,
+  MIN_REASON_LENGTH,
+  PAYMENT_STATUSES,
+  PRE_DEV_BRIEF_DETAILS,
+  PRE_DEV_BRIEF_SECTIONS,
+  preDevBriefDone,
+  TICKET_FIELDS,
+  TICKET_STATUSES,
+  type BookingMode,
+  type FeedbackForm,
+  type PaymentStatus,
+  type PreDevBriefForm,
+  type TicketStatus,
+} from '../src/types/index.js';
 
 const MAX_BULK = 100;
 const MAX_BULK_CANCEL = 20; // each cancellation calls Google and sends emails afterwards, so a big batch could outlast the function
@@ -89,6 +107,18 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
       after.coordinator = (newId && names.get(newId)?.name) || 'Unassigned';
       if (newId && replacing) after.reason = reason;
     }
+  }
+
+  if (body.moduleId !== undefined && body.moduleId !== ticket.moduleId) {
+    if (user.role !== 'super_admin') throw new HttpError(403, 'Only admins can change a ticket’s module');
+    const newModuleId = needString(body.moduleId, 'Module');
+    const [newModule] = await db.select({ id: modules.id, name: modules.name }).from(modules).where(eq(modules.id, newModuleId));
+    if (!newModule) throw new HttpError(400, 'Module not found');
+    const [oldModule] = await db.select({ name: modules.name }).from(modules).where(eq(modules.id, ticket.moduleId));
+    patch.moduleId = newModuleId;
+    bookingPatch.moduleId = newModuleId;
+    before.module = oldModule?.name;
+    after.module = newModule.name;
   }
 
   if (body.dueDate !== undefined) {
@@ -174,13 +204,14 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
   return updated;
 }
 
-/** Removes these tickets with their bookings and feedback links, logs each, takes their rows out of the Excel sheet and their events out of Google Calendar. Returns the ones that existed. */
+/** Removes these tickets with their bookings, feedback links and Pre-Development Brief links, logs each, takes their rows out of the Excel sheet and their events out of Google Calendar. Returns the ones that existed. */
 async function deleteTickets(user: AuthUser, ids: string[]) {
   const found = await ticketRows(inArray(tickets.id, ids));
   if (!found.length) return found;
   const ticketIds = found.map((f) => f.ticket.id);
   await db.batch([
     db.delete(feedbackTokens).where(inArray(feedbackTokens.ticketId, ticketIds)),
+    db.delete(preDevBriefTokens).where(inArray(preDevBriefTokens.ticketId, ticketIds)),
     db.delete(tickets).where(inArray(tickets.id, ticketIds)),
     db.delete(bookings).where(inArray(bookings.id, found.map((f) => f.booking.id))),
   ]);
@@ -194,7 +225,7 @@ async function deleteTickets(user: AuthUser, ids: string[]) {
       role: user.role,
     })),
   );
-  clearSheetRows(found.map((f) => ({ ticketNumber: f.ticket.ticketNumber, moduleSlug: f.module.slug }))); // their rows leave the Excel sheet
+  clearSheetRows(found.map((f) => ({ ticketNumber: f.ticket.ticketNumber, moduleSlug: f.module.slug, hadPreDevBrief: preDevBriefDone(f.ticket.preDevBriefData) }))); // their rows leave the Excel sheet(s)
   const eventIds = found.flatMap((f) => (f.booking.googleEventId ? [f.booking.googleEventId] : []));
   if (eventIds.length) inBackground(found.length === 1 ? `Removing the Google Calendar event of the deleted ticket ${found[0].ticket.ticketNumber}` : `Removing the Google Calendar events of ${found.length} deleted tickets`, () => removeCalendarEvents(eventIds));
   await restartTicketNumbersIfNone();
@@ -283,6 +314,60 @@ async function saveStaffFeedback(user: AuthUser, body: Record<string, unknown>) 
 
 const feedbackToken = (url: URL) => url.searchParams.get('feedback') ?? /^\/api\/feedback\/([^/]+)\/?$/.exec(url.pathname)?.[1];
 
+// ---------- the client's Pre-Development Brief page (/predev/:token, no login) ----------
+
+/** A Pre-Development Brief link that can still be used: the token row with its ticket, client and module. */
+async function openPreDevBrief(token: string) {
+  const [row] = UUID.test(token)
+    ? await db
+        .select({ link: preDevBriefTokens, ticket: tickets, client: clients, module: modules })
+        .from(preDevBriefTokens)
+        .innerJoin(tickets, eq(tickets.id, preDevBriefTokens.ticketId))
+        .innerJoin(clients, eq(clients.id, tickets.clientId))
+        .innerJoin(modules, eq(modules.id, tickets.moduleId))
+        .where(eq(preDevBriefTokens.token, token))
+    : [];
+  if (!row) throw new HttpError(404, 'This link is not valid');
+  if (row.link.used) throw new HttpError(410, 'Thank you, this brief has already been received');
+  if (row.link.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'This link has expired. Please ask the studio for a new one.');
+  return row;
+}
+
+/** Every App Details field and every numbered question must be answered (the page's inputs are required too; this is the server-side check). */
+function preDevBriefValues(body: Record<string, unknown>) {
+  const details = (body.details ?? {}) as Record<string, unknown>;
+  const answers = (body.answers ?? {}) as Record<string, unknown>;
+  const data: Record<string, string> = {};
+  for (const field of PRE_DEV_BRIEF_DETAILS) {
+    const value = optString(details[field.id]);
+    if (!value) throw new HttpError(400, `Please fill in "${field.label}"`);
+    data[field.id] = value;
+  }
+  for (const question of PRE_DEV_BRIEF_SECTIONS.flatMap((s) => s.questions)) {
+    const value = optString(answers[question.id]);
+    if (!value) throw new HttpError(400, `Please answer "${question.q}"`);
+    data[question.id] = value;
+  }
+  return data;
+}
+
+/** The Pre-Development Brief page's submission (public, the token is the permission). */
+async function savePreDevBrief(token: string, body: Record<string, unknown>) {
+  const row = await openPreDevBrief(token);
+  const data = preDevBriefValues(body);
+
+  // Only one submission per link, even if the form is sent twice at once.
+  const [claimed] = await db.update(preDevBriefTokens).set({ used: true }).where(and(eq(preDevBriefTokens.id, row.link.id), eq(preDevBriefTokens.used, false), gt(preDevBriefTokens.expiresAt, new Date()))).returning();
+  if (!claimed) throw new HttpError(410, 'Thank you, this brief has already been received');
+  const submittedAt = new Date();
+  await db.update(tickets).set({ preDevBriefData: data, preDevBriefSubmittedAt: submittedAt }).where(eq(tickets.id, row.ticket.id));
+  await audit({ name: `${row.client.personName} (Pre-Development Brief)`, role: 'client' }, 'predev_brief.received', 'ticket', row.ticket.id, undefined, data);
+  updatePreDevSheet({ ticketNumber: row.ticket.ticketNumber, companyName: row.client.companyName, personName: row.client.personName, moduleName: row.module.name, submittedAt, data });
+  return { ok: true };
+}
+
+const preDevToken = (url: URL) => url.searchParams.get('predev') ?? /^\/api\/predev\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+
 export default handler({
   // Admins see every ticket, coordinators only the ones assigned to them. /api/feedback/:token (a rewrite to ?feedback=) is the public feedback form.
   // ?action=send-reminders is the daily job (see _scheduled.ts). ?date_from= and ?date_to= (YYYY-MM-DD, studio time) keep only the
@@ -294,6 +379,13 @@ export default handler({
       const { ticket, booking, client, module } = await openFeedback(token);
       const settings = await loadSettings();
       const form: FeedbackForm = { brand: settings.brand.name, clientName: client.personName, moduleName: module.name, ticketNumber: ticket.ticketNumber, sessionAt: booking.startTime.toISOString(), zone: settings.timezone };
+      return form;
+    }
+    const predev = preDevToken(url);
+    if (predev) {
+      const { ticket, client, module } = await openPreDevBrief(predev);
+      const settings = await loadSettings();
+      const form: PreDevBriefForm = { brand: settings.brand.name, clientName: client.personName, moduleName: module.name, ticketNumber: ticket.ticketNumber };
       return form;
     }
     const user = await requireUser(req);
@@ -321,10 +413,12 @@ export default handler({
     return await db.select(TICKET_COLUMNS).from(tickets).where(and(ownedBy(user, tickets.coordinatorId), inRange)).orderBy(desc(tickets.createdAt));
   },
 
-  // The feedback form's submission (public, the token is the permission), or staff's { action: 'fetch-recording' }.
+  // The feedback form's submission, or the Pre-Development Brief form's (both public, the token is the permission), or staff's { action: 'fetch-recording' }.
   POST: async (req, url) => {
     const token = feedbackToken(url);
     if (token) return await saveFeedback(token, await readBody(req));
+    const predev = preDevToken(url);
+    if (predev) return await savePreDevBrief(predev, await readBody(req));
     const user = await requireUser(req);
     const body = await readBody(req);
     if (body.action === 'fetch-recording') return await checkRecording(user, body);

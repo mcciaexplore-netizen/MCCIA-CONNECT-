@@ -202,6 +202,91 @@ export const defaultPostQuestions = (slug?: string) => (slug && OWN_POST_QUESTIO
 /** The modules a consultant can email the client the Pre-Development Brief from (ticket page and the admin dashboard's module cards). */
 export const PRE_DEV_BRIEF_MODULES: readonly string[] = ['applet-setup', 'ai-consultation'];
 
+/** One of the Pre-Development Brief's 18 numbered questions; `id` is its key in a ticket's pre_dev_brief_data and in the public form's answers. */
+export interface PreDevBriefQuestion {
+  id: string;
+  q: string;
+  hint: string;
+}
+export interface PreDevBriefSection {
+  heading: string;
+  questions: PreDevBriefQuestion[];
+}
+
+/** The Pre-Development Brief's 18 questions, grouped the way the source document (Pre-Development_Framework.docx) groups them. */
+export const PRE_DEV_BRIEF_SECTIONS: PreDevBriefSection[] = [
+  {
+    heading: 'A. Users and access',
+    questions: [
+      { id: 'q1', q: 'Who will use this app?', hint: 'List every type of person who will log in (for example: owner, sales staff, dispatch clerk, customer, accountant). Include people who only view reports.' },
+      { id: 'q2', q: 'What will each user type mainly do?', hint: 'One or two lines per user type: their main tasks in the app on a normal day.' },
+      { id: 'q3', q: 'What can each user type do and NOT do?', hint: 'Think about who may create, edit, delete or approve records, see prices or money, and see other people’s data.' },
+      { id: 'q4', q: 'How should users log in?', hint: 'Phone number with OTP, email and password, Google account, a shared login on one device, or no login for some users?' },
+    ],
+  },
+  {
+    heading: 'B. The core workflow',
+    questions: [
+      { id: 'q5', q: 'What is the ONE most important thing this app must do?', hint: 'If the app could do only one thing well, what would it be?' },
+      { id: 'q6', q: 'Walk me through one complete task step-by-step.', hint: 'Use a real example from start to finish: who does what, in what order, which tools are used today (paper, Excel, WhatsApp), and what the final result is. Mention what is painful about it.' },
+    ],
+  },
+  {
+    heading: 'C. Features',
+    questions: [
+      { id: 'q7', q: 'What are the MUST-HAVE features for day one?', hint: 'Only features without which the app is useless on launch day. Keep this list short.' },
+      { id: 'q8', q: 'What features would be nice to have later?', hint: 'Good ideas that can wait for a second version.' },
+    ],
+  },
+  {
+    heading: 'D. Data and integrations',
+    questions: [
+      { id: 'q9', q: 'What information needs to be stored?', hint: 'Customers, products, orders, invoices, photos, documents, and so on. Mention important fields (for example GST number, vehicle number) and any files that will be uploaded.' },
+      { id: 'q10', q: 'Does the app need to connect to any external services?', hint: 'WhatsApp, SMS, email, payments (UPI, Razorpay), Tally, Google Sheets, maps, GST or e-invoice portals. Write “None” if not needed.' },
+      { id: 'q11', q: 'Details about these integrations', hint: 'For each service above: what should happen, when, and who is involved. Skip if that answer was “None”.' },
+    ],
+  },
+  {
+    heading: 'E. Rules and automation',
+    questions: [{ id: 'q12', q: 'Does anything need approval before it happens? What should happen automatically?', hint: 'Examples: discounts above a limit need owner approval; an invoice is sent automatically on dispatch; a payment reminder goes out after 7 days.' }],
+  },
+  {
+    heading: 'F. Usage and budget',
+    questions: [
+      { id: 'q13', q: 'Where will users primarily use this app?', hint: 'Phone, desktop or tablet? Office, shop floor or on the road? Is internet slow or unreliable, and does the app need to work offline?' },
+      { id: 'q14', q: 'Approximately how many people will use this app?', hint: 'Users today and in 12 months, and how many might use it at the same time.' },
+      { id: 'q15', q: 'Do you have a monthly budget for this app?', hint: 'Running costs per month in ₹ (hosting, messaging, tools). “Zero, free tools only” is a valid answer.' },
+    ],
+  },
+  {
+    heading: 'G. Brand and success',
+    questions: [
+      { id: 'q16', q: 'Do you have existing branding or design preferences?', hint: 'Logo, brand colours, fonts, and examples of apps or websites you like or dislike.' },
+      { id: 'q17', q: 'How will you know this app is working well for your business?', hint: 'Make it measurable: time saved per invoice, fewer errors, orders handled per day. Add today’s number if you know it.' },
+      { id: 'q18', q: 'Anything else we should know?', hint: 'Deadlines, compliance needs, existing software, languages (English, Hindi, Marathi), or anything we did not ask.' },
+    ],
+  },
+];
+
+/** The Pre-Development Brief's App Details block, asked once before the 18 numbered questions. */
+export const PRE_DEV_BRIEF_DETAILS: { id: string; label: string }[] = [
+  { id: 'business_name', label: 'Business name' },
+  { id: 'app_working_name', label: 'App working name' },
+  { id: 'contact_person', label: 'Contact person and role' },
+  { id: 'prepared_by', label: 'Prepared by' },
+];
+
+/** GET /predev/:token (public, no login): what the Pre-Development Brief page needs to show before the client fills it in. */
+export interface PreDevBriefForm {
+  brand: string;
+  clientName: string;
+  moduleName: string;
+  ticketNumber: string;
+}
+
+/** Whether a ticket's Pre-Development Brief has been filled in (pass its pre_dev_brief_data). */
+export const preDevBriefDone = (data: Record<string, string>) => Object.keys(data).length > 0;
+
 /** slot_config.weekly_rules item: open hours on a weekday (0 = Sunday), times as "HH:mm" studio time. */
 export interface WeeklyRule {
   day: number;

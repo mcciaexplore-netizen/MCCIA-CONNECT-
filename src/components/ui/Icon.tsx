@@ -25,6 +25,7 @@ const PATHS = {
   package: 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z M4 7.5l8 4.5 8-4.5 M12 12v9',
   presentation: 'M3 4h18 M4 4v11h16V4 M12 15v3 M8 21l4-3 4 3',
   star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3z',
+  document: 'M6 2h9l5 5v15H6z M15 2v5h5 M9 13h6 M9 17h6',
 } as const;
 
 export type IconName = keyof typeof PATHS;
