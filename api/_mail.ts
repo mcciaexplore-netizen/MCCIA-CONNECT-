@@ -1,4 +1,4 @@
-import { PRE_DEV_BRIEF_SECTIONS, type BookingMode, type StudioZone } from '../src/types/index.js';
+import { PRE_DEV_BRIEF_DETAILS, PRE_DEV_BRIEF_SECTIONS, type BookingMode, type StudioZone } from '../src/types/index.js';
 
 /** The wording of the emails the app sends. Every value that came from a form is escaped before it goes into HTML. */
 
@@ -43,7 +43,7 @@ const staffDetails = (b: BookingMail) =>
   details(b) + (b.mode === 'online' && !b.meetingLink ? `\nGoogle Meet: NOT created (${b.linkProblem ?? 'no reason given'}). Open the ticket and choose "Create Meet link".` : '');
 
 /** The top of an HTML email: the MCCIA logo (public/mccia-logo.png) on white. The logo has no background, so a dark band would hide it. */
-const logoBand = (b: BookingMail) =>
+const logoBand = (b: Pick<BookingMail, 'siteUrl' | 'brand'>) =>
   `<div style="background:#ffffff;padding:20px;text-align:center;border-bottom:4px solid ${NAVY};"><img src="${esc(b.siteUrl)}/mccia-logo.png" alt="${esc(b.brand)}" width="160" height="43" style="display:inline-block;border:0;"></div>`;
 
 const row = (label: string, value: string) => `<tr><td style="padding:8px;color:#6b7280;">${label}</td><td style="padding:8px;">${value}</td></tr>`;
@@ -215,6 +215,57 @@ export function preDevBrief(b: BookingMail, formUrl: string, docUrl: string) {
     `</div></div>`;
   return { subject, text, html };
 }
+
+/** What the Pre-Development Brief submission emails need: no booking/session details, just who to greet and what to call the module and ticket. */
+export interface PreDevBriefReceivedMail {
+  brand: string;
+  siteUrl: string;
+  clientName: string;
+  moduleName: string;
+  ticketNumber: string;
+}
+
+/** The App Details + 18 answers, as plain text and as HTML, shared by the client's copy and the staff notice. */
+function preDevBriefBody(data: Record<string, string>) {
+  const detailsText = PRE_DEV_BRIEF_DETAILS.map((f) => `${f.label}: ${data[f.id] ?? ''}`).join('\n');
+  const detailsHtml = PRE_DEV_BRIEF_DETAILS.map((f) => `<p style="margin:0 0 8px;"><b>${esc(f.label)}</b><br>${esc(data[f.id] ?? '')}</p>`).join('');
+
+  let n = 0;
+  const textSections = PRE_DEV_BRIEF_SECTIONS.map((s) => `${s.heading}\n${s.questions.map((item) => `${++n}. ${item.q}\n   ${data[item.id] ?? ''}`).join('\n')}`).join('\n\n');
+  n = 0;
+  const htmlSections = PRE_DEV_BRIEF_SECTIONS.map(
+    (s) =>
+      `<h3 style="margin:20px 0 8px;font-size:14px;color:${NAVY};">${esc(s.heading)}</h3>` +
+      s.questions.map((item) => `<p style="margin:0 0 12px;"><b>${++n}. ${esc(item.q)}</b><br>${esc(data[item.id] ?? '')}</p>`).join(''),
+  ).join('');
+
+  return { detailsText, detailsHtml, textSections, htmlSections };
+}
+
+/** One email built around the brief's App Details + 18 answers; `intro` is the only thing that differs between the client's copy and the staff notice. */
+function preDevBriefMessage(b: PreDevBriefReceivedMail, data: Record<string, string>, docUrl: string, subject: string, intro: string) {
+  const { detailsText, detailsHtml, textSections, htmlSections } = preDevBriefBody(data);
+  const text = `${intro}\n\nApp details:\n${detailsText}\n\n${textSections}\n\nThe full Pre-Development Brief document (also has the AI prompt system our team uses to turn these answers into the project's technical documents): ${docUrl}\n\nReference: ${b.ticketNumber}\n\n${b.brand}`;
+  const html =
+    `<div style="font-family:Outfit,Arial,sans-serif;max-width:640px;color:#1a1f36;">` +
+    logoBand(b) +
+    `<div style="padding:24px;"><p>${esc(intro)}</p>` +
+    `<h3 style="margin:20px 0 8px;font-size:14px;color:${NAVY};">App details</h3>` +
+    detailsHtml +
+    htmlSections +
+    `<p style="text-align:center;margin:28px 0;"><a href="${esc(docUrl)}" style="display:inline-block;background:${BLUE};color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;">Download the full brief</a></p>` +
+    `<p style="font-size:12px;color:#6b7280;">It also has the AI prompt system our team uses to turn these answers into the project's technical documents. Reference ${esc(b.ticketNumber)}.</p>` +
+    `</div></div>`;
+  return { subject, text, html };
+}
+
+/** To the client, the moment they submit the Pre-Development Brief: a copy of every question and the answer they gave, plus the full document (which also has the AI prompt system their answers feed into). */
+export const preDevBriefReceived = (b: PreDevBriefReceivedMail, data: Record<string, string>, docUrl: string) =>
+  preDevBriefMessage(b, data, docUrl, `Your Pre-Development Brief: ${b.moduleName} (${b.ticketNumber})`, `Hello ${b.clientName},\n\nThank you — we have received your Pre-Development Brief. Here is a copy of what you sent us.`);
+
+/** To the ticket's coordinator and the studio's admin address, the moment a client submits their Pre-Development Brief: the same App Details + answers, so staff see it without opening the CRM. */
+export const preDevBriefNotice = (b: PreDevBriefReceivedMail, data: Record<string, string>, docUrl: string) =>
+  preDevBriefMessage(b, data, docUrl, `Pre-Development Brief received: ${b.clientName} (${b.ticketNumber})`, `${b.clientName} submitted their Pre-Development Brief for ${b.moduleName} (${b.ticketNumber}). Their answers are below.`);
 
 /** What a coordinator is told about a client being assigned to them, or taken from them. */
 export interface AssignmentMail {

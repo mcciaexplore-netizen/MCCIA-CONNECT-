@@ -5,9 +5,11 @@ import { returnFollowUps } from './_companies.js';
 import { saveRecordings } from './_fireflies.js';
 import { ticketRows } from './_excel.js';
 import { clearSheetRows, updatePreDevSheet, updateSheet } from './_live_excel.js';
+import { preDevBriefNotice, preDevBriefReceived } from './_mail.js';
+import { sendMail } from './_integrations.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, restartTicketNumbersIfNone, siteOrigin, UUID, type AuthUser } from './_lib.js';
 import { runScheduled } from './_scheduled.js';
-import { awaitLink, cancelSession, inBackground, removeCalendarEvents, syncCalendar } from './_sessions.js';
+import { awaitLink, cancelSession, inBackground, removeCalendarEvents, sendAll, syncCalendar } from './_sessions.js';
 import { auditLogs, bookings, clients, companies, coordinators, feedbackTokens, modules, preDevBriefTokens, tickets } from './_schema.js';
 import {
   answerProblem,
@@ -316,15 +318,16 @@ const feedbackToken = (url: URL) => url.searchParams.get('feedback') ?? /^\/api\
 
 // ---------- the client's Pre-Development Brief page (/predev/:token, no login) ----------
 
-/** A Pre-Development Brief link that can still be used: the token row with its ticket, client and module. */
+/** A Pre-Development Brief link that can still be used: the token row with its ticket, client, module and the ticket's coordinator (if any). */
 async function openPreDevBrief(token: string) {
   const [row] = UUID.test(token)
     ? await db
-        .select({ link: preDevBriefTokens, ticket: tickets, client: clients, module: modules })
+        .select({ link: preDevBriefTokens, ticket: tickets, client: clients, module: modules, coordinator: coordinators })
         .from(preDevBriefTokens)
         .innerJoin(tickets, eq(tickets.id, preDevBriefTokens.ticketId))
         .innerJoin(clients, eq(clients.id, tickets.clientId))
         .innerJoin(modules, eq(modules.id, tickets.moduleId))
+        .leftJoin(coordinators, eq(coordinators.id, tickets.coordinatorId))
         .where(eq(preDevBriefTokens.token, token))
     : [];
   if (!row) throw new HttpError(404, 'This link is not valid');
@@ -352,7 +355,7 @@ function preDevBriefValues(body: Record<string, unknown>) {
 }
 
 /** The Pre-Development Brief page's submission (public, the token is the permission). */
-async function savePreDevBrief(token: string, body: Record<string, unknown>) {
+async function savePreDevBrief(token: string, body: Record<string, unknown>, siteUrl: string) {
   const row = await openPreDevBrief(token);
   const data = preDevBriefValues(body);
 
@@ -363,6 +366,16 @@ async function savePreDevBrief(token: string, body: Record<string, unknown>) {
   await db.update(tickets).set({ preDevBriefData: data, preDevBriefSubmittedAt: submittedAt }).where(eq(tickets.id, row.ticket.id));
   await audit({ name: `${row.client.personName} (Pre-Development Brief)`, role: 'client' }, 'predev_brief.received', 'ticket', row.ticket.id, undefined, data);
   updatePreDevSheet({ ticketNumber: row.ticket.ticketNumber, companyName: row.client.companyName, personName: row.client.personName, moduleName: row.module.name, submittedAt, data });
+
+  const settings = await loadSettings();
+  const mail = { brand: settings.brand.name, siteUrl, clientName: row.client.personName, moduleName: row.module.name, ticketNumber: row.ticket.ticketNumber };
+  const docUrl = `${siteUrl}/pre-development-brief.docx`;
+  const copyTo = settings.notifications.admin_email;
+  await sendAll([
+    sendMail('client', { to: row.client.email, ...preDevBriefReceived(mail, data, docUrl) }),
+    ...(row.coordinator?.email ? [sendMail('internal', { to: row.coordinator.email, ...preDevBriefNotice(mail, data, docUrl) })] : []),
+    ...(copyTo && copyTo.toLowerCase() !== row.coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...preDevBriefNotice(mail, data, docUrl) })] : []),
+  ]);
   return { ok: true };
 }
 
@@ -418,7 +431,7 @@ export default handler({
     const token = feedbackToken(url);
     if (token) return await saveFeedback(token, await readBody(req));
     const predev = preDevToken(url);
-    if (predev) return await savePreDevBrief(predev, await readBody(req));
+    if (predev) return await savePreDevBrief(predev, await readBody(req), siteOrigin(req));
     const user = await requireUser(req);
     const body = await readBody(req);
     if (body.action === 'fetch-recording') return await checkRecording(user, body);
