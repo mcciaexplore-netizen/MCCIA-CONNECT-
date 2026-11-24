@@ -182,6 +182,22 @@ export default handler({
       return { ...row, clientEmail: `${name.slice(0, 2)}***@${domain}`, venue: settings.venue.address, confirmationEmail: settings.notifications.send_confirmations };
     }
 
+    // ?freeAt=<ISO>&moduleId=<id> (staff, for Create Booking's coordinator picker): which active coordinators are free for that exact slot.
+    const freeAt = url.searchParams.get('freeAt');
+    const freeModuleId = url.searchParams.get('moduleId');
+    if (freeAt && freeModuleId) {
+      await requireUser(req);
+      const start = new Date(freeAt);
+      if (Number.isNaN(start.getTime()) || !UUID.test(freeModuleId)) throw new HttpError(400, 'Invalid request');
+      const settings = await loadSettings();
+      const tz = settings.timezone.tz;
+      const { slots } = await loadAvailability(freeModuleId, studioDate(start, tz), 1, tz, settings.closures);
+      const slot = slots.find((s) => new Date(s.startsAt).getTime() === start.getTime());
+      if (!slot) return { freeIds: [] };
+      const free = await freeCoordinators(start, new Date(slot.endsAt), tz);
+      return { freeIds: free.map((c) => c.id) };
+    }
+
     const user = await requireUser(req);
     return await db.select().from(bookings).where(ownedBy(user, bookings.coordinatorId)).orderBy(desc(bookings.createdAt));
   },
