@@ -119,7 +119,10 @@ export interface WhatsAppTemplate {
 export async function sendWhatsApp({ to, template, language, params }: WhatsAppTemplate) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneNumberId || !token) return;
+  if (!phoneNumberId || !token) {
+    console.warn('WhatsApp skipped: WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN not set in this environment.');
+    return;
+  }
 
   const res = await fetch(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
     method: 'POST',
@@ -131,7 +134,9 @@ export async function sendWhatsApp({ to, template, language, params }: WhatsAppT
       template: { name: template, language: { code: language }, components: [{ type: 'body', parameters: params.map((text) => ({ type: 'text', text })) }] },
     }),
   });
-  if (!res.ok) throw new HttpError(502, `WhatsApp message failed: ${await res.text()}`);
+  const body = await res.text();
+  if (!res.ok) throw new HttpError(502, `WhatsApp message failed: ${body}`);
+  console.log(`WhatsApp sent to 91${to}: ${body}`);
 }
 
 // A call waits this long for the script (it runs after the answer to the client, see inBackground). The first call after the script has
