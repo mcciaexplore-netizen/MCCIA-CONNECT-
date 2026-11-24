@@ -5,7 +5,7 @@ import { useData } from './context/DataContext';
 import { homeFor, usePublicSettings } from './lib/utils';
 import type { Role } from './types';
 import Layout from './components/layout/Layout';
-import { Applets, Applications, AuditLogs, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, PreDevBriefs, Settings, SlotManager, TicketDetail, Tickets, WorkshopDetail, Workshops } from './lib/pages';
+import { Applets, Applications, AuditLogs, Calendar, ClientProfile, Clients, Companies, CompanyDetail, Coordinators, CreateBooking, Dashboard, FormBuilder, MyAccount, MyClients, MyDashboard, MySchedule, MySlots, MyTickets, preload, PreDevBriefs, Settings, SlotManager, TicketDetail, Tickets, WorkshopDetail, Workshops } from './lib/pages';
 import BookingPage from './pages/public/BookingPage';
 import ConfirmationPage from './pages/public/ConfirmationPage';
 import FeedbackPage from './pages/public/FeedbackPage';
@@ -46,6 +46,7 @@ export default function App() {
 
         <Route path="/admin" element={<ProtectedRoute role="super_admin" />}>
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="calendar" element={<Calendar />} />
           <Route path="tickets" element={<Tickets />} />
           <Route path="tickets/:ticketId" element={<TicketDetail />} />
           <Route path="clients" element={<Clients />} />

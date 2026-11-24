@@ -21,6 +21,7 @@ function screen<P extends object>(name: string, load: () => Promise<{ default: C
 
 const s = {
   Dashboard: screen('Dashboard', () => import('../pages/admin/Dashboard')),
+  Calendar: screen('Calendar', () => import('../pages/admin/Calendar')),
   Tickets: screen('Tickets', () => import('../pages/admin/Tickets')),
   TicketDetail: screen('TicketDetail', () => import('../pages/admin/TicketDetail')),
   Clients: screen('Clients', () => import('../pages/admin/Clients')),
@@ -48,6 +49,7 @@ const s = {
 };
 
 export const Dashboard = s.Dashboard.Screen;
+export const Calendar = s.Calendar.Screen;
 export const Tickets = s.Tickets.Screen;
 export const TicketDetail = s.TicketDetail.Screen;
 export const Clients = s.Clients.Screen;
@@ -80,6 +82,7 @@ type Name = keyof typeof s;
 const ROUTES: [RegExp, Name[]][] = [
   [/^\/(login)?$/, ['Dashboard', 'MyDashboard']],
   [/^\/admin\/dashboard/, ['Dashboard']],
+  [/^\/admin\/calendar/, ['Calendar']],
   [/^\/admin\/tickets\/./, ['TicketDetail']],
   [/^\/admin\/tickets/, ['Tickets']],
   [/^\/admin\/clients\/./, ['ClientProfile']],
@@ -112,7 +115,7 @@ export function preloadRoute(pathname: string) {
 }
 
 const GROUPS: Record<'super_admin' | 'coordinator', Name[]> = {
-  super_admin: ['Dashboard', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Companies', 'CompanyDetail', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs', 'Applications', 'Applets', 'Workshops', 'WorkshopDetail', 'PreDevBriefs'],
+  super_admin: ['Dashboard', 'Calendar', 'Tickets', 'TicketDetail', 'Clients', 'ClientProfile', 'Companies', 'CompanyDetail', 'Coordinators', 'CreateBooking', 'Settings', 'FormBuilder', 'SlotManager', 'AuditLogs', 'Applications', 'Applets', 'Workshops', 'WorkshopDetail', 'PreDevBriefs'],
   coordinator: ['MyDashboard', 'MyTickets', 'TicketDetail', 'MyClients', 'ClientProfile', 'MySchedule', 'MySlots', 'CreateBooking', 'MyAccount', 'Applications', 'PreDevBriefs'],
 };
 
