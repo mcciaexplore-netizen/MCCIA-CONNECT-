@@ -5,7 +5,7 @@ import { FIELD, mappingOf, norm, ticketRows, type ColumnOf, type Row } from './_
 import { excelConfigured, forgetWorkbook, removeRows, syncSheet, upsertRows, warmUp, type Cell, type SheetRow, type SyncResult } from './_graph.js';
 import { inBackground } from './_sessions.js';
 import { adminNotifications, modules, tickets } from './_schema.js';
-import { FEEDBACK_FIELDS, PRE_DEV_BRIEF_DETAILS, PRE_DEV_BRIEF_SECTIONS, preDevBriefDone, type StudioZone } from '../src/types/index.js';
+import { FEEDBACK_FIELDS, PRE_DEV_BRIEF_DETAILS, PRE_DEV_BRIEF_MODULES, PRE_DEV_BRIEF_SECTIONS, preDevBriefDone, type StudioZone } from '../src/types/index.js';
 
 /**
  * The studio's own workbook (a file on SharePoint, see _graph.ts) is kept up to date as things happen: a new booking adds a row to its
@@ -71,9 +71,27 @@ function preDevColumns(zone: StudioZone): { header: string; value: (r: PreDevShe
   ];
 }
 
+// The PREDEV sheet's headers must match these questions' exact text; logged once (not on every write) if some don't, since an unmatched
+// header is otherwise silently treated as "not ours" and that column is never written, with nothing to say why.
+const warnedMissingPreDevHeaders = new Set<string>();
+
 function preDevSheetRow(r: PreDevSheetRow, zone: StudioZone): SheetRow {
   const columns = preDevColumns(zone);
-  return { id: r.ticketNumber, cells: (headers) => headers.map((header) => columns.find((c) => norm(c.header) === norm(header))?.value(r) ?? null) };
+  return {
+    id: r.ticketNumber,
+    cells: (headers) => {
+      const have = new Set(headers.map(norm));
+      const missing = columns.filter((c) => !have.has(norm(c.header)));
+      if (missing.length) {
+        const key = missing.map((c) => c.header).join('|');
+        if (!warnedMissingPreDevHeaders.has(key)) {
+          warnedMissingPreDevHeaders.add(key);
+          console.warn(`PREDEV sheet: ${missing.length} expected column header(s) not found (that data is silently skipped until the header is fixed): ${missing.map((c) => c.header).join(' | ')}`);
+        }
+      }
+      return headers.map((header) => columns.find((c) => norm(c.header) === norm(header))?.value(r) ?? null);
+    },
+  };
 }
 
 /** After a client submits their Pre-Development Brief: writes its row into the PREDEV sheet (added, or updated if it is somehow sent twice). */
@@ -176,6 +194,12 @@ export function updateSheet(ticketIds: string[]) {
   });
 }
 
+/** After a ticket's module changes (the ticket itself is not deleted): its row leaves its old module's sheet. `updateSheet` then adds it to the new one. */
+export function removeFromModuleSheet(oldSlug: string, ticketNumber: string) {
+  if (!excelConfigured() || !SHEETS[oldSlug]) return;
+  inBackground('Moving a ticket between Excel sheets', () => guarded(() => removeRows(SHEETS[oldSlug], sheetOf(oldSlug).isTicket, [ticketNumber])));
+}
+
 /** After tickets were deleted: their rows leave the workbook (and the PREDEV sheet, for the ones that had a brief). */
 export function clearSheetRows(removed: { ticketNumber: string; moduleSlug: string; hadPreDevBrief: boolean }[]) {
   const mine = removed.filter((t) => SHEETS[t.moduleSlug]);
@@ -205,7 +229,7 @@ export async function reconcileSheets(): Promise<SyncResult> {
     for (const key of Object.keys(total) as (keyof SyncResult)[]) total[key] += done[key];
   }
 
-  const briefed = (await ticketRows(undefined)).filter((found) => preDevBriefDone(found.ticket.preDevBriefData));
+  const briefed = (await ticketRows(undefined)).filter((found) => preDevBriefDone(found.ticket.preDevBriefData) && PRE_DEV_BRIEF_MODULES.includes(found.module.slug));
   const preDevRows = briefed.map((found) =>
     preDevSheetRow({ ticketNumber: found.ticket.ticketNumber, companyName: found.client.companyName, personName: found.client.personName, moduleName: found.module.name, submittedAt: found.ticket.preDevBriefSubmittedAt, data: found.ticket.preDevBriefData }, settings.timezone),
   );
