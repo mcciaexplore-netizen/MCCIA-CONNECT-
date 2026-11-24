@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
 import { useData } from '../../context/DataContext';
-import { companyNote, confirmCancel, confirmDelete, formatDate, isOpen } from '../../lib/utils';
+import { companyNote, confirmCancel, confirmDelete, confirmModuleChange, formatDate, isOpen } from '../../lib/utils';
 import { BOOKING_MODES, PAYMENT_LABELS, PAYMENT_STATUSES, statusText, TICKET_STATUSES, type BookingMode, type Ticket, type TicketStatus } from '../../types';
 import Avatar from '../ui/Avatar';
 import Icon from '../ui/Icon';
@@ -22,7 +22,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /** Right column: the ticket's own properties. Status and due date are editable; admins can reassign. */
 export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
-  const { role, base, clients, companies, getClient, getModule, getCoordinator, getSession, mutate } = useData();
+  const { role, base, modules, clients, companies, getClient, getModule, getCoordinator, getSession, mutate } = useData();
   const navigate = useNavigate();
   const [reassigning, setReassigning] = useState(false);
   const [editingDue, setEditingDue] = useState(false);
@@ -50,7 +50,22 @@ export default function DetailsPanel({ ticket }: { ticket: Ticket }) {
         </select>
       </Field>
 
-      <Field label="Module"><ModuleBadge module={getModule(ticket.moduleId)} /></Field>
+      <Field label="Module">
+        {role === 'super_admin' ? (
+          <select
+            className="input"
+            value={ticket.moduleId}
+            onChange={(e) => {
+              const target = modules.find((m) => m.id === e.target.value);
+              if (target && confirmModuleChange(ticket.ticketNumber, target.name)) mutate('/api/tickets', 'PATCH', { id: ticket.id, moduleId: target.id }, 'Module changed');
+            }}
+          >
+            {modules.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        ) : (
+          <ModuleBadge module={getModule(ticket.moduleId)} />
+        )}
+      </Field>
 
       <Field label="Payment">
         {role === 'super_admin' ? (

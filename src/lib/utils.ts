@@ -194,6 +194,9 @@ export const confirmDeleteCompanies = (count: number, clients: number, tickets: 
 export const confirmCancel = (count = 1) =>
   window.confirm(count === 1 ? 'Cancel this session? The calendar event is deleted and the client is emailed. This cannot be undone.' : `Cancel ${count} sessions? Their calendar events are deleted and the clients are emailed. This cannot be undone.`);
 
+export const confirmModuleChange = (ticketNumber: string, moduleName: string) =>
+  window.confirm(`Move ${ticketNumber} to ${moduleName}? Its post-consultation form switches to that module's questions; answers already saved for fields the new module doesn't have stay on the ticket but no longer show.`);
+
 /** The largest file an import takes: it travels as base64 text inside a request of at most 4.5 MB. */
 export const MAX_FILE_BYTES = 3 * 1024 * 1024;
 

@@ -138,6 +138,9 @@ export const tickets = pgTable('tickets', {
   postConsultationData: jsonb('post_consultation_data').$type<Record<string, string>>().notNull().default({}),
   internalNotes: jsonb('internal_notes').$type<InternalNote[]>().notNull().default([]),
   feedbackData: jsonb('feedback_data').$type<Record<string, string>>().notNull().default({}),
+  // The Pre-Development Brief (App details + Q1-Q18), filled by the client at /predev/:token. Empty until they submit it.
+  preDevBriefData: jsonb('pre_dev_brief_data').$type<Record<string, string>>().notNull().default({}),
+  preDevBriefSubmittedAt: timestamp('pre_dev_brief_submitted_at', { withTimezone: true }),
   // The Fireflies transcript of the session. Long, so the ticket list never carries it: it is read on its own (GET /api/tickets?transcript=).
   transcript: text('transcript'),
   dueDate: timestamp('due_date', { withTimezone: true }),
@@ -236,6 +239,16 @@ export const loginAttempts = pgTable(
 
 /** A one-time link that lets a client rate their session (/feedback/:token) without signing in. */
 export const feedbackTokens = pgTable('feedback_tokens', {
+  id: id(),
+  ticketId: uuid('ticket_id').notNull().references(() => tickets.id),
+  token: uuid('token').notNull().unique().defaultRandom(),
+  used: boolean('used').notNull().default(false),
+  createdAt: createdAt(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+/** A one-time link that lets a client fill in the Pre-Development Brief (/predev/:token) without signing in. */
+export const preDevBriefTokens = pgTable('pre_dev_brief_tokens', {
   id: id(),
   ticketId: uuid('ticket_id').notNull().references(() => tickets.id),
   token: uuid('token').notNull().unique().defaultRandom(),

@@ -3,10 +3,11 @@ import { audit, db, handler, HttpError, loadSettings, needString, readBody, requ
 import { sendMail } from './_integrations.js';
 import { feedbackRequest, preDevBrief } from './_mail.js';
 import { loadBooking, mailOf } from './_sessions.js';
-import { feedbackTokens, tickets } from './_schema.js';
+import { feedbackTokens, preDevBriefTokens, tickets } from './_schema.js';
 import { FEEDBACK_FIELDS, PRE_DEV_BRIEF_MODULES } from '../src/types/index.js';
 
 const FEEDBACK_LINK_DAYS = 30;
+const PRE_DEV_LINK_DAYS = 30;
 
 export default handler({
   // { test: true } emails the signed-in admin; { ticketId, feedbackRequest: true } emails that ticket's client a one-time feedback link.
@@ -36,9 +37,15 @@ export default handler({
       const row = await loadBooking(ticket.bookingId);
       if (!row) throw new HttpError(404, 'Booking not found');
       if (!PRE_DEV_BRIEF_MODULES.includes(row.module.slug)) throw new HttpError(400, 'The Pre-Development Brief is not offered for this module');
+      // A new link each time; earlier unused links for this ticket stop working, so only the latest email counts.
+      const expiresAt = new Date(Date.now() + PRE_DEV_LINK_DAYS * 24 * 60 * 60 * 1000);
+      const [, [link]] = await db.batch([
+        db.update(preDevBriefTokens).set({ used: true }).where(and(eq(preDevBriefTokens.ticketId, ticketId), eq(preDevBriefTokens.used, false))),
+        db.insert(preDevBriefTokens).values({ ticketId, expiresAt }).returning(),
+      ]);
       const siteUrl = siteOrigin(req);
-      await sendMail('client', { to: row.client.email, ...preDevBrief(mailOf(row, await loadSettings(), siteUrl), `${siteUrl}/pre-development-brief.docx`) });
-      await audit(user, 'predev-brief.sent', 'ticket', ticketId, undefined, { to: row.client.email });
+      await sendMail('client', { to: row.client.email, ...preDevBrief(mailOf(row, await loadSettings(), siteUrl), `${siteUrl}/predev/${link.token}`, `${siteUrl}/pre-development-brief.docx`) });
+      await audit(user, 'predev-brief.sent', 'ticket', ticketId, undefined, { to: row.client.email, expires: expiresAt.toISOString() });
       return { ok: true };
     }
 

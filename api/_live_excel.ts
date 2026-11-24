@@ -5,7 +5,7 @@ import { FIELD, mappingOf, norm, ticketRows, type ColumnOf, type Row } from './_
 import { excelConfigured, forgetWorkbook, removeRows, syncSheet, upsertRows, warmUp, type Cell, type SheetRow, type SyncResult } from './_graph.js';
 import { inBackground } from './_sessions.js';
 import { adminNotifications, modules, tickets } from './_schema.js';
-import { FEEDBACK_FIELDS, type StudioZone } from '../src/types/index.js';
+import { FEEDBACK_FIELDS, PRE_DEV_BRIEF_DETAILS, PRE_DEV_BRIEF_SECTIONS, preDevBriefDone, type StudioZone } from '../src/types/index.js';
 
 /**
  * The studio's own workbook (a file on SharePoint, see _graph.ts) is kept up to date as things happen: a new booking adds a row to its
@@ -43,6 +43,53 @@ const excelDate = (date: Date, tz: string) => {
   const [year, month, day] = studioDate(date, tz).split('-').map(Number);
   return Date.UTC(year, month - 1, day) / 86_400_000 + 25_569;
 };
+
+// ---------- the Pre-Development Brief's own sheet: one row per ticket whose brief is filled in, whichever of its two modules it is ----------
+
+const PREDEV_SHEET = 'PREDEV';
+const PREDEV_TICKET_HEADER = norm(FIELD.ticket);
+
+export interface PreDevSheetRow {
+  ticketNumber: string;
+  companyName: string;
+  personName: string;
+  moduleName: string;
+  submittedAt: Date | null;
+  data: Record<string, string>;
+}
+
+/** The PREDEV sheet's columns, in order: studio fields first, then App Details, then the 18 questions (by their own text). */
+function preDevColumns(zone: StudioZone): { header: string; value: (r: PreDevSheetRow) => Cell }[] {
+  return [
+    { header: FIELD.ticket, value: (r) => r.ticketNumber },
+    { header: 'Company', value: (r) => r.companyName },
+    { header: 'Contact', value: (r) => r.personName },
+    { header: 'Module', value: (r) => r.moduleName },
+    { header: 'Submitted', value: (r) => (r.submittedAt ? excelDate(r.submittedAt, zone.tz) : '') },
+    ...PRE_DEV_BRIEF_DETAILS.map((field) => ({ header: field.label, value: (r: PreDevSheetRow) => r.data[field.id] ?? '' })),
+    ...PRE_DEV_BRIEF_SECTIONS.flatMap((s) => s.questions).map((q) => ({ header: q.q, value: (r: PreDevSheetRow) => r.data[q.id] ?? '' })),
+  ];
+}
+
+function preDevSheetRow(r: PreDevSheetRow, zone: StudioZone): SheetRow {
+  const columns = preDevColumns(zone);
+  return { id: r.ticketNumber, cells: (headers) => headers.map((header) => columns.find((c) => norm(c.header) === norm(header))?.value(r) ?? null) };
+}
+
+/** After a client submits their Pre-Development Brief: writes its row into the PREDEV sheet (added, or updated if it is somehow sent twice). */
+export function updatePreDevSheet(row: PreDevSheetRow) {
+  if (!excelConfigured()) return;
+  inBackground('Updating the Pre-Development Brief sheet', async () => {
+    const zone = (await loadSettings()).timezone;
+    await guarded(() => upsertRows(PREDEV_SHEET, (header) => norm(header) === PREDEV_TICKET_HEADER, [preDevSheetRow(row, zone)]));
+  });
+}
+
+/** After tickets with a Pre-Development Brief were deleted: their rows leave the PREDEV sheet. */
+function clearPreDevRows(ticketNumbers: string[]) {
+  if (!excelConfigured() || !ticketNumbers.length) return;
+  inBackground('Removing rows from the Pre-Development Brief sheet', () => guarded(() => removeRows(PREDEV_SHEET, (header) => norm(header) === PREDEV_TICKET_HEADER, ticketNumbers)));
+}
 
 /** The cells of a ticket's row, in the order of the sheet's headers: null for a column that is not ours. */
 function sheetRow(row: Row, zone: StudioZone, columnOf: ColumnOf): SheetRow {
@@ -129,17 +176,19 @@ export function updateSheet(ticketIds: string[]) {
   });
 }
 
-/** After tickets were deleted: their rows leave the workbook. */
-export function clearSheetRows(removed: { ticketNumber: string; moduleSlug: string }[]) {
+/** After tickets were deleted: their rows leave the workbook (and the PREDEV sheet, for the ones that had a brief). */
+export function clearSheetRows(removed: { ticketNumber: string; moduleSlug: string; hadPreDevBrief: boolean }[]) {
   const mine = removed.filter((t) => SHEETS[t.moduleSlug]);
-  if (!excelConfigured() || !mine.length) return;
-  inBackground('Removing rows from the Excel sheet', () =>
-    guarded(async () => {
-      for (const slug of new Set(mine.map((t) => t.moduleSlug))) {
-        await removeRows(SHEETS[slug], sheetOf(slug).isTicket, mine.filter((t) => t.moduleSlug === slug).map((t) => t.ticketNumber));
-      }
-    }),
-  );
+  if (excelConfigured() && mine.length) {
+    inBackground('Removing rows from the Excel sheet', () =>
+      guarded(async () => {
+        for (const slug of new Set(mine.map((t) => t.moduleSlug))) {
+          await removeRows(SHEETS[slug], sheetOf(slug).isTicket, mine.filter((t) => t.moduleSlug === slug).map((t) => t.ticketNumber));
+        }
+      }),
+    );
+  }
+  clearPreDevRows(removed.filter((t) => t.hadPreDevBrief).map((t) => t.ticketNumber));
 }
 
 /** Every connected sheet is made to match the database (see syncSheet): what is missing is added, what differs is put right, what is gone is removed. */
@@ -155,6 +204,14 @@ export async function reconcileSheets(): Promise<SyncResult> {
     const done = await syncSheet(name, isTicket, (id) => /^[A-Z]{2,5}-\d+$/.test(id), rows, formats);
     for (const key of Object.keys(total) as (keyof SyncResult)[]) total[key] += done[key];
   }
+
+  const briefed = (await ticketRows(undefined)).filter((found) => preDevBriefDone(found.ticket.preDevBriefData));
+  const preDevRows = briefed.map((found) =>
+    preDevSheetRow({ ticketNumber: found.ticket.ticketNumber, companyName: found.client.companyName, personName: found.client.personName, moduleName: found.module.name, submittedAt: found.ticket.preDevBriefSubmittedAt, data: found.ticket.preDevBriefData }, settings.timezone),
+  );
+  const donePreDev = await syncSheet(PREDEV_SHEET, (header) => norm(header) === PREDEV_TICKET_HEADER, (id) => /^[A-Z]{2,5}-\d+$/.test(id), preDevRows);
+  for (const key of Object.keys(total) as (keyof SyncResult)[]) total[key] += donePreDev[key];
+
   return total;
 }
 

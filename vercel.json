@@ -5,6 +5,10 @@
       "destination": "/api/tickets?feedback=:token"
     },
     {
+      "source": "/api/predev/:token",
+      "destination": "/api/tickets?predev=:token"
+    },
+    {
       "source": "/api/bookings/:id/reschedule",
       "destination": "/api/bookings?reschedule=:id"
     },
