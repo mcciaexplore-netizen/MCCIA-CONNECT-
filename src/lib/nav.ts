@@ -11,6 +11,7 @@ export interface NavSection {
 export const NAV: Record<Role, NavSection[]> = {
   super_admin: [
     { title: 'Dashboard', icon: 'grid', items: [{ to: '/admin/dashboard', label: 'Dashboard' }] },
+    { title: 'Calendar', icon: 'calendar', items: [{ to: '/admin/calendar', label: 'Calendar' }] },
     {
       title: 'Tickets',
       icon: 'ticket',

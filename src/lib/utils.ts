@@ -63,6 +63,12 @@ export const formatDate = (iso: string | null) => {
   return `${w.day} ${w.month} ${w.year}`;
 };
 export const formatTime = (iso: string) => written(iso, TIME_PARTS).time;
+/** An instant's hour (0-23) and minute in the studio's time zone, for positioning it on a time grid. */
+export const studioHourMinute = (iso: string) => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: studioTz, hour: 'numeric', minute: '2-digit', hour12: false }).formatToParts(new Date(iso));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { hour: get('hour') % 24, minute: get('minute') };
+};
 /** The number in a ticket number (TKT-0121 is 121), for putting tickets in order (tickets of the same session time); 0 for a ticket without one. */
 export const ticketSerial = (ticketNumber: string) => Number(ticketNumber.replace(/\D/g, '')) || 0;
 /** The calendar date (YYYY-MM-DD) of an instant in the studio's time zone. */
