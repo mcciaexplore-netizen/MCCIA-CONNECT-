@@ -4,7 +4,7 @@ import { clashesOf, studioTime } from './_availability.js';
 import { returnFollowUps } from './_companies.js';
 import { saveRecordings } from './_fireflies.js';
 import { ticketRows } from './_excel.js';
-import { clearSheetRows, updatePreDevSheet, updateSheet } from './_live_excel.js';
+import { clearSheetRows, removeFromModuleSheet, updatePreDevSheet, updateSheet } from './_live_excel.js';
 import { preDevBriefNotice, preDevBriefReceived } from './_mail.js';
 import { sendMail } from './_integrations.js';
 import { audit, db, handler, HttpError, loadPostQuestions, loadSettings, needString, optString, ownedBy, readBody, requireUser, restartTicketNumbersIfNone, siteOrigin, UUID, type AuthUser } from './_lib.js';
@@ -111,16 +111,18 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
     }
   }
 
+  let movedFromSlug: string | undefined; // the old module's slug, so its row can leave that module's Excel sheet
   if (body.moduleId !== undefined && body.moduleId !== ticket.moduleId) {
     if (user.role !== 'super_admin') throw new HttpError(403, 'Only admins can change a ticket’s module');
     const newModuleId = needString(body.moduleId, 'Module');
     const [newModule] = await db.select({ id: modules.id, name: modules.name }).from(modules).where(eq(modules.id, newModuleId));
     if (!newModule) throw new HttpError(400, 'Module not found');
-    const [oldModule] = await db.select({ name: modules.name }).from(modules).where(eq(modules.id, ticket.moduleId));
+    const [oldModule] = await db.select({ name: modules.name, slug: modules.slug }).from(modules).where(eq(modules.id, ticket.moduleId));
     patch.moduleId = newModuleId;
     bookingPatch.moduleId = newModuleId;
     before.module = oldModule?.name;
     after.module = newModule.name;
+    movedFromSlug = oldModule?.slug;
   }
 
   if (body.dueDate !== undefined) {
@@ -202,7 +204,8 @@ async function updateTicket(user: AuthUser, id: string, body: Record<string, unk
     });
   }
   const [updated] = await db.select(TICKET_COLUMNS).from(tickets).where(eq(tickets.id, id));
-  updateSheet([id]); // its row in the Excel sheet
+  if (movedFromSlug) removeFromModuleSheet(movedFromSlug, updated.ticketNumber); // leaves the old module's sheet before...
+  updateSheet([id]); // ...it is added to the new one
   return updated;
 }
 

@@ -45,7 +45,7 @@ export default function Calendar() {
   const [day, setDay] = useState(new Date());
 
   const active = coordinators.filter((c) => c.isActive);
-  const dayKey = format(day, 'yyyy-MM-dd');
+  const dayKey = studioDay(day.toISOString()); // the studio's calendar day for the selected instant, not the viewer's own time zone
   const onDay = sessions.filter((s) => s.booking.status !== 'cancelled' && studioDay(s.booking.startTime) === dayKey);
 
   // coordinatorId -> row index -> the session occupying it (a session fills every row of its own span).

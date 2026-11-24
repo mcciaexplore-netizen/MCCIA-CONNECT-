@@ -204,7 +204,7 @@ export default function CreateBooking() {
               {back(3)}
               <button
                 className="btn btn-primary h-11 flex-1"
-                disabled={!startsAt || (isCoordinator && (checking || freeIds === null || selfBusy))}
+                disabled={!startsAt || checking || freeIds === null || (isCoordinator && selfBusy)}
                 onClick={() => setStep(isCoordinator ? 6 : 5)}
               >
                 Next
