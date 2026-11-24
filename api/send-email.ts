@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import { audit, db, handler, HttpError, loadSettings, needString, readBody, requireUser, siteOrigin } from './_lib.js';
 import { sendMail } from './_integrations.js';
-import { feedbackRequest } from './_mail.js';
+import { feedbackRequest, preDevBrief } from './_mail.js';
 import { loadBooking, mailOf } from './_sessions.js';
 import { feedbackTokens, tickets } from './_schema.js';
-import { FEEDBACK_FIELDS } from '../src/types/index.js';
+import { FEEDBACK_FIELDS, PRE_DEV_BRIEF_MODULES } from '../src/types/index.js';
 
 const FEEDBACK_LINK_DAYS = 30;
 
@@ -25,6 +25,20 @@ export default handler({
       );
       const failed = results.flatMap((result, i) => (result.status === 'rejected' ? [`${channels[i][1]}: ${result.reason instanceof Error ? result.reason.message : 'failed'}`] : []));
       if (failed.length) throw new HttpError(502, `Could not send through ${failed.join('; ')}`);
+      return { ok: true };
+    }
+
+    if (body.preDevBrief) {
+      const ticketId = needString(body.ticketId, 'Ticket');
+      const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+      if (!ticket) throw new HttpError(404, 'Ticket not found');
+      if (user.role !== 'super_admin' && ticket.coordinatorId !== user.coordinatorId) throw new HttpError(403, 'This ticket is not assigned to you');
+      const row = await loadBooking(ticket.bookingId);
+      if (!row) throw new HttpError(404, 'Booking not found');
+      if (!PRE_DEV_BRIEF_MODULES.includes(row.module.slug)) throw new HttpError(400, 'The Pre-Development Brief is not offered for this module');
+      const siteUrl = siteOrigin(req);
+      await sendMail('client', { to: row.client.email, ...preDevBrief(mailOf(row, await loadSettings(), siteUrl), `${siteUrl}/pre-development-brief.docx`) });
+      await audit(user, 'predev-brief.sent', 'ticket', ticketId, undefined, { to: row.client.email });
       return { ok: true };
     }
 

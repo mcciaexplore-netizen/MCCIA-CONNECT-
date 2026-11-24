@@ -1,12 +1,13 @@
 import { useData } from '../../context/DataContext';
 import { formatDateTime } from '../../lib/utils';
-import type { Ticket } from '../../types';
+import { PRE_DEV_BRIEF_MODULES, type Ticket } from '../../types';
 import ModePill from '../ui/ModePill';
 import ModuleBadge from '../ui/ModuleBadge';
 import ClientStatCards from '../ui/ClientStatCards';
 import FeedbackCard from './FeedbackCard';
 import MeetLink from './MeetLink';
 import PostConsultation from './PostConsultation';
+import PreDevBriefCard from './PreDevBriefCard';
 import RecordingLink from './RecordingLink';
 
 /** The client's stat cards, booking details, the client's booking answers, post-consultation notes and feedback. */
@@ -66,6 +67,7 @@ export default function OverviewTab({ ticket }: { ticket: Ticket }) {
       </section>
 
       <PostConsultation ticket={ticket} />
+      {module && PRE_DEV_BRIEF_MODULES.includes(module.slug) && <PreDevBriefCard ticket={ticket} />}
       <FeedbackCard ticket={ticket} />
     </div>
   );

@@ -111,7 +111,9 @@ const question = (id: string, label: string, type: FieldType, required = false, 
  * url question a web address. The booking form, the consultant form and the API share this.
  */
 export function answerProblem(question: FormField, value: string): 'option' | 'url' | undefined {
-  if ((question.type === 'select' || question.type === 'radio') && !question.options.includes(value)) return 'option';
+  // An 'Other' option is an escape hatch into free text: any non-blank answer is accepted once it's offered.
+  const freeform = question.options.includes('Other') && !!value;
+  if ((question.type === 'select' || question.type === 'radio') && !question.options.includes(value) && !freeform) return 'option';
   if (question.type === 'checkbox' && !value.split(', ').every((option) => question.options.includes(option))) return 'option';
   if (question.type === 'url' && !/^https?:\/\/\S+$/i.test(value)) return 'url';
   return undefined;
@@ -160,15 +162,32 @@ export const DEFAULT_POST_CONSULTATION_QUESTIONS: FormField[] = [
   question('consultation_status', 'Consultation Status', 'select', false, ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Pending', 'Follow Up']),
 ];
 
-/** The stages of an applet's progress report (the Progress Report answer of Applet Setup). */
-export const PROGRESS_STAGES = ['Pre Dev', 'Development', 'Testing', 'Deployment'] as const;
+/** The Progress Report answer of Applet Setup: the applet's AI implementation level. */
+export const PROGRESS_STAGES = ['None', 'A : Basic AI Use', 'B : Complex AI Use', 'C : Application Development', 'D : Application Deployed and Using', 'E : Application Under development', 'Need to Confirm', '#N/A'] as const;
+
+/** The studio's named applications, offered on the Applet Setup consultant form; 'Other' on that field lets a consultant type one not listed here. */
+export const APPLICATION_NAMES = [
+  'Dispatch Flow',
+  'TenderSetu',
+  'GST Reconciliation',
+  'Card Scanner',
+  'Social Media Planner',
+  'Digital Profile Creator',
+  'Payment Followup Agent',
+  'HR Studio',
+  'Stocklist',
+  'MiniCRM',
+  'Compliance Calender',
+  'AI Procurement Agent',
+  'Production Saathi',
+];
 
 /**
  * The consultant form of Applet Setup: what is being built and how far it is. Its status and payment are the ticket's own, like on every consultant
  * form (the status is called "Applet Status" here). An admin can still change it per module in the Form builder.
  */
 export const APPLET_POST_QUESTIONS: FormField[] = [
-  question('application_name', 'Application Name', 'text'),
+  question('application_name', 'Application Name', 'select', false, [...APPLICATION_NAMES, 'Other']),
   question('application_usecase', 'Application Use Case', 'textarea'),
   question('progress_report', 'Progress Report', 'select', false, [...PROGRESS_STAGES]),
   question('consultation_status', 'Applet Status', 'select', false, ['Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled', 'Pending', 'Follow Up']),
@@ -179,6 +198,9 @@ export const APPLET_POST_QUESTIONS: FormField[] = [
 const OWN_POST_QUESTIONS: Record<string, FormField[]> = { 'applet-setup': APPLET_POST_QUESTIONS };
 export const hasOwnPostQuestions = (slug: string) => slug in OWN_POST_QUESTIONS;
 export const defaultPostQuestions = (slug?: string) => (slug && OWN_POST_QUESTIONS[slug]) || DEFAULT_POST_CONSULTATION_QUESTIONS;
+
+/** The modules a consultant can email the client the Pre-Development Brief from (ticket page and the admin dashboard's module cards). */
+export const PRE_DEV_BRIEF_MODULES: readonly string[] = ['applet-setup', 'ai-consultation'];
 
 /** slot_config.weekly_rules item: open hours on a weekday (0 = Sunday), times as "HH:mm" studio time. */
 export interface WeeklyRule {

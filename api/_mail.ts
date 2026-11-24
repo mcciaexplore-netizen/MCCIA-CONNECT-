@@ -186,6 +186,92 @@ export function coordinatorRescheduled(b: BookingMail, previous: Date, by: strin
   };
 }
 
+/** The Pre-Development Brief's 18 questions (App details are asked for separately, up front), grouped the way the source document groups them. */
+const PRE_DEV_BRIEF_SECTIONS: { heading: string; questions: { q: string; hint: string }[] }[] = [
+  {
+    heading: 'A. Users and access',
+    questions: [
+      { q: 'Who will use this app?', hint: 'List every type of person who will log in (for example: owner, sales staff, dispatch clerk, customer, accountant). Include people who only view reports.' },
+      { q: 'What will each user type mainly do?', hint: 'One or two lines per user type: their main tasks in the app on a normal day.' },
+      { q: 'What can each user type do and NOT do?', hint: 'Think about who may create, edit, delete or approve records, see prices or money, and see other people’s data.' },
+      { q: 'How should users log in?', hint: 'Phone number with OTP, email and password, Google account, a shared login on one device, or no login for some users?' },
+    ],
+  },
+  {
+    heading: 'B. The core workflow',
+    questions: [
+      { q: 'What is the ONE most important thing this app must do?', hint: 'If the app could do only one thing well, what would it be?' },
+      { q: 'Walk me through one complete task step-by-step.', hint: 'Use a real example from start to finish: who does what, in what order, which tools are used today (paper, Excel, WhatsApp), and what the final result is. Mention what is painful about it.' },
+    ],
+  },
+  {
+    heading: 'C. Features',
+    questions: [
+      { q: 'What are the MUST-HAVE features for day one?', hint: 'Only features without which the app is useless on launch day. Keep this list short.' },
+      { q: 'What features would be nice to have later?', hint: 'Good ideas that can wait for a second version.' },
+    ],
+  },
+  {
+    heading: 'D. Data and integrations',
+    questions: [
+      { q: 'What information needs to be stored?', hint: 'Customers, products, orders, invoices, photos, documents, and so on. Mention important fields (for example GST number, vehicle number) and any files that will be uploaded.' },
+      { q: 'Does the app need to connect to any external services?', hint: 'WhatsApp, SMS, email, payments (UPI, Razorpay), Tally, Google Sheets, maps, GST or e-invoice portals. Write “None” if not needed.' },
+      { q: 'Details about these integrations', hint: 'For each service above: what should happen, when, and who is involved. Skip if that answer was “None”.' },
+    ],
+  },
+  {
+    heading: 'E. Rules and automation',
+    questions: [{ q: 'Does anything need approval before it happens? What should happen automatically?', hint: 'Examples: discounts above a limit need owner approval; an invoice is sent automatically on dispatch; a payment reminder goes out after 7 days.' }],
+  },
+  {
+    heading: 'F. Usage and budget',
+    questions: [
+      { q: 'Where will users primarily use this app?', hint: 'Phone, desktop or tablet? Office, shop floor or on the road? Is internet slow or unreliable, and does the app need to work offline?' },
+      { q: 'Approximately how many people will use this app?', hint: 'Users today and in 12 months, and how many might use it at the same time.' },
+      { q: 'Do you have a monthly budget for this app?', hint: 'Running costs per month in ₹ (hosting, messaging, tools). “Zero, free tools only” is a valid answer.' },
+    ],
+  },
+  {
+    heading: 'G. Brand and success',
+    questions: [
+      { q: 'Do you have existing branding or design preferences?', hint: 'Logo, brand colours, fonts, and examples of apps or websites you like or dislike.' },
+      { q: 'How will you know this app is working well for your business?', hint: 'Make it measurable: time saved per invoice, fewer errors, orders handled per day. Add today’s number if you know it.' },
+      { q: 'Anything else we should know?', hint: 'Deadlines, compliance needs, existing software, languages (English, Hindi, Marathi), or anything we did not ask.' },
+    ],
+  },
+];
+
+/**
+ * To an Applet Setup or AI Consultation client: the Pre-Development Brief's questions (so they can start answering right from the email) and
+ * a link to the full document, which also has the AI prompt system the team builds the app with. A consultant sends this once they judge the build custom.
+ */
+export function preDevBrief(b: BookingMail, briefUrl: string) {
+  const subject = `Pre-Development Brief: ${b.moduleName} (${b.ticketNumber})`;
+  const intro = `Before we start building your application, please fill in the Pre-Development Brief below together with your team (30 to 45 minutes). "I don't know yet" is a valid answer for anything you are unsure of.`;
+  const appDetails = 'App details: business name, app working name, contact person and role, prepared by, date.';
+
+  let n = 0;
+  const textSections = PRE_DEV_BRIEF_SECTIONS.map((s) => `${s.heading}\n${s.questions.map((item) => `${++n}. ${item.q}\n   ${item.hint}`).join('\n')}`).join('\n\n');
+  n = 0;
+  const htmlSections = PRE_DEV_BRIEF_SECTIONS.map(
+    (s) =>
+      `<h3 style="margin:20px 0 8px;font-size:14px;color:${NAVY};">${esc(s.heading)}</h3>` +
+      s.questions.map((item) => `<p style="margin:0 0 12px;"><b>${++n}. ${esc(item.q)}</b><br><span style="color:#6b7280;font-size:13px;">${esc(item.hint)}</span></p>`).join(''),
+  ).join('');
+
+  const text = `Hello ${b.clientName},\n\n${intro}\n\n${appDetails}\n\n${textSections}\n\nThe full brief, together with the AI prompt system our team uses to turn your answers into the project's technical documents, is here: ${briefUrl}\n\nReference: ${b.ticketNumber}\n\n${b.brand}`;
+  const html =
+    `<div style="font-family:Outfit,Arial,sans-serif;max-width:640px;color:#1a1f36;">` +
+    logoBand(b) +
+    `<div style="padding:24px;"><p>Hello ${esc(b.clientName)},</p><p>${esc(intro)}</p>` +
+    `<p style="margin:16px 0 4px;color:#6b7280;font-size:13px;">${esc(appDetails)}</p>` +
+    htmlSections +
+    `<p style="text-align:center;margin:28px 0;"><a href="${esc(briefUrl)}" style="display:inline-block;background:${BLUE};color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;">Download the full brief</a></p>` +
+    `<p style="font-size:12px;color:#6b7280;">It also has the AI prompt system our team uses to turn your answers into the project's technical documents. Reference ${esc(b.ticketNumber)}.</p>` +
+    `</div></div>`;
+  return { subject, text, html };
+}
+
 /** What a coordinator is told about a client being assigned to them, or taken from them. */
 export interface AssignmentMail {
   brand: string;

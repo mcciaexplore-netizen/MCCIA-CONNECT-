@@ -9,11 +9,12 @@ import BookingLink from '../../components/ui/BookingLink';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import ModuleBadge, { moduleColor } from '../../components/ui/ModuleBadge';
 import ModePill from '../../components/ui/ModePill';
+import ResourceLink from '../../components/ui/ResourceLink';
 import StatCard from '../../components/ui/StatCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { awaitingNotes, dayStats } from '../../lib/dashboard';
 import { cn, formatTime, isOpen } from '../../lib/utils';
-import type { Session } from '../../types';
+import { PRE_DEV_BRIEF_MODULES, type Session } from '../../types';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -144,6 +145,12 @@ export default function Dashboard() {
                 <p className="mb-1 text-xs text-ink-3">Booking link for clients</p>
                 <BookingLink module={module} />
               </div>
+              {PRE_DEV_BRIEF_MODULES.includes(module.slug) && (
+                <div className="mt-3 border-t border-line pt-3">
+                  <p className="mb-1 text-xs text-ink-3">Pre-Development Brief</p>
+                  <ResourceLink url={`${window.location.origin}/pre-development-brief.docx`} />
+                </div>
+              )}
             </div>
           );
         })}

@@ -6,7 +6,7 @@ import { assignClient } from './_assign.js';
 import { companyIdOf, findCompany } from './_companies.js';
 import { updateSheet } from './_live_excel.js';
 import { nextRowNumber } from './_excel.js';
-import { sendMail } from './_integrations.js';
+import { sendMail, sendWhatsApp } from './_integrations.js';
 import { clientIp, refundAttempt, reserveAttempt } from './_limits.js';
 import { adminCopy, clientConfirmation, clientRescheduled, coordinatorNotice, coordinatorRescheduled, formatWhen } from './_mail.js';
 import { announceLink, awaitLink, errorText, giveMeetLink, HTTPS_LINK, inBackground, loadBooking, mailOf, noteLinkSent, sendAll, syncCalendar } from './_sessions.js';
@@ -14,6 +14,9 @@ import { bookings, clients, companies, coordinatorAssignments, coordinators, mod
 import { answerProblem, BLANK_CLIENT, BOOKING_MODES, normalizePhone, validateClient, type BookingConflict, type BookingMode, type BookingResult, type ClientInput } from '../src/types/index.js';
 
 const MAX_REASON = 500;
+
+// The Meta-approved WhatsApp template for a booking confirmation, and the order its body places client name, module, date & time, reference.
+const CONFIRMATION_TEMPLATE = { template: 'booking_confirmation', language: 'en_US' };
 
 /**
  * Called by the Apps Script (apps-script/main.gs) once it has created the calendar event: stores the Meet link and event id.
@@ -367,6 +370,9 @@ export default handler({
         sendAll([
           ...(coordinator?.email ? [sendMail('internal', { to: coordinator.email, ...coordinatorNotice(booking) })] : []),
           ...(copyTo && copyTo.toLowerCase() !== coordinator?.email.toLowerCase() ? [sendMail('internal', { to: copyTo, ...adminCopy(booking) })] : []),
+          ...(wanted
+            ? [sendWhatsApp({ to: clientInput.phone, ...CONFIRMATION_TEMPLATE, params: [clientInput.personName, booking.moduleName, formatWhen(booking.start, booking.zone), booking.ticketNumber] })]
+            : []),
         ]),
       ]);
       if (row.booking.mode === 'online') {
