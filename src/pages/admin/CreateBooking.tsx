@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { usePageData, useData } from '../../context/DataContext';
+import CoordinatorConflict from '../../components/booking/CoordinatorConflict';
 import DetailsStep from '../../components/booking/DetailsStep';
 import DataState from '../../components/ui/DataState';
 import EmptyState from '../../components/ui/EmptyState';
 import ReviewStep from '../../components/booking/ReviewStep';
 import StepIndicator from '../../components/booking/StepIndicator';
 import SlotPicker from '../../components/ui/SlotPicker';
-import { toClientInput } from '../../lib/utils';
-import { BLANK_CLIENT, EMAIL_PATTERN, type BookingMode, type BookingResult, type Client } from '../../types';
+import { api, toClientInput } from '../../lib/utils';
+import { BLANK_CLIENT, EMAIL_PATTERN, type BookingConflict, type BookingMode, type BookingResult, type Client } from '../../types';
 
 const STEPS = ['Client', 'Module', 'Details', 'Slot', 'Coordinator', 'Confirm'];
 const MAX_MATCHES = 6;
@@ -37,13 +38,43 @@ export default function CreateBooking() {
   const [slotsKey, setSlotsKey] = useState(0); // changing it reloads the slots
   const [picked, setPicked] = useState<string | null>(null); // null = not touched yet, so the suggestion applies
   const [submitting, setSubmitting] = useState(false);
+  const [freeIds, setFreeIds] = useState<string[] | null>(null); // who is free at the chosen slot; null = not known yet
+  const [checking, setChecking] = useState(false);
 
   const existing = clients.find((c) => c.id === existingId);
   const client = existing ? toClientInput(existing) : fresh;
   const module = modules.find((m) => m.id === moduleId);
   const active = coordinators.filter((c) => c.isActive);
-  // The client's own coordinator is suggested; a booking still needs one chosen.
-  const coordinatorId = isCoordinator ? (self?.id ?? '') : (picked ?? active.find((c) => c.id === existing?.assignedCoordinatorId)?.id ?? '');
+  // The client's own coordinator is suggested; a booking still needs one chosen. A coordinator books themselves, unless they picked someone else because they were busy.
+  const coordinatorId = isCoordinator ? (picked ?? self?.id ?? '') : (picked ?? active.find((c) => c.id === existing?.assignedCoordinatorId)?.id ?? '');
+
+  // The moment a slot (and module) is chosen, find out who is actually free then: admins see it as graying out busy consultants,
+  // a coordinator booking themselves sees it as a conflict notice with a free alternative to pick instead.
+  useEffect(() => {
+    if (!startsAt || !moduleId) {
+      setFreeIds(null);
+      return;
+    }
+    let cancelled = false;
+    setChecking(true);
+    api<{ freeIds: string[] }>(`/api/bookings?freeAt=${encodeURIComponent(startsAt)}&moduleId=${moduleId}`)
+      .then((r) => !cancelled && setFreeIds(r.freeIds))
+      .catch(() => !cancelled && setFreeIds(null))
+      .finally(() => !cancelled && setChecking(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [startsAt, moduleId]);
+
+  const selfBusy = isCoordinator && !!self && freeIds !== null && !freeIds.includes(self.id);
+  const conflict: BookingConflict | null =
+    selfBusy && self
+      ? {
+          coordinatorConflict: true,
+          assignedCoordinator: { id: self.id, name: self.name },
+          availableCoordinators: active.filter((c) => c.id !== self.id && freeIds!.includes(c.id)).map((c) => ({ id: c.id, name: c.name, color: c.color })),
+        }
+      : null;
 
   const query = search.trim().toLowerCase();
   const matches = query ? clients.filter((c) => [c.email, c.personName, c.companyName].join(' ').toLowerCase().includes(query)).slice(0, MAX_MATCHES) : [];
@@ -58,8 +89,15 @@ export default function CreateBooking() {
       setModuleId(id);
       setAnswers({});
       setStartsAt('');
+      setFreeIds(null);
+      setPicked(null);
     }
     setStep(3);
+  };
+  const chooseSlot = (iso: string) => {
+    setStartsAt(iso);
+    setPicked(null); // a new slot may free up someone else, or take the one already picked
+    setFreeIds(null);
   };
 
   const confirm = async () => {
@@ -68,6 +106,8 @@ export default function CreateBooking() {
     if (result) return navigate(`${isCoordinator ? '/coordinator' : '/admin'}/tickets/${result.ticketId}`);
     // The time may have just been taken, so show a fresh list.
     setStartsAt('');
+    setFreeIds(null);
+    setPicked(null);
     setSlotsKey((key) => key + 1);
     setStep(4);
     setSubmitting(false);
@@ -138,10 +178,37 @@ export default function CreateBooking() {
 
         {step === 4 && module && (
           <div className="space-y-6">
-            <SlotPicker key={`${module.slug}-${slotsKey}`} slug={module.slug} venue={settings.venue.address} mode={mode} onModeChange={setMode} startsAt={startsAt} onSelect={setStartsAt} />
+            <SlotPicker key={`${module.slug}-${slotsKey}`} slug={module.slug} venue={settings.venue.address} mode={mode} onModeChange={setMode} startsAt={startsAt} onSelect={chooseSlot} />
+            {isCoordinator && startsAt && (
+              checking ? (
+                <p className="text-sm text-ink-2">Checking your availability…</p>
+              ) : conflict ? (
+                <CoordinatorConflict
+                  key={conflict.availableCoordinators.map((c) => c.id).join()}
+                  conflict={conflict}
+                  busy={false}
+                  onBook={(id) => {
+                    setPicked(id);
+                    setStep(6);
+                  }}
+                  onOtherTime={() => {
+                    setStartsAt('');
+                    setFreeIds(null);
+                  }}
+                />
+              ) : (
+                freeIds !== null && <p className="rounded-md bg-page px-3 py-2 text-sm text-ink-2">You are free at this time — this session will be on your own calendar.</p>
+              )
+            )}
             <div className="flex gap-3">
               {back(3)}
-              <button className="btn btn-primary h-11 flex-1" disabled={!startsAt} onClick={() => setStep(isCoordinator ? 6 : 5)}>Next</button>
+              <button
+                className="btn btn-primary h-11 flex-1"
+                disabled={!startsAt || (isCoordinator && (checking || freeIds === null || selfBusy))}
+                onClick={() => setStep(isCoordinator ? 6 : 5)}
+              >
+                Next
+              </button>
             </div>
           </div>
         )}
@@ -152,13 +219,25 @@ export default function CreateBooking() {
               <label className="label">Coordinator *</label>
               <select className="input" value={coordinatorId} onChange={(e) => setPicked(e.target.value)}>
                 <option value="">Select a coordinator…</option>
-                {active.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {active.map((c) => {
+                  const busy = freeIds !== null && !freeIds.includes(c.id);
+                  return (
+                    <option key={c.id} value={c.id} disabled={busy}>
+                      {c.name}
+                      {busy ? ' (Busy at this time)' : ''}
+                    </option>
+                  );
+                })}
               </select>
-              <p className="mt-1 text-xs text-ink-3">Every booking made here needs a coordinator. A returning client's own coordinator is suggested.</p>
+              <p className="mt-1 text-xs text-ink-3">
+                {checking ? 'Checking availability…' : "Every booking made here needs a coordinator. A returning client's own coordinator is suggested; grayed-out ones are already booked at this time."}
+              </p>
             </div>
             <div className="flex gap-3">
               {back(4)}
-              <button className="btn btn-primary h-11 flex-1" disabled={!coordinatorId} onClick={() => setStep(6)}>Next</button>
+              <button className="btn btn-primary h-11 flex-1" disabled={!coordinatorId || (freeIds !== null && !freeIds.includes(coordinatorId))} onClick={() => setStep(6)}>
+                Next
+              </button>
             </div>
           </div>
         )}
