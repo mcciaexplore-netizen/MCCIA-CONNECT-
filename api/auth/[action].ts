@@ -1,0 +1,129 @@
+import { asc, eq, sql } from 'drizzle-orm';
+import { hashPassword, passwordStamp, sessionCookie, signToken, verifyPassword } from '../_auth.js';
+import { audit, db, getUser, handler, HttpError, isUniqueViolation, needEmail, needPassword, needString, optString, readBody, requireUser, type AuthUser } from '../_lib.js';
+import { clientIp, LIMITS, refundAttempt, reserveAttempt, tooMany } from '../_limits.js';
+import { coordinators, users } from '../_schema.js';
+
+/** What the browser keeps in its context: who is signed in. */
+const me = (user: AuthUser) => ({ userId: user.id, role: user.role, coordinatorId: user.coordinatorId, name: user.name, email: user.email });
+
+/** A sign-in, a failed sign-in and a sign-out are written to the audit log with the address they came from. A problem writing it never blocks the sign-in itself. */
+async function trail(req: Request, action: 'auth.login' | 'auth.login_failed' | 'auth.logout', who: string, role: string, entityId: string | null = null) {
+  try {
+    await audit({ name: who, role }, action, 'auth', entityId, undefined, { ip: clientIp(req), timestamp: new Date().toISOString() });
+  } catch (e) {
+    console.error('Audit log failed:', e);
+  }
+}
+
+// Verified against this when the email is unknown, so the reply takes as long as for a wrong password.
+const DECOY_HASH = `${'00'.repeat(16)}:${'00'.repeat(64)}`;
+
+const login = handler({
+  // { email, password }: sets the session cookie (an httpOnly JWT) and returns who signed in.
+  // Every attempt takes one of the IP's 5 per 15 minutes before anything is checked (so a burst of parallel guesses cannot
+  // all get through); a successful sign-in gives its attempt back. The 5th wrong guess already says "too many attempts".
+  POST: async (req) => {
+    const body = await readBody(req);
+    const email = optString(body.email).toLowerCase();
+    const password = typeof body.password === 'string' ? body.password : '';
+    const ip = clientIp(req);
+    const attempt = await reserveAttempt('login', ip, email);
+    const refuse = () => (attempt.attempts >= LIMITS.login.max ? tooMany('login', attempt.windowStart) : new HttpError(401, 'Invalid credentials'));
+
+    const [row] = await db.select().from(users).where(eq(users.email, email));
+    const valid = await verifyPassword(password, row?.passwordHash ?? DECOY_HASH);
+    const denied = async () => {
+      await trail(req, 'auth.login_failed', email || '(blank)', 'anonymous');
+      return refuse();
+    };
+    if (!row || !valid || !row.isActive) throw await denied();
+
+    let coordinatorId: string | null = null;
+    if (row.role === 'coordinator') {
+      const [coordinator] = await db.select().from(coordinators).where(eq(coordinators.authUserId, row.id));
+      if (!coordinator?.isActive) throw await denied();
+      coordinatorId = coordinator.id;
+    }
+    await refundAttempt('login', ip);
+    await trail(req, 'auth.login', row.email, row.role, row.id);
+    const token = signToken({ userId: row.id, role: row.role, coordinatorId, pv: passwordStamp(row.passwordHash) });
+    const user: AuthUser = { id: row.id, email: row.email, role: row.role, name: row.name, coordinatorId };
+    return Response.json(me(user), { headers: { 'Set-Cookie': sessionCookie(req, token) } });
+  },
+});
+
+const logout = handler({
+  POST: async (req) => {
+    const user = await getUser(req);
+    if (user) await trail(req, 'auth.logout', user.email, user.role, user.id);
+    return Response.json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(req, null) } });
+  },
+});
+
+const current = handler({
+  // Who the session cookie belongs to: { userId, role, coordinatorId }.
+  GET: async (req) => {
+    const user = await getUser(req);
+    if (!user) throw new HttpError(401, 'Sign in required');
+    return me(user);
+  },
+});
+
+const createUser = handler({
+  // Creates an admin login: { email, password, name }. Coordinators are created with POST /api/coordinators.
+  // The very first admin has nobody to sign in as, so while there are no users at all the request needs { setupKey } = JWT_SECRET.
+  POST: async (req) => {
+    const body = await readBody(req);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
+    const actor = count === 0 ? null : await requireUser(req, 'super_admin');
+    if (!actor && (!process.env.JWT_SECRET || body.setupKey !== process.env.JWT_SECRET)) throw new HttpError(403, 'The first admin needs the setup key (JWT_SECRET)');
+
+    const email = needEmail(body.email);
+    const name = needString(body.name, 'Name');
+    const password = needPassword(body.password);
+    try {
+      const [created] = await db.insert(users).values({ email, name, role: 'super_admin', passwordHash: await hashPassword(password) }).returning({ id: users.id });
+      await audit(actor ?? { name, role: 'super_admin' }, 'user.created', 'user', created.id, undefined, { email, role: 'super_admin' });
+      return { id: created.id, email, name, role: 'super_admin' };
+    } catch (e) {
+      throw isUniqueViolation(e) ? new HttpError(409, 'A user with this email already exists') : e;
+    }
+  },
+});
+
+const admins = handler({
+  // The admin logins, for Settings > Team (coordinators are listed by /api/coordinators).
+  GET: async (req) => {
+    await requireUser(req, 'super_admin');
+    return await db.select({ id: users.id, email: users.email, name: users.name, isActive: users.isActive }).from(users).where(eq(users.role, 'super_admin')).orderBy(asc(users.name));
+  },
+});
+
+/** { currentPassword, newPassword }: changes the signed-in person's own password. (A wrong current password is a 400, not a 401, which would sign them out.) */
+async function changeOwnPassword(req: Request) {
+  const user = await requireUser(req);
+  const body = await readBody(req);
+  const newPassword = needPassword(body.newPassword, 'New password');
+  const [row] = await db.select().from(users).where(eq(users.id, user.id));
+  if (!(await verifyPassword(typeof body.currentPassword === 'string' ? body.currentPassword : '', row.passwordHash))) throw new HttpError(400, 'Your current password is not right');
+  const passwordHash = await hashPassword(newPassword);
+  await db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+  await audit(user, 'user.password_changed', 'user', user.id);
+  // Every session signed in with the old password ends; this one carries on with a fresh cookie.
+  const token = signToken({ userId: user.id, role: user.role, coordinatorId: user.coordinatorId, pv: passwordStamp(passwordHash) });
+  return Response.json({ ok: true }, { headers: { 'Set-Cookie': sessionCookie(req, token) } });
+}
+
+// PATCH is the documented method; POST keeps working for older pages.
+const changePassword = handler({ PATCH: changeOwnPassword, POST: changeOwnPassword });
+
+const routes: Record<string, { fetch: (req: Request) => Promise<Response> }> = { login, logout, me: current, 'create-user': createUser, users: admins, 'change-password': changePassword };
+
+// One function for /api/auth/login, /logout, /me, /create-user, /users and /change-password (Vercel Hobby allows 12 functions).
+export default {
+  fetch: (req: Request) => {
+    const route = routes[new URL(req.url).pathname.split('/').filter(Boolean).pop() ?? ''];
+    return route ? route.fetch(req) : Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }));
+  },
+};
