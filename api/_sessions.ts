@@ -48,9 +48,9 @@ export const mailOf = ({ booking, ticket, client, module, coordinator }: Booking
   linkProblem,
 });
 
-/** Sends several emails at once; one failing never stops the others (or the request that sent them). */
-export async function sendAll(mails: Promise<unknown>[]) {
-  for (const result of await Promise.allSettled(mails)) if (result.status === 'rejected') console.error('Email failed:', result.reason);
+/** Sends several emails (or WhatsApp messages) at once; one failing never stops the others (or the request that sent them). */
+export async function sendAll(sends: Promise<unknown>[]) {
+  for (const result of await Promise.allSettled(sends)) if (result.status === 'rejected') console.error('Send failed:', result.reason);
 }
 
 /**

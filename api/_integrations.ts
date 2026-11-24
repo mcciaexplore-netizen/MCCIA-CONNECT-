@@ -100,6 +100,40 @@ export async function sendMail(channel: MailChannel, { to, subject, text, html, 
   return sender.user; // who it was sent from, for the test email to report
 }
 
+const WHATSAPP_API_VERSION = 'v21.0';
+// Meta's own Cloud API by default; WHATSAPP_API_BASE overrides it (e.g. a reseller panel that proxies the same request shape).
+const WHATSAPP_API_BASE = process.env.WHATSAPP_API_BASE || `https://graph.facebook.com/${WHATSAPP_API_VERSION}`;
+
+export interface WhatsAppTemplate {
+  to: string; // bare 10-digit Indian mobile number (as normalizePhone gives it)
+  template: string;
+  language: string;
+  params: string[]; // the approved template's {{1}}, {{2}}, ... body placeholders, in order
+}
+
+/**
+ * Sends an approved WhatsApp template message through the WhatsApp Cloud API (Meta's own, or WHATSAPP_API_BASE's, which must speak the
+ * same request shape) — a first-contact message must use an approved template, not free text. Does nothing when WHATSAPP_PHONE_NUMBER_ID /
+ * WHATSAPP_ACCESS_TOKEN are not set, so WhatsApp stays optional: a booking still goes through on email alone until someone configures it.
+ */
+export async function sendWhatsApp({ to, template, language, params }: WhatsAppTemplate) {
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!phoneNumberId || !token) return;
+
+  const res = await fetch(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: `91${to}`,
+      type: 'template',
+      template: { name: template, language: { code: language }, components: [{ type: 'body', parameters: params.map((text) => ({ type: 'text', text })) }] },
+    }),
+  });
+  if (!res.ok) throw new HttpError(502, `WhatsApp message failed: ${await res.text()}`);
+}
+
 // A call waits this long for the script (it runs after the answer to the client, see inBackground). The first call after the script has
 // been idle takes several seconds longer (measured: about 9 s), so the default is generous; APPS_SCRIPT_TIMEOUT_MS overrides it.
 const APPS_SCRIPT_TIMEOUT_MS = 20_000;
