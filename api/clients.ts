@@ -148,11 +148,10 @@ async function deleteClients(user: AuthUser, clientIds: string[], companyIds: st
   return { clientIds: memberIds, companyIds: goneCompanies, ticketIds, bookingIds: sessions.map((s) => s.bookingId) };
 }
 
-/** The clients a coordinator can see and edit: assigned to them, or with a ticket assigned to them. Admins have no limit (undefined). */
-const ownClients = (user: AuthUser) =>
-  user.role === 'super_admin'
-    ? undefined
-    : or(eq(clients.assignedCoordinatorId, user.coordinatorId!), inArray(clients.id, db.select({ id: tickets.clientId }).from(tickets).where(eq(tickets.coordinatorId, user.coordinatorId!))));
+/** Clients are shared: any signed-in coordinator sees and can edit every client, the same as an admin, so the same person is never
+ * entered twice under different coordinators. (Keeps the `user` parameter: every call site already passes it, and a future, narrower
+ * rule would need it again.) */
+const ownClients = (_user: AuthUser) => undefined;
 
 export default handler({
   // ?history=<clientId> (admin) is that client's coordinator history. ?companies=1 (admin) is every company with its coordinator and

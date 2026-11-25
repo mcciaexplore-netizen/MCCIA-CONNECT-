@@ -264,15 +264,14 @@ export default handler({
     const [permanentRow] = permanentId && UUID.test(permanentId) ? await db.select().from(coordinators).where(eq(coordinators.id, permanentId)) : [];
     const permanent = permanentRow?.isActive ? permanentRow : undefined; // an inactive coordinator holds nobody
 
-    // Who takes this session. Staff choose: an admin names the coordinator, a coordinator books for themselves and only for their own company
-    // or one nobody has yet. On the public page the rules decide:
+    // Who takes this session. Staff choose: an admin names the coordinator, a coordinator books for themselves (any client: clients are
+    // shared, not siloed per coordinator, so this never needs the admin). On the public page the rules decide:
     //  1. the company's coordinator, if free then;
     //  2. if they are busy: the client is told who else is free and may book with one of them, for this session only;
     //  3. a company with no coordinator yet gets the free one whose turn it is (alphabetical, in a loop), for good.
     const picked = user?.role === 'super_admin' && typeof body.coordinatorId === 'string' && body.coordinatorId ? body.coordinatorId : null;
     if (user?.role === 'super_admin' && !picked) throw new HttpError(400, 'Choose a coordinator for this booking');
     const own = user?.role === 'coordinator' ? user.coordinatorId : null;
-    if (own && permanent && permanent.id !== own) throw new HttpError(403, "This client's company works with another coordinator. Ask the admin to book this session.");
 
     let coordinator: typeof coordinators.$inferSelect;
     let standIn: typeof permanent; // set when this one session is booked with someone else because the company's coordinator was busy
