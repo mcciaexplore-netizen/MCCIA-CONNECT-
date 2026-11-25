@@ -89,21 +89,21 @@ export default function Calendar() {
           <EmptyState icon="calendar" message="No active consultants" hint="Add or activate a coordinator to see their schedule here." />
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-line bg-white">
+        <div className="overflow-x-auto rounded-md border-2 border-line-strong bg-white">
           <div
             className="grid"
             style={{ gridTemplateColumns: `88px repeat(${active.length}, minmax(150px, 1fr))`, gridTemplateRows: `40px repeat(${ROWS}, 48px)`, minWidth: `${88 + active.length * 150}px` }}
           >
-            <div className="sticky left-0 z-10 border-b border-r border-line bg-page" style={{ gridColumn: 1, gridRow: 1 }} />
+            <div className="sticky left-0 z-10 border-b-2 border-r-2 border-line-strong bg-page" style={{ gridColumn: 1, gridRow: 1 }} />
             {active.map((c, i) => (
-              <div key={c.id} className="flex items-center gap-1.5 border-b border-l border-line bg-page px-2" style={{ gridColumn: i + 2, gridRow: 1 }}>
+              <div key={c.id} className="flex items-center gap-1.5 border-b-2 border-l-2 border-line-strong bg-page px-2" style={{ gridColumn: i + 2, gridRow: 1 }}>
                 <Avatar name={c.name} color={c.color} size="sm" />
-                <span className="truncate text-xs font-semibold">{c.name}</span>
+                <span className="truncate text-xs font-bold text-ink">{c.name}</span>
               </div>
             ))}
 
             {Array.from({ length: ROWS }).map((_, row) => (
-              <div key={`t-${row}`} className="border-b border-r border-line px-2 py-1 text-[11px] text-ink-3" style={{ gridColumn: 1, gridRow: row + 2 }}>
+              <div key={`t-${row}`} className="border-b-2 border-r-2 border-line-strong px-2 py-1 text-xs font-bold text-ink-2" style={{ gridColumn: 1, gridRow: row + 2 }}>
                 {timeLabel(row)}
               </div>
             ))}
@@ -113,21 +113,33 @@ export default function Calendar() {
               return Array.from({ length: ROWS }).map((_, row) => {
                 const session = rows[row];
                 const first = row === 0 || rows[row - 1] !== session;
-                if (!session) return <div key={`${c.id}-${row}`} className="border-b border-l border-line" style={{ gridColumn: i + 2, gridRow: row + 2 }} />;
+                if (!session) return <div key={`${c.id}-${row}`} className="border-b-2 border-l-2 border-line-strong" style={{ gridColumn: i + 2, gridRow: row + 2 }} />;
                 const client = getClient(session.ticket.clientId);
                 const module = getModule(session.ticket.moduleId);
                 return (
                   <button
                     key={`${c.id}-${row}`}
-                    title={`${client?.personName ?? ''} · ${module?.name ?? ''} · ${client?.companyName ?? ''}`}
+                    title={`${client?.personName ?? ''} · ${module?.name ?? ''} · ${session.booking.mode} · ${client?.companyName ?? ''}`}
                     onClick={() => navigate(`${base}/tickets/${session.ticket.id}`)}
-                    className="overflow-hidden truncate border-l border-line px-1.5 text-left text-[11px] text-white hover:brightness-95"
+                    className="overflow-hidden truncate border-l-2 border-line-strong px-1.5 text-left text-[11px] text-white hover:brightness-95"
                     style={{ gridColumn: i + 2, gridRow: row + 2, background: c.color, borderTop: first ? undefined : 'none' }}
                   >
                     {first && (
-                      <span className="block truncate pt-1 font-semibold">
-                        {client?.personName}
-                        <span className="block truncate font-normal opacity-90">{module?.name}</span>
+                      <span className="flex flex-col gap-0.5 pt-1">
+                        <span className="flex items-center justify-between gap-1">
+                          <span className="truncate font-semibold">{client?.personName}</span>
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full border border-white/70"
+                            style={{ background: module?.color }}
+                            title={module?.name}
+                          />
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="truncate font-normal opacity-90">{module?.name}</span>
+                          <span className="shrink-0 rounded border border-white/50 px-1 text-[9px] font-semibold uppercase tracking-wide opacity-90">
+                            {session.booking.mode}
+                          </span>
+                        </span>
                       </span>
                     )}
                   </button>
