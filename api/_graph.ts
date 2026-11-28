@@ -210,6 +210,20 @@ const clearRow = (info: SheetInfo, at: number) =>
   graph('PATCH', `${info.book}/worksheets('${sheetName(info.sheet)}')/range(address='${cellRange(info, info.headerRow + 1 + at, 0, info.headers.length - 1)}')`, { values: [info.headers.map(() => '')] });
 
 /**
+ * Deletes a table row, or empties it instead when Excel refuses: deleting a row shifts every row below it across the whole worksheet, and Excel
+ * rejects that (InsertDeleteConflict) if something sits beside the table in those rows that it cannot safely move. An emptied row stays in the
+ * table rather than breaking the sync; a person can delete it by hand in Excel, where that conflict is theirs to resolve.
+ */
+async function deleteRow(info: SheetInfo, at: number) {
+  try {
+    await graph('DELETE', `${info.table}/rows/itemAt(index=${at})`);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('InsertDeleteConflict')) await clearRow(info, at);
+    else throw e;
+  }
+}
+
+/**
  * Puts each row into the sheet's table: the row whose id column (the header `isIdHeader` picks) holds its id is updated, otherwise
  * it is added (into the table's empty first row if that is all there is, else at the end). `formats` set a number format on a column once (e.g. dates).
  */
@@ -256,7 +270,7 @@ export function removeRows(sheet: string, isIdHeader: (header: string) => boolea
     let remaining = ids.length;
     for (const at of found) {
       if (remaining === 1) await clearRow(info, at);
-      else await graph('DELETE', `${info.table}/rows/itemAt(index=${at})`);
+      else await deleteRow(info, at);
       remaining--;
     }
   });
@@ -339,7 +353,7 @@ export function syncSheet(sheet: string, isIdHeader: (header: string) => boolean
     let remaining = ids.length + result.added - (reused ? 1 : 0);
     for (const at of [...new Set(drop)].sort((a, b) => b - a)) {
       if (remaining === 1) await clearRow(info, at);
-      else await graph('DELETE', `${info.table}/rows/itemAt(index=${at})`);
+      else await deleteRow(info, at);
       remaining--;
     }
     return result;
